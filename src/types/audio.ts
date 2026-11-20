@@ -385,6 +385,8 @@ export interface AuditEvent {
   authority: 'operator' | 'system' | 'ai-approved';
 }
 
+export type AuditAuthority = AuditEvent['authority'];
+
 export interface AcousticMeasurement {
   id: string;
   name: string;
