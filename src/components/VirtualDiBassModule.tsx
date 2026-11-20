@@ -132,9 +132,14 @@ export const VirtualDiBassModule: React.FC<VirtualDiBassModuleProps> = ({
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1.6;
       ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#94A3B8';
+      ctx.textAlign = 'right';
+      ctx.fillText('FILTER CURVE PREVIEW (ENGINE STANDBY)', w - 8, 14);
     }
   }, [bassDi, spectrum, telemetry]);
 
@@ -193,7 +198,7 @@ export const VirtualDiBassModule: React.FC<VirtualDiBassModuleProps> = ({
 
   const preLevel = telemetry.isRunning ? telemetry.preRmsDb : -96;
   const postLevel = telemetry.isRunning
-    ? Math.max(-56, Math.min(-0.5, telemetry.postRmsDb + bassDi.outputLevelDb * 0.4))
+    ? Math.max(-64, Math.min(-0.2, telemetry.postRmsDb + bassDi.outputLevelDb * 0.4))
     : -96;
 
   return (
@@ -455,10 +460,10 @@ export const VirtualDiBassModule: React.FC<VirtualDiBassModuleProps> = ({
           <div className="grid grid-cols-2 gap-2 items-center">
             <ArcGauge
               label="Sub Comp GR"
-              value={telemetry.isRunning ? telemetry.gainReductionDb : 2.4}
+              value={telemetry.isRunning ? telemetry.gainReductionDb : 0}
               max={18}
-              displayValue={`-${(telemetry.isRunning ? telemetry.gainReductionDb : 2.4).toFixed(1)}`}
-              sublabel="dB Low Tightening"
+              displayValue={telemetry.isRunning ? `-${telemetry.gainReductionDb.toFixed(1)}` : '--'}
+              sublabel={telemetry.isRunning ? 'dB Low Tightening' : 'Standby'}
               tone="emerald"
             />
             <div className="flex items-center justify-around py-2 bg-[#070A10] border border-slate-800 rounded">

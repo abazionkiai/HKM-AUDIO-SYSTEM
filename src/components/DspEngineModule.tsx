@@ -119,6 +119,59 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
     [curvePoints]
   );
 
+  const anyEqEnabled = dsp.eqBands.some((b) => b.enabled);
+
+  const hpfLpfPathD = useMemo(() => {
+    const w = 90;
+    const h = 54;
+    const minLog = Math.log10(20);
+    const maxLog = Math.log10(20000);
+    const pts: string[] = [];
+    for (let i = 0; i <= 36; i++) {
+      const f = Math.pow(10, minLog + (i / 36) * (maxLog - minLog));
+      let db = 0;
+      if (!dsp.bypassed && dsp.hpfEnabled) {
+        const r = dsp.hpfHz / f;
+        db -= 10 * Math.log10(1 + Math.pow(r, 4));
+      }
+      if (!dsp.bypassed && dsp.lpfEnabled) {
+        const r = f / dsp.lpfHz;
+        db -= 10 * Math.log10(1 + Math.pow(r, 4));
+      }
+      const x = (i / 36) * w;
+      const y = Math.max(4, Math.min(h - 4, 12 + (-Math.max(-24, Math.min(0, db)) / 24) * 36));
+      pts.push(`${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`);
+    }
+    return pts.join(' ');
+  }, [dsp.bypassed, dsp.hpfEnabled, dsp.hpfHz, dsp.lpfEnabled, dsp.lpfHz]);
+
+  const compTransfer = useMemo(() => {
+    const minDb = -60;
+    const maxDb = 0;
+    const w = 90;
+    const h = 54;
+    const mapX = (db: number) => 4 + ((db - minDb) / (maxDb - minDb)) * (w - 8);
+    const mapY = (db: number) => h - 4 - ((Math.max(minDb, Math.min(maxDb, db)) - minDb) / (maxDb - minDb)) * (h - 8);
+    const pts: string[] = [];
+    for (let i = 0; i <= 30; i++) {
+      const inDb = minDb + (i / 30) * (maxDb - minDb);
+      let outDb = inDb;
+      if (!dsp.bypassed && dsp.compressor.enabled) {
+        if (inDb > dsp.compressor.thresholdDb) {
+          outDb =
+            dsp.compressor.thresholdDb +
+            (inDb - dsp.compressor.thresholdDb) / Math.max(1, dsp.compressor.ratio);
+        }
+        outDb += dsp.compressor.makeupDb;
+      }
+      pts.push(`${i === 0 ? 'M' : 'L'} ${mapX(inDb).toFixed(1)} ${mapY(outDb).toFixed(1)}`);
+    }
+    return {
+      pathD: pts.join(' '),
+      threshX: mapX(dsp.compressor.thresholdDb),
+    };
+  }, [dsp.bypassed, dsp.compressor]);
+
   const updateBand = (id: string, patch: Partial<EqBand>) => {
     if (panelLocked) return;
     onUpdateDsp({
@@ -138,7 +191,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
       : Math.min(84, Math.round(24 + 4096 / Math.max(64, bufferSize)))
     : 0;
   const outputDensityPct = telemetry?.isRunning
-    ? Math.min(100, Math.max(4, Math.round(((telemetry.postPeakDb + 56) / 56) * 100)))
+    ? Math.min(100, Math.max(0, Math.round(((telemetry.postPeakDb + 64) / 64) * 100)))
     : 0;
 
   return (
@@ -239,13 +292,18 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
           </div>
 
           <div className="space-y-1.5 flex-1">
-            {inputRackChannels.map((ch) => {
+            {inputRackChannels.map((ch, idx) => {
               const isSel = ch.id === selectedChannelId;
               const isHot = ch.faderDb > 4 || ch.gainDb > 36;
+              const chTelemetry = telemetry?.channelLevels?.[idx];
               const levelDb =
-                ch.mute || !telemetry?.isRunning
-                  ? -56
-                  : Math.max(-50, Math.min(-1, telemetry.postRmsDb + ch.faderDb * 0.5));
+                ch.mute || !telemetry?.isRunning || !chTelemetry
+                  ? -96
+                  : Math.max(-64, Math.min(-0.2, chTelemetry.rmsDb + ch.faderDb * 0.5));
+              const peakDb =
+                ch.mute || !telemetry?.isRunning || !chTelemetry
+                  ? -96
+                  : Math.max(-64, Math.min(-0.1, chTelemetry.peakDb + ch.faderDb * 0.5));
 
               return (
                 <div
@@ -261,7 +319,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                     <span className="font-mono text-[10px] text-slate-500 w-3">{ch.index}</span>
                     <SegmentedLedMeter
                       levelDb={levelDb}
-                      peakDb={telemetry?.isRunning && !ch.mute ? levelDb + 4 : -56}
+                      peakDb={peakDb}
                       muted={ch.mute}
                       height={34}
                       segments={8}
@@ -365,12 +423,12 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                 </div>
                 <div className="w-full rounded bg-[#070A10] border border-slate-800 p-1">
                   <svg viewBox="0 0 90 54" className="w-full h-12">
-                    <line x1={0} y1={27} x2={90} y2={27} stroke="rgba(148,163,184,0.2)" />
-                    <line x1={45} y1={0} x2={45} y2={54} stroke="rgba(148,163,184,0.2)" />
+                    <line x1={0} y1={12} x2={90} y2={12} stroke="rgba(148,163,184,0.18)" strokeDasharray="2 2" />
+                    <line x1={45} y1={0} x2={45} y2={54} stroke="rgba(148,163,184,0.18)" />
                     <path
-                      d={`M 6 48 Q ${dsp.hpfEnabled ? 24 : 8} 14 45 14 T ${dsp.lpfEnabled ? 82 : 88} 42`}
+                      d={hpfLpfPathD}
                       fill="none"
-                      stroke="#10B981"
+                      stroke={dsp.bypassed ? '#F59E0B' : '#10B981'}
                       strokeWidth={2}
                     />
                   </svg>
@@ -399,12 +457,20 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                   formatValue={(v) => `${(v / 1000).toFixed(1)}k`}
                   onChange={(next) => !panelLocked && onUpdateDsp({ lpfHz: next, lpfEnabled: true })}
                 />
-                <ConsolePushButton
-                  label={dsp.hpfEnabled ? 'ACTIVE' : 'BYPASS'}
-                  active={dsp.hpfEnabled}
-                  tone="emerald"
-                  onClick={() => !panelLocked && onUpdateDsp({ hpfEnabled: !dsp.hpfEnabled })}
-                />
+                <div className="grid grid-cols-2 gap-1 w-full">
+                  <ConsolePushButton
+                    label={dsp.hpfEnabled ? 'HPF ON' : 'HPF OFF'}
+                    active={dsp.hpfEnabled}
+                    tone="emerald"
+                    onClick={() => !panelLocked && onUpdateDsp({ hpfEnabled: !dsp.hpfEnabled })}
+                  />
+                  <ConsolePushButton
+                    label={dsp.lpfEnabled ? 'LPF ON' : 'LPF OFF'}
+                    active={dsp.lpfEnabled}
+                    tone="sky"
+                    onClick={() => !panelLocked && onUpdateDsp({ lpfEnabled: !dsp.lpfEnabled })}
+                  />
+                </div>
               </div>
 
               {/* 3. EQUALIZATION (6-BAND PEQ WITH VERTICAL FADERS) */}
@@ -414,10 +480,15 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                     6-Band Parametric EQ
                   </span>
                   <ConsolePushButton
-                    label={dsp.bypassed ? 'BYPASS' : 'ACTIVE'}
-                    active={!dsp.bypassed}
+                    label={anyEqEnabled ? 'PEQ ON' : 'PEQ OFF'}
+                    active={anyEqEnabled && !dsp.bypassed}
                     tone="emerald"
-                    onClick={() => !panelLocked && onUpdateDsp({ bypassed: !dsp.bypassed })}
+                    onClick={() =>
+                      !panelLocked &&
+                      onUpdateDsp({
+                        eqBands: dsp.eqBands.map((b) => ({ ...b, enabled: !anyEqEnabled })),
+                      })
+                    }
                   />
                 </div>
 
@@ -438,8 +509,8 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                         key={band.id}
                         onClick={() => setSelectedBandId(band.id)}
                         className={`flex flex-col items-center gap-1 cursor-pointer rounded py-1 ${
-                          isSel ? 'bg-sky-500/15' : ''
-                        }`}
+                          isSel ? 'bg-sky-500/15 ring-1 ring-sky-500/40' : ''
+                        } ${!band.enabled ? 'opacity-45' : ''}`}
                       >
                         <span className="font-mono text-[8px] text-slate-400">
                           {band.frequency >= 1000 ? `${(band.frequency / 1000).toFixed(1)}k` : band.frequency}
@@ -457,7 +528,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                           className="h-20 w-3 accent-sky-400 cursor-pointer"
                           style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
                         />
-                        <span className="font-mono text-[8px] text-sky-300">
+                        <span className="font-mono text-[8px] text-sky-300 tabular-nums">
                           {band.gainDb > 0 ? `+${band.gainDb}` : band.gainDb}
                         </span>
                       </div>
@@ -465,11 +536,37 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                   })}
                 </div>
 
-                {/* Selected Band Frequency & Q */}
+                {/* Selected Band Frequency, Q, Type & Band Enable */}
                 {selectedBand && (
-                  <div className="flex items-center justify-between gap-2 font-mono text-[9px] bg-[#080C13] border border-slate-800 rounded px-2 py-1">
-                    <span className="text-sky-300 truncate">{selectedBand.label}</span>
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 font-mono text-[9px] bg-[#080C13] border border-slate-800 rounded px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => updateBand(selectedBand.id, { enabled: !selectedBand.enabled })}
+                      className={`px-1.5 py-0.5 rounded border text-[8px] font-bold ${
+                        selectedBand.enabled
+                          ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300'
+                          : 'border-slate-700 bg-[#070A10] text-slate-500'
+                      }`}
+                    >
+                      {selectedBand.enabled ? 'ON' : 'OFF'}
+                    </button>
+                    <select
+                      aria-label="Filter Shape"
+                      value={selectedBand.type}
+                      onChange={(e) =>
+                        updateBand(selectedBand.id, {
+                          type: e.target.value as EqBand['type'],
+                          enabled: true,
+                        })
+                      }
+                      className="px-1 py-0.5 rounded bg-[#070A10] border border-slate-700 text-sky-300 text-[9px]"
+                    >
+                      <option value="peaking">Bell</option>
+                      <option value="lowshelf">LoShf</option>
+                      <option value="highshelf">HiShf</option>
+                    </select>
+                    <label className="flex items-center gap-1 text-slate-400">
+                      <span>Hz</span>
                       <input
                         type="number"
                         min={25}
@@ -477,12 +574,29 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                         step={25}
                         value={selectedBand.frequency}
                         onChange={(e) =>
-                          updateBand(selectedBand.id, { frequency: Number(e.target.value) || 1000 })
+                          updateBand(selectedBand.id, {
+                            frequency: Math.max(25, Math.min(18000, Number(e.target.value) || 1000)),
+                          })
                         }
-                        className="w-14 px-1 py-0.5 rounded bg-[#070A10] border border-slate-700 text-slate-200 text-[9px]"
+                        className="w-13 px-1 py-0.5 rounded bg-[#070A10] border border-slate-700 text-slate-200 text-[9px] tabular-nums"
                       />
-                      <span className="text-slate-400">Q={selectedBand.q.toFixed(1)}</span>
-                    </div>
+                    </label>
+                    <label className="flex items-center gap-1 text-slate-400">
+                      <span>Q</span>
+                      <input
+                        type="number"
+                        min={0.4}
+                        max={16}
+                        step={0.1}
+                        value={selectedBand.q}
+                        onChange={(e) =>
+                          updateBand(selectedBand.id, {
+                            q: Math.max(0.4, Math.min(16, Number(e.target.value) || 1.4)),
+                          })
+                        }
+                        className="w-11 px-1 py-0.5 rounded bg-[#070A10] border border-slate-700 text-slate-200 text-[9px] tabular-nums"
+                      />
+                    </label>
                   </div>
                 )}
               </div>
@@ -494,8 +608,32 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                 </div>
                 <div className="w-full rounded bg-[#070A10] border border-slate-800 p-1">
                   <svg viewBox="0 0 90 54" className="w-full h-12">
-                    <line x1={0} y1={50} x2={90} y2={4} stroke="rgba(148,163,184,0.2)" strokeDasharray="2 2" />
-                    <path d="M 6 48 L 46 24 L 84 14" fill="none" stroke="#38BDF8" strokeWidth={2} />
+                    <line x1={4} y1={50} x2={86} y2={4} stroke="rgba(148,163,184,0.2)" strokeDasharray="2 2" />
+                    <line
+                      x1={compTransfer.threshX}
+                      y1={2}
+                      x2={compTransfer.threshX}
+                      y2={52}
+                      stroke="rgba(245,158,11,0.35)"
+                      strokeDasharray="2 2"
+                    />
+                    <path
+                      d={compTransfer.pathD}
+                      fill="none"
+                      stroke={dsp.compressor.enabled && !dsp.bypassed ? '#38BDF8' : '#64748B'}
+                      strokeWidth={2}
+                    />
+                    {telemetry?.isRunning && telemetry.gainReductionDb > 0.2 && (
+                      <text
+                        x={6}
+                        y={12}
+                        fill="#FBBF24"
+                        fontSize="8"
+                        fontFamily="JetBrains Mono"
+                      >
+                        -{telemetry.gainReductionDb.toFixed(1)}dB
+                      </text>
+                    )}
                   </svg>
                 </div>
                 <RotaryKnob
@@ -528,8 +666,67 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                     onUpdateDsp({ compressor: { ...dsp.compressor, ratio: next } })
                   }
                 />
-                <div className="font-mono text-[9px] text-slate-400 text-center">
-                  ATK {dsp.compressor.attackMs}ms · +{dsp.compressor.makeupDb}dB
+                <div className="grid grid-cols-3 gap-1 w-full font-mono text-[8px] text-slate-400">
+                  <label className="flex flex-col items-center gap-0.5">
+                    <span>ATK ms</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      step={1}
+                      value={dsp.compressor.attackMs}
+                      onChange={(e) =>
+                        !panelLocked &&
+                        onUpdateDsp({
+                          compressor: {
+                            ...dsp.compressor,
+                            attackMs: Math.max(1, Math.min(100, Number(e.target.value) || 8)),
+                          },
+                        })
+                      }
+                      className="w-full px-0.5 py-0.5 text-center rounded bg-[#070A10] border border-slate-700 text-slate-200 tabular-nums"
+                    />
+                  </label>
+                  <label className="flex flex-col items-center gap-0.5">
+                    <span>REL ms</span>
+                    <input
+                      type="number"
+                      min={20}
+                      max={800}
+                      step={10}
+                      value={dsp.compressor.releaseMs}
+                      onChange={(e) =>
+                        !panelLocked &&
+                        onUpdateDsp({
+                          compressor: {
+                            ...dsp.compressor,
+                            releaseMs: Math.max(20, Math.min(800, Number(e.target.value) || 120)),
+                          },
+                        })
+                      }
+                      className="w-full px-0.5 py-0.5 text-center rounded bg-[#070A10] border border-slate-700 text-slate-200 tabular-nums"
+                    />
+                  </label>
+                  <label className="flex flex-col items-center gap-0.5">
+                    <span>MAKEUP</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={18}
+                      step={0.5}
+                      value={dsp.compressor.makeupDb}
+                      onChange={(e) =>
+                        !panelLocked &&
+                        onUpdateDsp({
+                          compressor: {
+                            ...dsp.compressor,
+                            makeupDb: Math.max(0, Math.min(18, Number(e.target.value) || 0)),
+                          },
+                        })
+                      }
+                      className="w-full px-0.5 py-0.5 text-center rounded bg-[#070A10] border border-slate-700 text-emerald-300 tabular-nums"
+                    />
+                  </label>
                 </div>
                 <ConsolePushButton
                   label={dsp.compressor.enabled ? 'ACTIVE' : 'BYPASS'}
@@ -549,37 +746,73 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                 <div className="text-center font-mono text-[9px] font-semibold text-slate-300 uppercase">
                   Gate &amp; De-Ess
                 </div>
-                <RotaryKnob
-                  label="GATE"
-                  value={dsp.gate.thresholdDb}
-                  min={-65}
-                  max={-20}
-                  step={1}
-                  defaultValue={-50}
-                  unit="dB"
-                  size={40}
-                  accent="sky"
-                  onChange={(next) =>
-                    !panelLocked && onUpdateDsp({ gate: { ...dsp.gate, thresholdDb: next } })
-                  }
-                />
-                <RotaryKnob
-                  label="SIBIL"
-                  value={dsp.deEsser.frequencyHz}
-                  min={4000}
-                  max={9500}
-                  step={100}
-                  defaultValue={6200}
-                  size={40}
-                  accent="amber"
-                  formatValue={(v) => `${(v / 1000).toFixed(1)}k`}
-                  onChange={(next) =>
-                    !panelLocked && onUpdateDsp({ deEsser: { ...dsp.deEsser, frequencyHz: next } })
-                  }
-                />
+                <div className="grid grid-cols-2 gap-1 w-full place-items-center">
+                  <RotaryKnob
+                    label="GATE"
+                    value={dsp.gate.thresholdDb}
+                    min={-65}
+                    max={-20}
+                    step={1}
+                    defaultValue={-50}
+                    unit="dB"
+                    size={36}
+                    accent="sky"
+                    onChange={(next) =>
+                      !panelLocked &&
+                      onUpdateDsp({ gate: { ...dsp.gate, thresholdDb: next, enabled: true } })
+                    }
+                  />
+                  <RotaryKnob
+                    label="RANGE"
+                    value={dsp.gate.rangeDb}
+                    min={6}
+                    max={48}
+                    step={2}
+                    defaultValue={24}
+                    unit="dB"
+                    size={36}
+                    accent="emerald"
+                    onChange={(next) =>
+                      !panelLocked &&
+                      onUpdateDsp({ gate: { ...dsp.gate, rangeDb: next, enabled: true } })
+                    }
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-1 w-full place-items-center">
+                  <RotaryKnob
+                    label="SIBIL"
+                    value={dsp.deEsser.frequencyHz}
+                    min={4000}
+                    max={9500}
+                    step={100}
+                    defaultValue={6200}
+                    size={36}
+                    accent="amber"
+                    formatValue={(v) => `${(v / 1000).toFixed(1)}k`}
+                    onChange={(next) =>
+                      !panelLocked &&
+                      onUpdateDsp({ deEsser: { ...dsp.deEsser, frequencyHz: next, enabled: true } })
+                    }
+                  />
+                  <RotaryKnob
+                    label="DE-THR"
+                    value={dsp.deEsser.thresholdDb}
+                    min={-48}
+                    max={-6}
+                    step={1}
+                    defaultValue={-26}
+                    unit="dB"
+                    size={36}
+                    accent="amber"
+                    onChange={(next) =>
+                      !panelLocked &&
+                      onUpdateDsp({ deEsser: { ...dsp.deEsser, thresholdDb: next, enabled: true } })
+                    }
+                  />
+                </div>
                 <div className="space-y-1 w-full">
                   <ConsolePushButton
-                    label={dsp.gate.enabled ? 'GATE ON' : 'BYPASS'}
+                    label={dsp.gate.enabled ? 'GATE ON' : 'GATE OFF'}
                     active={dsp.gate.enabled}
                     tone="sky"
                     onClick={() =>
@@ -588,7 +821,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                     }
                   />
                   <ConsolePushButton
-                    label={dsp.deEsser.enabled ? 'DE-ESS' : 'BYPASS'}
+                    label={dsp.deEsser.enabled ? 'DE-ESS ON' : 'DE-ESS OFF'}
                     active={dsp.deEsser.enabled}
                     tone="emerald"
                     onClick={() =>
@@ -673,10 +906,14 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {(['MAIN L', 'MAIN R'] as const).map((label, idx) => {
-                const lvl = telemetry?.isRunning
-                  ? Math.min(100, Math.max(4, Math.round(((telemetry.postRmsDb + 56) / 56) * 100) - idx * 2))
-                  : 0;
+              {[
+                { label: 'MAIN L', db: telemetry?.postLRmsDb ?? -96 },
+                { label: 'MAIN R', db: telemetry?.postRRmsDb ?? -96 },
+              ].map(({ label, db }) => {
+                const lvl =
+                  telemetry?.isRunning && db > -63.5
+                    ? Math.min(100, Math.max(0, Math.round(((db + 64) / 64) * 100)))
+                    : 0;
                 const activeCount = Math.round((lvl / 100) * 20);
                 return (
                   <div key={label} className="flex items-center gap-2">
@@ -707,13 +944,23 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
             <div>
               <div className="font-mono text-[10px] text-slate-400 uppercase">Latency</div>
               <div className="font-mono text-2xl font-bold text-white tabular-nums">{latencyMs} ms</div>
-              <div className="font-mono text-[9px] text-emerald-400">ROUND TRIP · STATUS GOOD</div>
+              <div
+                className={`font-mono text-[9px] ${
+                  latencyMs <= 10
+                    ? 'text-emerald-400'
+                    : latencyMs <= 18
+                      ? 'text-sky-400'
+                      : 'text-amber-400'
+                }`}
+              >
+                ROUND TRIP · {latencyMs <= 10 ? 'STATUS GOOD' : latencyMs <= 18 ? 'MONITOR OK' : 'INCREASE CLOCK / LOWER BUF'}
+              </div>
             </div>
             <svg viewBox="0 0 80 36" className="w-20 h-9">
               <path
                 d="M 2 18 L 14 18 L 22 6 L 30 30 L 38 10 L 46 26 L 56 18 L 78 18"
                 fill="none"
-                stroke="#10B981"
+                stroke={latencyMs <= 10 ? '#10B981' : latencyMs <= 18 ? '#38BDF8' : '#F59E0B'}
                 strokeWidth={1.8}
               />
             </svg>
@@ -721,14 +968,27 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
 
           {/* CPU / DSP UTILIZATION */}
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 space-y-1.5">
-            <div className="flex justify-between font-mono text-[10px]">
+            <div className="flex justify-between font-mono text-[10px] tabular-nums">
               <span className="text-slate-400 uppercase">CPU / DSP Utilization</span>
-              <span className={cpuPct >= 75 ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+              <span
+                className={
+                  cpuPct >= 88
+                    ? 'text-red-400 font-semibold'
+                    : cpuPct >= 72
+                      ? 'text-amber-400 font-semibold'
+                      : 'text-emerald-400 font-semibold'
+                }
+              >
                 {cpuPct}% · {telemetry?.isRunning ? 'ACTIVE' : 'STANDBY'}
               </span>
             </div>
             <div className="h-2.5 rounded-xs bg-[#070A10] border border-slate-800 overflow-hidden p-px">
-              <div className="h-full bg-emerald-400 rounded-[1px]" style={{ width: `${cpuPct}%` }} />
+              <div
+                className={`h-full rounded-[1px] transition-[width] duration-150 ${
+                  cpuPct >= 88 ? 'bg-red-500' : cpuPct >= 72 ? 'bg-amber-400' : 'bg-emerald-400'
+                }`}
+                style={{ width: `${cpuPct}%` }}
+              />
             </div>
           </div>
 
@@ -829,7 +1089,9 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
         </div>
 
         <div className="text-[10px] text-emerald-400">
-          {telemetry?.isRunning ? 'SIGNAL OK · 48 kHz' : 'STANDBY'}
+          {telemetry?.isRunning
+            ? `SIGNAL OK · ${((telemetry.sampleRate || sampleRate) / 1000).toFixed(1)} kHz`
+            : 'STANDBY'}
         </div>
       </div>
 

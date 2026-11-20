@@ -93,8 +93,8 @@ export const InstrumentIntelligenceModule: React.FC<InstrumentIntelligenceModule
     channels.length > 8 ? channels.slice(8, 16) : channels;
 
   const crestFactorDb = telemetry.isRunning
-    ? Math.max(3, Math.min(20, telemetry.postPeakDb - telemetry.postRmsDb))
-    : 11.4;
+    ? Math.max(0, Math.min(24, telemetry.postPeakDb - telemetry.postRmsDb))
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -178,9 +178,15 @@ export const InstrumentIntelligenceModule: React.FC<InstrumentIntelligenceModule
               label="Band Crest Factor"
               value={crestFactorDb}
               max={20}
-              displayValue={`${crestFactorDb.toFixed(1)}dB`}
-              sublabel={crestFactorDb < 7 ? 'Over-Compressed' : 'Healthy Punch'}
-              tone={crestFactorDb < 7 ? 'amber' : 'emerald'}
+              displayValue={telemetry.isRunning ? `${crestFactorDb.toFixed(1)}dB` : '--'}
+              sublabel={
+                !telemetry.isRunning
+                  ? 'Engine Standby'
+                  : crestFactorDb < 7
+                    ? 'Over-Compressed'
+                    : 'Healthy Punch'
+              }
+              tone={!telemetry.isRunning ? 'sky' : crestFactorDb < 7 ? 'amber' : 'emerald'}
             />
             <div className="flex justify-center">
               <RotaryKnob
@@ -321,9 +327,15 @@ export const InstrumentIntelligenceModule: React.FC<InstrumentIntelligenceModule
 
         <div className="flex gap-2.5 min-w-max">
           {instrumentChannels.map((ch) => {
-            const lvl = telemetry.isRunning
-              ? Math.max(-56, Math.min(-1, telemetry.postRmsDb + (ch.gainDb - 24) * 0.25 + ch.faderDb * 0.65))
-              : -96;
+            const chLive = telemetry.isRunning ? telemetry.channelLevels?.[ch.index - 1] : undefined;
+            const lvl =
+              telemetry.isRunning && chLive && !ch.mute
+                ? Math.max(-64, Math.min(-0.2, chLive.rmsDb + ch.faderDb * 0.5))
+                : -96;
+            const pk =
+              telemetry.isRunning && chLive && !ch.mute
+                ? Math.max(-64, Math.min(-0.1, chLive.peakDb + ch.faderDb * 0.5))
+                : -96;
             return (
               <div
                 key={ch.id}
@@ -338,7 +350,7 @@ export const InstrumentIntelligenceModule: React.FC<InstrumentIntelligenceModule
                 <div className="flex items-center justify-around py-1">
                   <SegmentedLedMeter
                     levelDb={lvl}
-                    peakDb={lvl + 4}
+                    peakDb={pk}
                     muted={ch.mute}
                     height={84}
                     segments={12}

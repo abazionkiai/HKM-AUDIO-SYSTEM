@@ -24,11 +24,11 @@ interface PresetsServiceModuleProps {
 }
 
 const SERVICE_ORDER_CUES = [
-  { id: 'cue-1', order: '01', name: 'Pre-Service Countdown', presetId: 'preset-sermon', obsScene: 'Pre-Service Countdown' },
-  { id: 'cue-2', order: '02', name: 'Praise & Worship Full Band', presetId: 'preset-worship-full', obsScene: 'Worship Full Band' },
+  { id: 'cue-1', order: '01', name: 'Pre-Service Countdown', presetId: 'preset-sunday', obsScene: 'Pre-Service Countdown' },
+  { id: 'cue-2', order: '02', name: 'Praise & Worship Full Band', presetId: 'preset-worship', obsScene: 'Worship Full Band' },
   { id: 'cue-3', order: '03', name: 'Choir / Special Song', presetId: 'preset-choir', obsScene: 'Worship Full Band' },
-  { id: 'cue-4', order: '04', name: 'Sermon / Teaching', presetId: 'preset-sermon', obsScene: 'Sanctuary Wide + Preacher' },
-  { id: 'cue-5', order: '05', name: 'Altar Call & Prayer', presetId: 'preset-altar', obsScene: 'Pulpit Close-Up' },
+  { id: 'cue-4', order: '04', name: 'Sermon / Teaching', presetId: 'preset-preaching', obsScene: 'Sanctuary Wide + Preacher' },
+  { id: 'cue-5', order: '05', name: 'Altar Call & Prayer', presetId: 'preset-prayer', obsScene: 'Pulpit Close-Up' },
 ];
 
 export const PresetsServiceModule: React.FC<PresetsServiceModuleProps> = ({
@@ -47,7 +47,7 @@ export const PresetsServiceModule: React.FC<PresetsServiceModuleProps> = ({
   const [snapshotNote, setSnapshotNote] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [comparePresetId, setComparePresetId] = useState<string>(presets[0]?.id ?? '');
-  const [activeCueId, setActiveCueId] = useState<string>('cue-2');
+  const [activeCueId, setActiveCueId] = useState<string | null>(null);
 
   const comparePreset = presets.find((p) => p.id === comparePresetId) ?? activePreset;
 

@@ -137,10 +137,16 @@ export function hydrateWithDefaults(raw: Partial<PersistedState>): PersistedStat
   const venue = { ...defaults.venue, ...(raw.venue ?? {}) };
   const activeDevice =
     HARDWARE_CATALOG.find((d) => d.id === venue.activeDeviceId) ?? HARDWARE_CATALOG[0];
-  const channels =
+  const rawChannels =
     Array.isArray(raw.channels) && raw.channels.length > 0
       ? raw.channels
       : (buildChannelsForDevice(activeDevice) as unknown as Array<Record<string, unknown>>);
+  const channels = rawChannels.map((ch) => ({
+    ...ch,
+    levelDb: -96,
+    peakDb: -96,
+    noiseFloorDb: -96,
+  }));
 
   return {
     ...defaults,

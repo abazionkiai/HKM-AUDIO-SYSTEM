@@ -134,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <nav
             aria-label="Console Modules"
-            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto h-full py-1.5"
+            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto overflow-y-hidden h-full py-1.5"
           >
             {NAV_TABS.map((tab) => {
               const Icon = tab.icon;
@@ -148,8 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   data-active={active ? 'true' : 'false'}
                   onClick={() => onSelectModule(tab.id)}
                   aria-current={active ? 'page' : undefined}
-                  whileHover={{ y: -1 }}
-                  whileTap={{ scale: 0.96 }}
+                  whileTap={{ scale: 0.97 }}
                   transition={{ duration: 0.14 }}
                   className="group console-nav-tab relative h-8 px-2.5 rounded-md text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 overflow-hidden focus-visible:outline-2 focus-visible:outline-sky-500"
                 >
@@ -172,14 +171,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     />
                   )}
                   <span className="relative z-10 flex items-center gap-1.5">
-                    <Icon className="w-3.5 h-3.5 shrink-0 opacity-90 transition-transform duration-150 group-hover:scale-110" />
+                    <Icon className="w-3.5 h-3.5 shrink-0 opacity-90" />
                     <span>{tab.label}</span>
-                    {alertCount > 0 && (
-                      <span className="ml-0.5 font-mono text-[10px] font-bold console-nav-alert tabular-nums">
-                        ({alertCount})
-                      </span>
-                    )}
                   </span>
+                  {alertCount > 0 && (
+                    <span
+                      className="absolute top-0.5 right-1 z-10 font-mono text-[8px] font-bold console-nav-alert tabular-nums leading-none pointer-events-none"
+                      aria-label={`${alertCount} active alert`}
+                    >
+                      {alertCount}
+                    </span>
+                  )}
                 </motion.button>
               );
             })}

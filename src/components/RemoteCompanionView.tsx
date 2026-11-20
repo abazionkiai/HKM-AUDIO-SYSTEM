@@ -319,7 +319,7 @@ export const RemoteCompanionView: React.FC<RemoteCompanionViewProps> = ({
                 ? 'Hardware-Linked Fader & Preamp Sync Active'
                 : 'Software DSP Return Sync (Physical mixer faders remain manual)'}
             </div>
-            <div className="font-mono text-xs text-slate-200 tabular-nums flex items-center gap-3">
+            <div className="font-mono text-xs text-slate-200 tabular-nums flex flex-wrap items-center gap-3">
               <span>
                 ENGINE:{' '}
                 <strong className={liveTelemetry?.isRunning ? 'text-emerald-400' : 'text-slate-400'}>
@@ -327,9 +327,11 @@ export const RemoteCompanionView: React.FC<RemoteCompanionViewProps> = ({
                 </strong>
               </span>
               <span>
-                POST RMS:{' '}
+                L/R:{' '}
                 <strong className="text-sky-300">
-                  {liveTelemetry?.isRunning ? `${liveTelemetry.postRmsDb.toFixed(1)} dBFS` : '--'}
+                  {liveTelemetry?.isRunning
+                    ? `${liveTelemetry.postLRmsDb.toFixed(1)} / ${liveTelemetry.postRRmsDb.toFixed(1)} dBFS`
+                    : '--'}
                 </strong>
               </span>
               <span>
@@ -467,6 +469,40 @@ export const RemoteCompanionView: React.FC<RemoteCompanionViewProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Live Channel Input VU Meter */}
+                {(() => {
+                  const chTel = liveTelemetry?.isRunning
+                    ? liveTelemetry.channelLevels?.[ch.index - 1]
+                    : undefined;
+                  const chDb =
+                    chTel && !ch.mute
+                      ? Math.max(-64, Math.min(-0.2, chTel.rmsDb + ch.faderDb * 0.5))
+                      : -96;
+                  const pct =
+                    liveTelemetry?.isRunning && !ch.mute && chTel && chDb > -63.5
+                      ? Math.max(0, Math.min(100, ((chDb + 64) / 64) * 100))
+                      : 0;
+                  return (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 rounded-xs bg-[#070A10] border border-slate-800 overflow-hidden">
+                        <div
+                          className={`h-full transition-[width] duration-75 ${
+                            chDb > -3 ? 'bg-red-500' : chDb > -14 ? 'bg-amber-400' : 'bg-emerald-400'
+                          }`}
+                          style={{ width: `${pct.toFixed(1)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] text-slate-400 w-14 text-right tabular-nums">
+                        {ch.mute
+                          ? 'MUTE'
+                          : liveTelemetry?.isRunning && chTel
+                            ? `${chDb.toFixed(1)} dB`
+                            : '--'}
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {/* Fader Level Slider */}
                 <div className="space-y-1.5">

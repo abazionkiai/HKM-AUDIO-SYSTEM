@@ -71,6 +71,11 @@ button:not(:disabled):hover {
   transform: translateY(-0.5px);
 }
 
+header button:not(:disabled):hover,
+.console-nav-shell button:not(:disabled):hover {
+  transform: none;
+}
+
 button:not(:disabled):active {
   transform: scale(0.97) translateY(0.5px);
   transition-duration: 65ms;

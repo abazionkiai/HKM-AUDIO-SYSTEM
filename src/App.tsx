@@ -85,16 +85,23 @@ import {
 } from './utils/keyboardShortcuts.ts';
 
 const INITIAL_TELEMETRY: SignalTelemetry = {
-  source: 'preacher-mud',
+  source: 'live-mic',
   isRunning: false,
   sampleRate: 48000,
+  activeInputLabel: null,
+  capturedChannels: 0,
   preRmsDb: -96,
   postRmsDb: -96,
+  postLRmsDb: -96,
+  postRRmsDb: -96,
   prePeakDb: -96,
   postPeakDb: -96,
+  postLPeakDb: -96,
+  postRPeakDb: -96,
   estimatedLufs: -70,
   gainReductionDb: 0,
-  noiseFloorDb: -80,
+  noiseFloorDb: -96,
+  channelLevels: [],
   feedbackRisk: { detected: false, frequencyHz: null, prominenceDb: 0, persistenceSec: 0, confidence: 0 },
   humRisk: { detected: false, fundamentalHz: null, harmonic100Db: -96, harmonic150Db: -96, confidence: 0 },
   mudRisk: { detected: false, bandEnergyDb: -96, centerHz: 220 },
@@ -182,8 +189,8 @@ export default function App() {
   const [versions, setVersions] = useState<ConfigurationVersion[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
 
-  // Live Audio Engine State
-  const [audioSource, setAudioSource] = useState<AudioSourceSimulation>('preacher-mud');
+  // Live Audio Engine State (Real Hardware Capture Default)
+  const [audioSource, setAudioSource] = useState<AudioSourceSimulation>('live-mic');
   const [engineRunning, setEngineRunning] = useState(false);
   const [monitorAudible, setMonitorAudible] = useState(false);
   const [emergencyMuted, setEmergencyMuted] = useState(false);
@@ -231,9 +238,10 @@ export default function App() {
   const [midiLearningId, setMidiLearningId] = useState<string | null>(null);
   const [lastMidiPacket, setLastMidiPacket] = useState<MidiPacket | null>(null);
   const [automationSnapshots, setAutomationSnapshots] = useState<AutomationSnapshot[]>([]);
-  const [audioCpuPct, setAudioCpuPct] = useState<number>(6);
+  const [audioCpuPct, setAudioCpuPct] = useState<number>(0);
   const [underrunRisk, setUnderrunRisk] = useState<'low' | 'elevated' | 'critical'>('low');
   const lastTickTsRef = useRef<number>(performance.now());
+  const xrunStreakRef = useRef<{ elevated: number; critical: number }>({ elevated: 0, critical: 0 });
   const [consoleTheme, setConsoleTheme] = useState<ConsoleThemeId>(() => {
     try {
       const saved = window.localStorage.getItem('church_audio_console_theme') as ConsoleThemeId | null;
@@ -527,7 +535,40 @@ export default function App() {
   ]);
 
   const handleUpdateChannel = useCallback((id: string, patch: Partial<InputChannel>) => {
-    setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    setChannels((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      if (idx < 0) return prev;
+      const target = prev[idx];
+      const partnerIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
+      const partner = partnerIdx >= 0 && partnerIdx < prev.length ? prev[partnerIdx] : null;
+
+      return prev.map((c, i) => {
+        if (i === idx) {
+          return { ...c, ...patch };
+        }
+        if (partner && i === partnerIdx) {
+          if (patch.stereoLinked !== undefined) {
+            return { ...c, stereoLinked: patch.stereoLinked };
+          }
+          if (target.stereoLinked && c.stereoLinked) {
+            const linkedPatch: Partial<InputChannel> = {};
+            if (patch.faderDb !== undefined) {
+              const delta = patch.faderDb - target.faderDb;
+              linkedPatch.faderDb = Math.max(-48, Math.min(10, Number((c.faderDb + delta).toFixed(1))));
+            }
+            if (patch.mute !== undefined) linkedPatch.mute = patch.mute;
+            if (patch.gainDb !== undefined) linkedPatch.gainDb = patch.gainDb;
+            if (patch.hpfHz !== undefined) linkedPatch.hpfHz = patch.hpfHz;
+            if (patch.compThresholdDb !== undefined) linkedPatch.compThresholdDb = patch.compThresholdDb;
+            if (patch.compRatio !== undefined) linkedPatch.compRatio = patch.compRatio;
+            if (Object.keys(linkedPatch).length > 0) {
+              return { ...c, ...linkedPatch };
+            }
+          }
+        }
+        return c;
+      });
+    });
     if (desktopWsRef.current?.readyState === WebSocket.OPEN) {
       desktopWsRef.current.send(
         JSON.stringify({ type: 'channel:patch', channelId: id, patch })
@@ -691,7 +732,7 @@ export default function App() {
     };
   }, [midiLearningId, logAudit]);
 
-  // Sync live DSP config into Web Audio Engine whenever DSP changes
+  // Sync live DSP config and per-channel strip parameters into Web Audio Engine
   useEffect(() => {
     let effectiveDsp = dsp;
     plugins
@@ -702,10 +743,15 @@ export default function App() {
     liveAudioEngine.applyDsp(effectiveDsp);
   }, [dsp, plugins]);
 
+  useEffect(() => {
+    liveAudioEngine.applyChannels(channels);
+  }, [channels]);
+
   // Real-time 20Hz Telemetry, FFT & Audio Engine CPU Load / Buffer Underrun Monitor
   useEffect(() => {
     if (!engineRunning) {
-      setAudioCpuPct(5);
+      xrunStreakRef.current = { elevated: 0, critical: 0 };
+      setAudioCpuPct(0);
       setUnderrunRisk('low');
       return;
     }
@@ -734,7 +780,7 @@ export default function App() {
       }
 
       // Compute realistic audio processing load % from buffer quantum deadline,
-      // active DSP nodes, event-loop scheduling jitter, and sampling execution cost.
+      // active DSP nodes, sustained event-loop scheduling pressure, and sampling cost.
       const quantumMs = (bufferSize / Math.max(8000, sampleRate)) * 1000;
       const activeStages =
         (dsp.bypassed
@@ -750,20 +796,35 @@ export default function App() {
 
       const bufferPressure = Math.min(58, (3.2 / Math.max(0.6, quantumMs)) * 22);
       const dspGraphCost = activeStages * 2.2;
-      const jitterPenalty = Math.max(0, intervalDelta - 72) * 0.45 + execMs * 2.5;
+      const jitterPenalty = Math.min(18, Math.max(0, intervalDelta - 85) * 0.25) + execMs * 2.0;
       const rawLoad = Math.min(
         98,
         Math.max(8, Math.round(10 + bufferPressure + dspGraphCost + jitterPenalty))
       );
 
-      setAudioCpuPct((prev) => Math.round(prev * 0.65 + rawLoad * 0.35));
-      setUnderrunRisk(
-        rawLoad >= 82 || snap.telemetry.clippingEvents > 2
+      setAudioCpuPct((prev) => {
+        const smoothed = Math.round((prev === 0 ? rawLoad : prev * 0.86 + rawLoad * 0.14));
+        return smoothed === prev ? prev : smoothed;
+      });
+
+      const isCriticalFrame = rawLoad >= 85 || snap.telemetry.clippingEvents > 2;
+      const isElevatedFrame = rawLoad >= 65 || intervalDelta > 125;
+
+      xrunStreakRef.current.critical = isCriticalFrame
+        ? Math.min(10, xrunStreakRef.current.critical + 1)
+        : Math.max(0, xrunStreakRef.current.critical - 1);
+      xrunStreakRef.current.elevated = isElevatedFrame
+        ? Math.min(10, xrunStreakRef.current.elevated + 1)
+        : Math.max(0, xrunStreakRef.current.elevated - 1);
+
+      const nextRisk: 'low' | 'elevated' | 'critical' =
+        xrunStreakRef.current.critical >= 4 || snap.telemetry.clippingEvents > 2
           ? 'critical'
-          : rawLoad >= 60 || intervalDelta > 95
+          : xrunStreakRef.current.elevated >= 5
             ? 'elevated'
-            : 'low'
-      );
+            : 'low';
+
+      setUnderrunRisk((prev) => (prev === nextRisk ? prev : nextRisk));
 
       // Deterministic auto-diagnosis when feedback or hum persists
       if (
@@ -841,13 +902,36 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [engineRunning, activeDevice.model, bufferSize, sampleRate, dsp, plugins]);
 
+  useEffect(() => {
+    liveAudioEngine.setOnSourceEnded(() => {
+      setEngineRunning(false);
+      setTelemetry({
+        ...INITIAL_TELEMETRY,
+        source: audioSource,
+        sampleRate: liveAudioEngine.getSampleRate(),
+      });
+      setSpectrum(INITIAL_SPECTRUM);
+      logAudit(
+        'Audio Capture Ended',
+        'System desktop loopback or microphone capture stream was stopped.',
+        'system'
+      );
+    });
+    return () => liveAudioEngine.setOnSourceEnded(null);
+  }, [audioSource, logAudit]);
+
   const handleToggleEngine = async () => {
     setAudioError(null);
     if (engineRunning) {
       liveAudioEngine.stop();
       setEngineRunning(false);
-      const stoppedTelemetry = { ...telemetry, isRunning: false };
+      const stoppedTelemetry: SignalTelemetry = {
+        ...INITIAL_TELEMETRY,
+        source: audioSource,
+        sampleRate: liveAudioEngine.getSampleRate(),
+      };
       setTelemetry(stoppedTelemetry);
+      setSpectrum(INITIAL_SPECTRUM);
       if (desktopWsRef.current?.readyState === WebSocket.OPEN) {
         desktopWsRef.current.send(
           JSON.stringify({ type: 'telemetry:frame', telemetry: stoppedTelemetry })
@@ -857,9 +941,11 @@ export default function App() {
     } else {
       try {
         await liveAudioEngine.start(audioSource, dsp, preferredBrowserInputId);
+        liveAudioEngine.applyChannels(channels);
         setEngineRunning(true);
         logAudit('Started Audio Engine', `Source: ${audioSource} · Device: ${activeDevice.model}`, 'operator');
       } catch (err) {
+        setEngineRunning(false);
         setAudioError(
           err instanceof Error
             ? `Audio device access failed: ${err.message}`
@@ -876,8 +962,17 @@ export default function App() {
     if (engineRunning) {
       try {
         await liveAudioEngine.start(nextSrc, dsp, preferredBrowserInputId);
+        liveAudioEngine.applyChannels(channels);
         logAudit('Switched Audio Source', `Input switched to ${nextSrc}`, 'operator');
       } catch (err) {
+        liveAudioEngine.stop();
+        setEngineRunning(false);
+        setTelemetry({
+          ...INITIAL_TELEMETRY,
+          source: nextSrc,
+          sampleRate: liveAudioEngine.getSampleRate(),
+        });
+        setSpectrum(INITIAL_SPECTRUM);
         setAudioError(err instanceof Error ? err.message : 'Failed to switch audio source.');
       }
     }
@@ -2012,6 +2107,10 @@ export default function App() {
               onScanHardware={(reqPerm) => void runHardwareScan(Boolean(reqPerm), false)}
               onBindDetectedEndpoint={(ep) => void handleBindDetectedEndpoint(ep)}
               onClearHardwareCache={() => void handleClearHardwareCache()}
+              audioSource={audioSource}
+              onSelectAudioSource={handleSourceChange}
+              engineRunning={engineRunning}
+              onToggleEngine={handleToggleEngine}
             />
           )}
         </main>

@@ -90,14 +90,20 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
               };
             }
             if (idx === 1) {
-              const hot = channels.filter((c) => c.peakDb > -3).length;
+              const hot = telemetry.isRunning
+                ? channels.filter((c, cIdx) => {
+                    const chPeak = telemetry.channelLevels?.[cIdx]?.peakDb ?? -96;
+                    return !c.mute && chPeak > -3;
+                  }).length
+                : 0;
               return {
                 ...p,
-                status: hot > 0 ? 'warn' : 'pass',
-                detail:
-                  hot > 0
+                status: !telemetry.isRunning || hot > 0 ? 'warn' : 'pass',
+                detail: !telemetry.isRunning
+                  ? 'Engine Standby — no active input capture'
+                  : hot > 0
                     ? `${hot} channel(s) approaching clip (> -3 dBFS)`
-                    : `${channels.length} channels within safe headroom`,
+                    : `${telemetry.capturedChannels || 1} live input(s) within safe headroom`,
               };
             }
             if (idx === 2) {
@@ -134,13 +140,21 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
   };
 
   const handleAutoTrimChannels = () => {
-    channels.forEach((ch) => {
-      if (ch.authority === 'observational') return;
-      const delta = targetNominalDbfs - ch.levelDb;
+    if (!telemetry.isRunning) {
+      onLogAction('Auto-trim skipped: start audio engine first to measure live channel RMS');
+      return;
+    }
+    let trimmed = 0;
+    channels.forEach((ch, idx) => {
+      if (ch.authority === 'observational' || ch.mute) return;
+      const measuredRms = telemetry.channelLevels?.[idx]?.rmsDb;
+      if (typeof measuredRms !== 'number' || measuredRms <= -72) return;
+      const delta = targetNominalDbfs - measuredRms;
       const nextFader = Math.max(-24, Math.min(6, Number((ch.faderDb + delta * 0.45).toFixed(1))));
       onUpdateChannel(ch.id, { faderDb: nextFader });
+      trimmed++;
     });
-    onLogAction(`Auto-trimmed console faders toward ${targetNominalDbfs} dBFS nominal`);
+    onLogAction(`Auto-trimmed ${trimmed} live console channel(s) toward ${targetNominalDbfs} dBFS nominal`);
   };
 
   const headroomDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 0;
@@ -282,10 +296,10 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
             </div>
             <ArcGauge
               label="Noise Floor"
-              value={Math.max(0, 96 + telemetry.noiseFloorDb)}
+              value={telemetry.isRunning ? Math.max(0, 96 + telemetry.noiseFloorDb) : 0}
               max={96}
-              displayValue={`${telemetry.noiseFloorDb.toFixed(0)}`}
-              sublabel="dBFS Floor"
+              displayValue={telemetry.isRunning ? `${telemetry.noiseFloorDb.toFixed(0)}` : '--'}
+              sublabel={telemetry.isRunning ? 'dBFS Floor' : 'Standby'}
               tone="sky"
             />
           </div>
@@ -360,9 +374,13 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/70 tabular-nums">
-            {channels.map((ch) => {
-              const hot = ch.peakDb > -3;
-              const noisy = ch.noiseFloorDb > -55;
+            {channels.map((ch, idx) => {
+              const liveCh = telemetry.isRunning ? telemetry.channelLevels?.[idx] : undefined;
+              const liveRms = liveCh && !ch.mute ? liveCh.rmsDb : -96;
+              const livePeak = liveCh && !ch.mute ? liveCh.peakDb : -96;
+              const liveFloor = liveCh ? liveCh.noiseFloorDb : -96;
+              const hot = telemetry.isRunning && Boolean(liveCh) && !ch.mute && livePeak > -3;
+              const noisy = telemetry.isRunning && Boolean(liveCh) && !ch.mute && liveFloor > -45;
               return (
                 <tr key={ch.id} className="hover:bg-slate-800/30">
                   <td className="py-2 pr-3 text-slate-100 font-semibold">
@@ -373,9 +391,11 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
                   </td>
                   <td className="py-2 pr-3 text-right text-sky-300">{ch.gainDb} dB</td>
                   <td className="py-2 pr-3 text-right text-slate-200">{ch.faderDb.toFixed(1)} dB</td>
-                  <td className="py-2 pr-3 text-right text-slate-300">{ch.levelDb.toFixed(1)} dBFS</td>
+                  <td className="py-2 pr-3 text-right text-slate-300">
+                    {!telemetry.isRunning || !liveCh ? '--' : ch.mute ? 'MUTE' : `${liveRms.toFixed(1)} dBFS`}
+                  </td>
                   <td className={`py-2 pr-3 text-right ${noisy ? 'text-amber-400' : 'text-slate-400'}`}>
-                    {ch.noiseFloorDb} dB
+                    {telemetry.isRunning && liveCh ? `${liveFloor.toFixed(1)} dB` : '--'}
                   </td>
                   <td className="py-2 pr-3 text-center">
                     <ConsolePushButton
@@ -387,10 +407,16 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
                     />
                   </td>
                   <td className="py-2 text-right font-semibold">
-                    {hot ? (
+                    {!telemetry.isRunning ? (
+                      <span className="text-slate-500">STANDBY</span>
+                    ) : !liveCh ? (
+                      <span className="text-slate-500">NO STREAM</span>
+                    ) : ch.mute ? (
+                      <span className="text-slate-400">MUTED</span>
+                    ) : hot ? (
                       <span className="text-red-400">HOT PEAK</span>
                     ) : noisy ? (
-                      <span className="text-amber-400">CHECK HUM/DI</span>
+                      <span className="text-amber-400">HIGH FLOOR</span>
                     ) : (
                       <span className="text-emerald-400">NOMINAL PASS</span>
                     )}

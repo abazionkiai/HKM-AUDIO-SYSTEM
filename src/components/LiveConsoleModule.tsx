@@ -28,6 +28,7 @@ import {
   ConsolePushButton,
   RotaryKnob,
   VerticalFader,
+  VerticalVuMeter,
 } from './StudioControls.tsx';
 
 const SERVICE_SEGMENTS: ServiceSegmentName[] = [
@@ -215,8 +216,6 @@ interface VuMeterDomRefs {
 }
 
 interface MasterMeterDomRefs {
-  preFill: HTMLDivElement | null;
-  prePeak: HTMLDivElement | null;
   postLFill: HTMLDivElement | null;
   postLPeak: HTMLDivElement | null;
   postRFill: HTMLDivElement | null;
@@ -224,7 +223,7 @@ interface MasterMeterDomRefs {
 }
 
 function dbToPct(db: number): number {
-  return Math.max(0, Math.min(100, ((db + 56) / 56) * 100));
+  return Math.max(0, Math.min(100, ((db + 64) / 64) * 100));
 }
 
 function applyCssVuStyles(
@@ -236,8 +235,9 @@ function applyCssVuStyles(
   peakDb: number,
   muted: boolean
 ) {
-  const pct = muted ? 0 : dbToPct(rmsDb);
-  const peakPct = muted ? 0 : dbToPct(peakDb);
+  const silent = muted || rmsDb <= -63.5;
+  const pct = silent ? 0 : dbToPct(rmsDb);
+  const peakPct = muted || peakDb <= -63.5 ? 0 : dbToPct(peakDb);
   const isHot = !muted && peakDb > -3;
   const isWarm = !muted && rmsDb > -14;
 
@@ -278,7 +278,7 @@ function applyCssVuStyles(
   if (readoutEl) {
     readoutEl.textContent = muted
       ? 'MUTE'
-      : rmsDb <= -55
+      : rmsDb <= -63
         ? '-∞'
         : rmsDb.toFixed(1);
     readoutEl.style.color = muted
@@ -373,8 +373,6 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
 
   const channelRefs = useRef<Record<string, VuMeterDomRefs>>({});
   const masterRefs = useRef<MasterMeterDomRefs>({
-    preFill: null,
-    prePeak: null,
     postLFill: null,
     postLPeak: null,
     postRFill: null,
@@ -393,53 +391,54 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
   const ballisticsRef = useRef<{
     rms: Record<string, number>;
     peak: Record<string, number>;
-    masterPrePeak: number;
     masterPostLPeak: number;
     masterPostRPeak: number;
   }>({
     rms: {},
     peak: {},
-    masterPrePeak: -56,
-    masterPostLPeak: -56,
-    masterPostRPeak: -56,
+    masterPostLPeak: -64,
+    masterPostRPeak: -64,
   });
 
   useEffect(() => {
     let rafId = 0;
 
-    const tick = (nowMs: number) => {
+    const tick = () => {
       const { channels: curChannels, dsp: curDsp, telemetry: curTel, emergencyMuted: curMute } =
         latestStateRef.current;
       const fast = liveAudioEngine.sampleFastLevels();
       const isLive = fast.isRunning || curTel.isRunning;
-      const basePre = fast.isRunning ? fast.preRmsDb : curTel.preRmsDb;
-      const basePost = fast.isRunning ? fast.postRmsDb : curTel.postRmsDb;
-      const basePostPeak = fast.isRunning ? fast.postPeakDb : curTel.postPeakDb;
+      const basePostL = fast.isRunning ? fast.postLRmsDb : curTel.postLRmsDb;
+      const basePostR = fast.isRunning ? fast.postRRmsDb : curTel.postRRmsDb;
+      const basePostLPeak = fast.isRunning ? fast.postLPeakDb : curTel.postLPeakDb;
+      const basePostRPeak = fast.isRunning ? fast.postRPeakDb : curTel.postRPeakDb;
 
       const anySolo = curChannels.some((c) => c.solo);
       const b = ballisticsRef.current;
 
-      curChannels.forEach((ch) => {
+      curChannels.forEach((ch, idx) => {
         const refs = channelRefs.current[ch.id];
         const isSuppressed = ch.mute || (anySolo && !ch.solo);
         let targetRms = -96;
+        let instantPeak = -96;
 
-        if (isLive && !isSuppressed) {
-          const sourceDrive = ch.solo ? basePre : basePost;
-          const trimOffset = (ch.gainDb - 24) * 0.25 + ch.faderDb * 0.65;
-          targetRms = Math.max(-56, Math.min(-0.4, sourceDrive + trimOffset));
+        if (isLive && !isSuppressed && idx < fast.channelRmsDb.length) {
+          const chRawRms = fast.channelRmsDb[idx];
+          const chRawPeak = fast.channelPeakDb[idx] ?? chRawRms;
+          const postTrim = curDsp.bypassed ? 0 : curDsp.inputTrimDb;
+          const faderScale = ch.faderDb <= -47.5 ? -96 : ch.faderDb * 0.65 + (ch.gainDb - 24) * 0.15 + postTrim * 0.35;
+          targetRms = Math.max(-96, Math.min(-0.2, chRawRms + faderScale));
+          instantPeak = Math.max(-96, Math.min(-0.1, chRawPeak + faderScale));
         }
 
         const prevRms = b.rms[ch.id] ?? -96;
-        // Fast attack (0.45), smooth VU release (0.14)
-        const coeff = targetRms > prevRms ? 0.45 : 0.14;
+        const coeff = targetRms > prevRms ? 0.45 : 0.16;
         const smoothedRms = prevRms + (targetRms - prevRms) * coeff;
         b.rms[ch.id] = smoothedRms;
 
-        const instantPeak = Math.min(-0.2, smoothedRms + 4.8);
-        const prevPeak = b.peak[ch.id] ?? -56;
+        const prevPeak = b.peak[ch.id] ?? -96;
         const nextPeak =
-          instantPeak >= prevPeak ? instantPeak : Math.max(-56, prevPeak - 0.16);
+          instantPeak >= prevPeak ? instantPeak : Math.max(-96, prevPeak - 0.18);
         b.peak[ch.id] = nextPeak;
 
         if (refs) {
@@ -460,28 +459,24 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
         }
       });
 
-      // Master bus high-frequency CSS VU updates
-      const preVal = isLive ? Math.max(-56, Math.min(-0.2, basePre)) : -56;
+      // Master bus high-frequency CSS VU updates (true independent L/R meters)
       const postLVal =
-        isLive && !curMute
-          ? Math.max(-56, Math.min(-0.2, basePost + (curDsp.bypassed ? 0 : curDsp.inputTrimDb * 0.15)))
-          : -56;
+        isLive && !curMute ? Math.max(-96, Math.min(-0.2, basePostL)) : -96;
       const postRVal =
-        isLive && !curMute
-          ? Math.max(-56, Math.min(-0.2, postLVal))
-          : -56;
+        isLive && !curMute ? Math.max(-96, Math.min(-0.2, basePostR)) : -96;
 
-      b.masterPrePeak =
-        preVal >= b.masterPrePeak ? preVal : Math.max(-56, b.masterPrePeak - 0.14);
+      const liveLPeak = isLive && !curMute ? Math.max(postLVal, basePostLPeak) : -96;
+      const liveRPeak = isLive && !curMute ? Math.max(postRVal, basePostRPeak) : -96;
       b.masterPostLPeak =
-        Math.max(postLVal, isLive && !curMute ? basePostPeak : -56) >= b.masterPostLPeak
-          ? Math.max(postLVal, isLive && !curMute ? basePostPeak : -56)
-          : Math.max(-56, b.masterPostLPeak - 0.14);
+        liveLPeak >= b.masterPostLPeak
+          ? liveLPeak
+          : Math.max(-96, b.masterPostLPeak - 0.16);
       b.masterPostRPeak =
-        postRVal >= b.masterPostRPeak ? postRVal : Math.max(-56, b.masterPostRPeak - 0.14);
+        liveRPeak >= b.masterPostRPeak
+          ? liveRPeak
+          : Math.max(-96, b.masterPostRPeak - 0.16);
 
       const m = masterRefs.current;
-      applyCssVuStyles(m.preFill, m.prePeak, null, null, preVal, b.masterPrePeak, !isLive);
       applyCssVuStyles(
         m.postLFill,
         m.postLPeak,
@@ -1038,21 +1033,45 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-[11px] font-mono tabular-nums text-slate-300">
-            <span>
-              CLOCK:{' '}
-              <strong className="text-emerald-400">
+          <div className="flex flex-wrap xl:flex-nowrap items-center gap-3 text-[11px] font-mono tabular-nums text-slate-300 shrink-0">
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <span className="text-slate-400">INPUT:</span>
+              <strong
+                className={`inline-block w-[17ch] truncate ${telemetry.isRunning ? 'text-emerald-400' : 'text-slate-400'}`}
+                title={
+                  telemetry.isRunning
+                    ? `${telemetry.activeInputLabel ?? 'Hardware Audio'} (${telemetry.capturedChannels || 2} ch)`
+                    : 'STANDBY'
+                }
+              >
+                {telemetry.isRunning
+                  ? `${telemetry.activeInputLabel ?? 'Hardware Audio'} (${telemetry.capturedChannels || 2}ch)`
+                  : 'STANDBY'}
+              </strong>
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <span className="text-slate-400">CLOCK:</span>
+              <strong className="inline-block w-[7.5ch] text-right text-emerald-400">
                 {(telemetry.sampleRate / 1000).toFixed(1)} kHz
               </strong>
             </span>
-            <span>
-              PRE: <strong className="text-slate-100">{telemetry.isRunning ? `${telemetry.preRmsDb.toFixed(1)} dB` : '--'}</strong>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <span className="text-slate-400">PRE:</span>
+              <strong className="inline-block w-[8.5ch] text-right text-slate-100">
+                {telemetry.isRunning ? `${telemetry.preRmsDb.toFixed(1)} dB` : '--'}
+              </strong>
             </span>
-            <span>
-              POST: <strong className="text-sky-400">{telemetry.isRunning ? `${telemetry.postRmsDb.toFixed(1)} dB` : '--'}</strong>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <span className="text-slate-400">POST:</span>
+              <strong className="inline-block w-[8.5ch] text-right text-sky-400">
+                {telemetry.isRunning ? `${telemetry.postRmsDb.toFixed(1)} dB` : '--'}
+              </strong>
             </span>
-            <span>
-              GR: <strong className="text-amber-400">-{telemetry.gainReductionDb.toFixed(1)} dB</strong>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <span className="text-slate-400">GR:</span>
+              <strong className="inline-block w-[7.5ch] text-right text-amber-400">
+                -{telemetry.gainReductionDb.toFixed(1)} dB
+              </strong>
             </span>
           </div>
         </div>
@@ -1569,7 +1588,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                 </select>
               </div>
 
-              <div className="lg:col-span-9 grid grid-cols-4 sm:grid-cols-8 gap-1.5 place-items-center">
+              <div className="lg:col-span-9 grid grid-cols-3 sm:grid-cols-9 gap-1 place-items-center">
                 <RotaryKnob
                   label="EQ LOW"
                   value={selectedChannel.eqLowDb}
@@ -1578,7 +1597,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={0.5}
                   defaultValue={0}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="sky"
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { eqLowDb: v })}
                 />
@@ -1590,7 +1609,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={0.5}
                   defaultValue={0}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="sky"
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { eqMidDb: v })}
                 />
@@ -1601,7 +1620,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   max={6000}
                   step={20}
                   defaultValue={400}
-                  size={38}
+                  size={36}
                   accent="amber"
                   formatValue={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`)}
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { eqMidFreqHz: v })}
@@ -1614,7 +1633,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={0.5}
                   defaultValue={0}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="sky"
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { eqHighDb: v })}
                 />
@@ -1626,7 +1645,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={1}
                   defaultValue={-54}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="amber"
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { gateThresholdDb: v })}
                 />
@@ -1638,9 +1657,21 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={1}
                   defaultValue={-18}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="emerald"
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { compThresholdDb: v })}
+                />
+                <RotaryKnob
+                  label="RATIO"
+                  value={selectedChannel.compRatio}
+                  min={1}
+                  max={12}
+                  step={0.5}
+                  defaultValue={3}
+                  size={36}
+                  accent="amber"
+                  formatValue={(v) => `${v.toFixed(1)}:1`}
+                  onChange={(v) => onUpdateChannel(selectedChannel.id, { compRatio: v })}
                 />
                 <RotaryKnob
                   label="MON 1"
@@ -1650,7 +1681,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={1}
                   defaultValue={-12}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="emerald"
                   onChange={(v) =>
                     onUpdateChannel(selectedChannel.id, {
@@ -1666,7 +1697,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   step={1}
                   defaultValue={0}
                   unit="dB"
-                  size={38}
+                  size={36}
                   accent="sky"
                   onChange={(v) =>
                     onUpdateChannel(selectedChannel.id, {
@@ -1747,339 +1778,464 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
               })}
             </div>
           ) : (
-            <div className="overflow-x-auto pb-1">
-              <div className="flex gap-2.5 min-w-max">
-                {channels.map((ch) => {
-                  const isLocked = ch.authority === 'observational';
-                  const isSelected = selectedChannel?.id === ch.id;
+            <div className="flex gap-2.5 items-stretch min-w-0">
+              <div className="overflow-x-auto pb-1 flex-1 min-w-0">
+                <div className="flex gap-2.5 min-w-max">
+                  {channels.map((ch, idx) => {
+                    const isLocked = ch.authority === 'observational';
+                    const isSelected = selectedChannel?.id === ch.id;
+                    const isSuppressed = ch.mute || (activeSoloCount > 0 && !ch.solo);
+                    const chHasCapture =
+                      telemetry.isRunning &&
+                      (idx < (telemetry.capturedChannels || 2) ||
+                        (telemetry.channelLevels?.[idx]?.rmsDb ?? -96) > -62);
+                    const chCompStripGr = telemetry.channelLevels?.[idx]?.compGrDb ?? 0;
+                    const compRatioFactor = Math.max(
+                      0.35,
+                      Math.min(1.8, (dsp.compressor.thresholdDb - ch.compThresholdDb + 18) / 18)
+                    );
+                    const busSharedGr =
+                      telemetry.isRunning &&
+                      dsp.compressor.enabled &&
+                      !dsp.bypassed &&
+                      chHasCapture
+                        ? telemetry.gainReductionDb * compRatioFactor
+                        : 0;
+                    const chCompGrDb =
+                      !telemetry.isRunning || isSuppressed || dsp.bypassed
+                        ? 0
+                        : Number(Math.min(24, Math.max(chCompStripGr, busSharedGr)).toFixed(1));
+                    const chCompGrPct = Math.max(0, Math.min(100, (chCompGrDb / 24) * 100));
 
-                  return (
-                    <div
-                      key={ch.id}
-                      onClick={() => setSelectedChannelId(ch.id)}
-                      className={`w-[138px] shrink-0 rounded-md border bg-gradient-to-b from-[#151C28] via-[#10151F] to-[#0B0F17] p-2.5 flex flex-col justify-between gap-2.5 shadow-inner cursor-pointer transition-colors ${
-                        isSelected
-                          ? 'border-sky-400/70 shadow-[0_0_12px_rgba(56,189,248,0.16)]'
-                          : 'border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      {/* Scribble Strip */}
-                      <div className="rounded-xs bg-[#070A0F] border border-slate-800 px-2 py-1.5 text-center">
-                        <div className="flex items-center justify-between font-mono text-[9px] text-slate-400">
-                          <span>CH {String(ch.index).padStart(2, '0')}</span>
-                          <div className="flex items-center gap-1">
-                            {automatedChannelIds.has(ch.id) && (
+                    return (
+                      <div
+                        key={ch.id}
+                        onClick={() => setSelectedChannelId(ch.id)}
+                        className={`w-[154px] shrink-0 rounded-md border bg-gradient-to-b from-[#151C28] via-[#10151F] to-[#0B0F17] p-2.5 flex flex-col justify-between gap-2.5 shadow-inner cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'border-sky-400/70 shadow-[0_0_12px_rgba(56,189,248,0.16)]'
+                            : 'border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {/* Scribble Strip */}
+                        <div className="rounded-xs bg-[#070A0F] border border-slate-800 px-2 py-1.5 text-center">
+                          <div className="flex items-center justify-between font-mono text-[9px] text-slate-400">
+                            <span>CH {String(ch.index).padStart(2, '0')}</span>
+                            <div className="flex items-center gap-1">
+                              {automatedChannelIds.has(ch.id) && (
+                                <span
+                                  className={`px-1 rounded-xs text-[8px] font-bold ${
+                                    transportMode === 'recording'
+                                      ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                      : transportMode === 'playing'
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                  }`}
+                                >
+                                  AUTO
+                                </span>
+                              )}
                               <span
-                                className={`px-1 rounded-xs text-[8px] font-bold ${
-                                  transportMode === 'recording'
-                                    ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                                    : transportMode === 'playing'
-                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                                }`}
-                              >
-                                AUTO
-                              </span>
-                            )}
-                            <span
-                              className={
-                                ch.authority === 'hardware-linked'
-                                  ? 'text-emerald-400'
-                                  : 'text-sky-400'
-                              }
-                            >
-                              {ch.authority === 'hardware-linked' ? 'HW-LINK' : 'SW-DSP'}
-                            </span>
-                          </div>
-                        </div>
-                        <div
-                          className="text-xs font-semibold text-slate-100 truncate mt-0.5"
-                          title={ch.name}
-                        >
-                          {ch.name}
-                        </div>
-                        <div className="text-[10px] text-slate-500 truncate">{ch.role}</div>
-                      </div>
-
-                      {/* Layer-Dependent Strip Encoders */}
-                      {consoleLayer === 'mix' && (
-                        <>
-                          <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
-                            <RotaryKnob
-                              label="GAIN"
-                              value={ch.gainDb}
-                              min={-12}
-                              max={54}
-                              step={1}
-                              defaultValue={24}
-                              unit="dB"
-                              size={42}
-                              accent="sky"
-                              disabled={isLocked}
-                              onChange={(next) => onUpdateChannel(ch.id, { gainDb: next })}
-                            />
-                            <RotaryKnob
-                              label="HPF"
-                              value={ch.hpfHz}
-                              min={20}
-                              max={300}
-                              step={5}
-                              defaultValue={100}
-                              unit="Hz"
-                              size={42}
-                              accent="amber"
-                              disabled={isLocked}
-                              onChange={(next) => onUpdateChannel(ch.id, { hpfHz: next })}
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between gap-1 px-0.5">
-                            <RotaryKnob
-                              label="PAN"
-                              value={ch.pan}
-                              min={-100}
-                              max={100}
-                              step={5}
-                              defaultValue={0}
-                              size={38}
-                              accent="emerald"
-                              disabled={isLocked}
-                              formatValue={(v) =>
-                                v === 0
-                                  ? 'C'
-                                  : v < 0
-                                    ? `L${Math.abs(Math.round(v))}`
-                                    : `R${Math.round(v)}`
-                              }
-                              onChange={(next) => onUpdateChannel(ch.id, { pan: next })}
-                            />
-                            <div className="flex flex-col gap-1.5 flex-1">
-                              <ConsolePushButton
-                                label="+48V"
-                                active={ch.phantom48v}
-                                tone="amber"
-                                disabled={!device.capabilities.phantomPowerControl}
-                                onClick={() =>
-                                  onUpdateChannel(ch.id, { phantom48v: !ch.phantom48v })
+                                className={
+                                  ch.authority === 'hardware-linked'
+                                    ? 'text-emerald-400'
+                                    : 'text-sky-400'
                                 }
-                              />
-                              <ConsolePushButton
-                                label={ch.solo ? 'SOLO' : 'PFL'}
-                                active={ch.solo}
-                                tone="amber"
-                                onClick={() => onUpdateChannel(ch.id, { solo: !ch.solo })}
-                              />
+                              >
+                                {ch.authority === 'hardware-linked' ? 'HW-LINK' : 'SW-DSP'}
+                              </span>
                             </div>
                           </div>
-                        </>
-                      )}
-
-                      {consoleLayer === 'eq-dyn' && (
-                        <>
-                          <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
-                            <RotaryKnob
-                              label="EQ LOW"
-                              value={ch.eqLowDb}
-                              min={-12}
-                              max={12}
-                              step={0.5}
-                              defaultValue={0}
-                              unit="dB"
-                              size={40}
-                              accent="sky"
-                              onChange={(next) => onUpdateChannel(ch.id, { eqLowDb: next })}
-                            />
-                            <RotaryKnob
-                              label="EQ HI"
-                              value={ch.eqHighDb}
-                              min={-12}
-                              max={12}
-                              step={0.5}
-                              defaultValue={0}
-                              unit="dB"
-                              size={40}
-                              accent="sky"
-                              onChange={(next) => onUpdateChannel(ch.id, { eqHighDb: next })}
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-1 pb-1 border-b border-slate-800/80">
-                            <RotaryKnob
-                              label="GATE"
-                              value={ch.gateThresholdDb}
-                              min={-70}
-                              max={-10}
-                              step={1}
-                              defaultValue={-54}
-                              unit="dB"
-                              size={38}
-                              accent="amber"
-                              onChange={(next) =>
-                                onUpdateChannel(ch.id, { gateThresholdDb: next })
-                              }
-                            />
-                            <RotaryKnob
-                              label="COMP"
-                              value={ch.compThresholdDb}
-                              min={-40}
-                              max={0}
-                              step={1}
-                              defaultValue={-18}
-                              unit="dB"
-                              size={38}
-                              accent="emerald"
-                              onChange={(next) =>
-                                onUpdateChannel(ch.id, { compThresholdDb: next })
-                              }
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {consoleLayer === 'aux' && (
-                        <>
-                          <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
-                            <RotaryKnob
-                              label="MON 1"
-                              value={ch.auxSends.stageMon1Db}
-                              min={-48}
-                              max={6}
-                              step={1}
-                              defaultValue={-12}
-                              unit="dB"
-                              size={40}
-                              accent="emerald"
-                              onChange={(next) =>
-                                onUpdateChannel(ch.id, {
-                                  auxSends: { ...ch.auxSends, stageMon1Db: next },
-                                })
-                              }
-                            />
-                            <RotaryKnob
-                              label="MON 2"
-                              value={ch.auxSends.stageMon2Db}
-                              min={-48}
-                              max={6}
-                              step={1}
-                              defaultValue={-12}
-                              unit="dB"
-                              size={40}
-                              accent="emerald"
-                              onChange={(next) =>
-                                onUpdateChannel(ch.id, {
-                                  auxSends: { ...ch.auxSends, stageMon2Db: next },
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-1 pb-1 border-b border-slate-800/80">
-                            <RotaryKnob
-                              label="STREAM"
-                              value={ch.auxSends.streamBusDb}
-                              min={-48}
-                              max={6}
-                              step={1}
-                              defaultValue={0}
-                              unit="dB"
-                              size={38}
-                              accent="sky"
-                              onChange={(next) =>
-                                onUpdateChannel(ch.id, {
-                                  auxSends: { ...ch.auxSends, streamBusDb: next },
-                                })
-                              }
-                            />
-                            <RotaryKnob
-                              label="SUBS"
-                              value={ch.auxSends.subsDb}
-                              min={-48}
-                              max={6}
-                              step={1}
-                              defaultValue={-48}
-                              unit="dB"
-                              size={38}
-                              accent="amber"
-                              onChange={(next) =>
-                                onUpdateChannel(ch.id, {
-                                  auxSends: { ...ch.auxSends, subsDb: next },
-                                })
-                              }
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      {/* High-Frequency 60fps CSS Visual VU Meter + Long-Throw Vertical Fader */}
-                      <div className="flex items-center justify-center gap-2.5 py-1.5 bg-[#080B11] rounded border border-slate-800/80 px-1.5">
-                        <div className="flex flex-col items-center gap-1">
-                          {/* Peak Clip LED */}
                           <div
-                            ref={(el) => registerChannelRef(ch.id, 'clip', el)}
-                            className="w-3.5 h-1.5 rounded-full bg-slate-800 transition-colors"
-                            title="Channel Clip Indicator"
-                          />
-                          {/* CSS VU Meter Column */}
-                          <div
-                            aria-label={`${ch.name} RMS VU Meter`}
-                            className="relative w-3.5 h-[154px] rounded-xs bg-[#05080D] border border-slate-800 overflow-hidden"
+                            className="text-xs font-semibold text-slate-100 truncate mt-0.5"
+                            title={ch.name}
                           >
-                            {/* Dynamic CSS Fill Height & Color Intensity */}
-                            <div
-                              ref={(el) => registerChannelRef(ch.id, 'fill', el)}
-                              className="absolute bottom-0 inset-x-0 will-change-[height,filter,box-shadow]"
-                              style={{
-                                height: '0%',
-                                background:
-                                  'linear-gradient(to top, #059669 0%, #10B981 48%, #34D399 66%, #F59E0B 82%, #EF4444 96%)',
-                              }}
-                            />
-                            {/* Segmented LED Grid Mask */}
-                            <div
-                              className="absolute inset-0 pointer-events-none"
-                              style={{
-                                backgroundImage:
-                                  'repeating-linear-gradient(to top, transparent 0px, transparent 5px, rgba(5,8,13,0.92) 5px, rgba(5,8,13,0.92) 7px)',
-                              }}
-                            />
-                            {/* Ballistic Peak-Hold Line */}
-                            <div
-                              ref={(el) => registerChannelRef(ch.id, 'peak', el)}
-                              className="absolute inset-x-0 h-[2px] pointer-events-none will-change-[bottom,opacity]"
-                              style={{ bottom: '0%', opacity: 0 }}
-                            />
+                            {ch.name}
                           </div>
-                          {/* Live RMS dB Telemetry Readout */}
-                          <span
-                            ref={(el) => registerChannelRef(ch.id, 'readout', el)}
-                            className="font-mono text-[9px] tabular-nums text-sky-400 leading-none"
-                          >
-                            -∞
-                          </span>
+                          <div className="text-[10px] text-slate-500 truncate">{ch.role}</div>
                         </div>
 
-                        <VerticalFader
-                          label={`${ch.name} Fader`}
-                          value={ch.faderDb}
-                          min={-48}
-                          max={10}
-                          step={0.5}
-                          defaultValue={0}
-                          height={166}
-                          disabled={isLocked}
-                          accent={ch.mute ? 'amber' : 'sky'}
-                          onChange={(next) => onUpdateChannel(ch.id, { faderDb: next })}
+                        {/* Layer-Dependent Strip Encoders */}
+                        {consoleLayer === 'mix' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
+                              <RotaryKnob
+                                label="GAIN"
+                                value={ch.gainDb}
+                                min={-12}
+                                max={54}
+                                step={1}
+                                defaultValue={24}
+                                unit="dB"
+                                size={42}
+                                accent="sky"
+                                disabled={isLocked}
+                                onChange={(next) => onUpdateChannel(ch.id, { gainDb: next })}
+                              />
+                              <RotaryKnob
+                                label="HPF"
+                                value={ch.hpfHz}
+                                min={20}
+                                max={300}
+                                step={5}
+                                defaultValue={100}
+                                unit="Hz"
+                                size={42}
+                                accent="amber"
+                                disabled={isLocked}
+                                onChange={(next) => onUpdateChannel(ch.id, { hpfHz: next })}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1 px-0.5">
+                              <RotaryKnob
+                                label="PAN"
+                                value={ch.pan}
+                                min={-100}
+                                max={100}
+                                step={5}
+                                defaultValue={0}
+                                size={38}
+                                accent="emerald"
+                                disabled={isLocked}
+                                formatValue={(v) =>
+                                  v === 0
+                                    ? 'C'
+                                    : v < 0
+                                      ? `L${Math.abs(Math.round(v))}`
+                                      : `R${Math.round(v)}`
+                                }
+                                onChange={(next) => onUpdateChannel(ch.id, { pan: next })}
+                              />
+                              <div className="flex flex-col gap-1.5 flex-1">
+                                <ConsolePushButton
+                                  label="+48V"
+                                  active={ch.phantom48v}
+                                  tone="amber"
+                                  disabled={!device.capabilities.phantomPowerControl}
+                                  onClick={() =>
+                                    onUpdateChannel(ch.id, { phantom48v: !ch.phantom48v })
+                                  }
+                                />
+                                <ConsolePushButton
+                                  label={ch.solo ? 'SOLO' : 'PFL'}
+                                  active={ch.solo}
+                                  tone="amber"
+                                  onClick={() => onUpdateChannel(ch.id, { solo: !ch.solo })}
+                                />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {consoleLayer === 'eq-dyn' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
+                              <RotaryKnob
+                                label="EQ LOW"
+                                value={ch.eqLowDb}
+                                min={-12}
+                                max={12}
+                                step={0.5}
+                                defaultValue={0}
+                                unit="dB"
+                                size={40}
+                                accent="sky"
+                                onChange={(next) => onUpdateChannel(ch.id, { eqLowDb: next })}
+                              />
+                              <RotaryKnob
+                                label="EQ HI"
+                                value={ch.eqHighDb}
+                                min={-12}
+                                max={12}
+                                step={0.5}
+                                defaultValue={0}
+                                unit="dB"
+                                size={40}
+                                accent="sky"
+                                onChange={(next) => onUpdateChannel(ch.id, { eqHighDb: next })}
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-1 pb-1 border-b border-slate-800/80">
+                              <RotaryKnob
+                                label="COMP THR"
+                                value={ch.compThresholdDb}
+                                min={-40}
+                                max={0}
+                                step={1}
+                                defaultValue={-18}
+                                unit="dB"
+                                size={38}
+                                accent="emerald"
+                                onChange={(next) =>
+                                  onUpdateChannel(ch.id, { compThresholdDb: next })
+                                }
+                              />
+                              <RotaryKnob
+                                label="RATIO"
+                                value={ch.compRatio}
+                                min={1}
+                                max={12}
+                                step={0.5}
+                                defaultValue={3}
+                                size={38}
+                                accent="amber"
+                                formatValue={(v) => `${v.toFixed(1)}:1`}
+                                onChange={(next) =>
+                                  onUpdateChannel(ch.id, { compRatio: next })
+                                }
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {consoleLayer === 'aux' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
+                              <RotaryKnob
+                                label="MON 1"
+                                value={ch.auxSends.stageMon1Db}
+                                min={-48}
+                                max={6}
+                                step={1}
+                                defaultValue={-12}
+                                unit="dB"
+                                size={40}
+                                accent="emerald"
+                                onChange={(next) =>
+                                  onUpdateChannel(ch.id, {
+                                    auxSends: { ...ch.auxSends, stageMon1Db: next },
+                                  })
+                                }
+                              />
+                              <RotaryKnob
+                                label="MON 2"
+                                value={ch.auxSends.stageMon2Db}
+                                min={-48}
+                                max={6}
+                                step={1}
+                                defaultValue={-12}
+                                unit="dB"
+                                size={40}
+                                accent="emerald"
+                                onChange={(next) =>
+                                  onUpdateChannel(ch.id, {
+                                    auxSends: { ...ch.auxSends, stageMon2Db: next },
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-1 pb-1 border-b border-slate-800/80">
+                              <RotaryKnob
+                                label="STREAM"
+                                value={ch.auxSends.streamBusDb}
+                                min={-48}
+                                max={6}
+                                step={1}
+                                defaultValue={0}
+                                unit="dB"
+                                size={38}
+                                accent="sky"
+                                onChange={(next) =>
+                                  onUpdateChannel(ch.id, {
+                                    auxSends: { ...ch.auxSends, streamBusDb: next },
+                                  })
+                                }
+                              />
+                              <RotaryKnob
+                                label="SUBS"
+                                value={ch.auxSends.subsDb}
+                                min={-48}
+                                max={6}
+                                step={1}
+                                defaultValue={-48}
+                                unit="dB"
+                                size={38}
+                                accent="amber"
+                                onChange={(next) =>
+                                  onUpdateChannel(ch.id, {
+                                    auxSends: { ...ch.auxSends, subsDb: next },
+                                  })
+                                }
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {/* High-Frequency 60fps CSS Visual VU + Per-Channel Compressor GR Meter + Vertical Fader */}
+                        <div className="flex items-center justify-center gap-1.5 py-1.5 bg-[#080B11] rounded border border-slate-800/80 px-1.5">
+                          <div className="flex flex-col items-center gap-1">
+                            {/* Peak Clip LED */}
+                            <div
+                              ref={(el) => registerChannelRef(ch.id, 'clip', el)}
+                              className="w-3 h-1.5 rounded-full bg-slate-800 transition-colors"
+                              title="Channel Clip Indicator"
+                            />
+                            {/* CSS VU Meter Column */}
+                            <div
+                              aria-label={`${ch.name} RMS VU Meter`}
+                              className="relative w-3 h-[154px] rounded-xs bg-[#05080D] border border-slate-800 overflow-hidden"
+                            >
+                              {/* Dynamic CSS Fill Height & Color Intensity */}
+                              <div
+                                ref={(el) => registerChannelRef(ch.id, 'fill', el)}
+                                className="absolute bottom-0 inset-x-0 will-change-[height,filter,box-shadow]"
+                                style={{
+                                  height: '0%',
+                                  background:
+                                    'linear-gradient(to top, #059669 0%, #10B981 48%, #34D399 66%, #F59E0B 82%, #EF4444 96%)',
+                                }}
+                              />
+                              {/* Segmented LED Grid Mask */}
+                              <div
+                                className="absolute inset-0 pointer-events-none"
+                                style={{
+                                  backgroundImage:
+                                    'repeating-linear-gradient(to top, transparent 0px, transparent 5px, rgba(5,8,13,0.92) 5px, rgba(5,8,13,0.92) 7px)',
+                                }}
+                              />
+                              {/* Ballistic Peak-Hold Line */}
+                              <div
+                                ref={(el) => registerChannelRef(ch.id, 'peak', el)}
+                                className="absolute inset-x-0 h-[2px] pointer-events-none will-change-[bottom,opacity]"
+                                style={{ bottom: '0%', opacity: 0 }}
+                              />
+                            </div>
+                            {/* Live RMS dB Telemetry Readout */}
+                            <span
+                              ref={(el) => registerChannelRef(ch.id, 'readout', el)}
+                              className="w-[4.5ch] text-center font-mono text-[9px] tabular-nums text-sky-400 leading-none"
+                            >
+                              -∞
+                            </span>
+                          </div>
+
+                          {/* Dedicated Compressor Stage Gain Reduction (GR) Meter */}
+                          <div
+                            className="flex flex-col items-center gap-1"
+                            title={`${ch.name} Compressor Gain Reduction: -${chCompGrDb.toFixed(1)} dB (Thresh ${ch.compThresholdDb} dB · ${ch.compRatio.toFixed(1)}:1)`}
+                          >
+                            <div
+                              className={`w-2.5 h-1.5 rounded-full transition-colors ${
+                                chCompGrDb >= 6
+                                  ? 'bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.85)]'
+                                  : chCompGrDb > 0.2
+                                    ? 'bg-amber-500/50'
+                                    : 'bg-slate-800'
+                              }`}
+                            />
+                            <div
+                              role="meter"
+                              aria-label={`${ch.name} Compressor Gain Reduction Meter`}
+                              aria-valuemin={0}
+                              aria-valuemax={24}
+                              aria-valuenow={chCompGrDb}
+                              className="relative w-2.5 h-[154px] rounded-xs bg-[#05080D] border border-slate-800 overflow-hidden"
+                            >
+                              <div
+                                className="absolute top-0 inset-x-0 transition-[height] duration-75 ease-out"
+                                style={{
+                                  height: `${chCompGrPct.toFixed(1)}%`,
+                                  background:
+                                    'linear-gradient(to bottom, #F59E0B 0%, #F97316 62%, #EF4444 100%)',
+                                  boxShadow:
+                                    chCompGrDb > 0.3
+                                      ? '0 0 8px rgba(245, 158, 11, 0.5)'
+                                      : 'none',
+                                }}
+                              />
+                              <div
+                                className="absolute inset-0 pointer-events-none"
+                                style={{
+                                  backgroundImage:
+                                    'repeating-linear-gradient(to bottom, transparent 0px, transparent 5px, rgba(5,8,13,0.92) 5px, rgba(5,8,13,0.92) 7px)',
+                                }}
+                              />
+                            </div>
+                            <span
+                              className={`w-[4.5ch] text-center font-mono text-[9px] tabular-nums leading-none ${
+                                isSuppressed
+                                  ? 'text-slate-600'
+                                  : chCompGrDb > 0.2
+                                    ? 'text-amber-300'
+                                    : 'text-amber-500/60'
+                              }`}
+                            >
+                              {isSuppressed ? 'GR' : `-${chCompGrDb.toFixed(1)}`}
+                            </span>
+                          </div>
+
+                          <VerticalFader
+                            label={`${ch.name} Fader`}
+                            value={ch.faderDb}
+                            min={-48}
+                            max={10}
+                            step={0.5}
+                            defaultValue={0}
+                            height={166}
+                            disabled={isLocked}
+                            accent={ch.mute ? 'amber' : 'sky'}
+                            onChange={(next) => onUpdateChannel(ch.id, { faderDb: next })}
+                          />
+                        </div>
+
+                        {/* Mute Switch */}
+                        <ConsolePushButton
+                          label={ch.mute ? 'MUTED' : 'ON / LIVE'}
+                          active={ch.mute}
+                          tone="red"
+                          onClick={() => onUpdateChannel(ch.id, { mute: !ch.mute })}
                         />
                       </div>
+                    );
+                  })}
+                </div>
+              </div>
 
-                      {/* Mute Switch */}
-                      <ConsolePushButton
-                        label={ch.mute ? 'MUTED' : 'ON / LIVE'}
-                        active={ch.mute}
-                        tone="red"
-                        onClick={() => onUpdateChannel(ch.id, { mute: !ch.mute })}
-                      />
-                    </div>
-                  );
-                })}
+              {/* Pinned Vertical VU Bridge Beside Faders: Live PRE, POST & GR */}
+              <div
+                aria-label="Fader Bank Pre/Post VU Meter Bridge"
+                className="hidden sm:flex shrink-0 flex-col justify-between rounded-md border border-slate-800 bg-gradient-to-b from-[#151C28] to-[#0B0F17] p-2.5"
+              >
+                <div className="text-center border-b border-slate-800 pb-1.5">
+                  <div className="font-mono text-[9px] font-bold text-sky-400 uppercase tracking-wider">
+                    BUS VU
+                  </div>
+                  <div className="font-mono text-[8px] text-slate-400 uppercase">
+                    PRE · POST · GR
+                  </div>
+                </div>
+
+                <div className="flex items-end justify-center gap-2 py-2 px-1 bg-[#080B11] rounded border border-slate-800/80 my-auto">
+                  <VerticalVuMeter
+                    label="PRE"
+                    levelDb={telemetry.preRmsDb}
+                    peakDb={telemetry.prePeakDb}
+                    muted={!telemetry.isRunning}
+                    tone="pre"
+                    showScale
+                    height={216}
+                  />
+                  <VerticalVuMeter
+                    label="POST"
+                    levelDb={telemetry.postRmsDb}
+                    peakDb={telemetry.postPeakDb}
+                    muted={!telemetry.isRunning || emergencyMuted}
+                    tone="post"
+                    height={216}
+                  />
+                  <VerticalVuMeter
+                    label="GR"
+                    levelDb={telemetry.gainReductionDb}
+                    muted={!telemetry.isRunning || dsp.bypassed}
+                    inverted
+                    height={216}
+                  />
+                </div>
+
+                <div className="text-center font-mono text-[9px] tabular-nums text-slate-400 pt-1 border-t border-slate-800">
+                  {telemetry.isRunning ? `${telemetry.estimatedLufs.toFixed(1)} LUFS` : 'STANDBY'}
+                </div>
               </div>
             </div>
           )}
@@ -2143,44 +2299,72 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
             />
           </div>
 
-          {/* Twin 60fps Master CSS VU Meters + Master Fader */}
-          <div className="flex items-center justify-around py-2.5 bg-[#080B11] border border-slate-800 rounded-md">
-            {[
-              { label: 'PRE', fillKey: 'preFill' as const, peakKey: 'prePeak' as const, color: 'text-slate-400' },
-              { label: 'POST L', fillKey: 'postLFill' as const, peakKey: 'postLPeak' as const, color: 'text-sky-400' },
-              { label: 'POST R', fillKey: 'postRFill' as const, peakKey: 'postRPeak' as const, color: 'text-sky-400' },
-            ].map((m) => (
-              <div key={m.label} className="flex flex-col items-center gap-1">
-                <div className="relative w-3.5 h-[158px] rounded-xs bg-[#05080D] border border-slate-800 overflow-hidden">
-                  <div
-                    ref={(el) => {
-                      masterRefs.current[m.fillKey] = el;
-                    }}
-                    className="absolute bottom-0 inset-x-0 will-change-[height,filter,box-shadow]"
-                    style={{
-                      height: '0%',
-                      background:
-                        'linear-gradient(to top, #059669 0%, #10B981 50%, #34D399 68%, #F59E0B 82%, #EF4444 96%)',
-                    }}
-                  />
-                  <div
-                    className="absolute inset-0 pointer-events-none"
-                    style={{
-                      backgroundImage:
-                        'repeating-linear-gradient(to top, transparent 0px, transparent 5px, rgba(5,8,13,0.92) 5px, rgba(5,8,13,0.92) 7px)',
-                    }}
-                  />
-                  <div
-                    ref={(el) => {
-                      masterRefs.current[m.peakKey] = el;
-                    }}
-                    className="absolute inset-x-0 h-[2px] pointer-events-none will-change-[bottom,opacity]"
-                    style={{ bottom: '0%', opacity: 0 }}
-                  />
+          {/* Vertical PRE/POST/GR VU Meters + Stereo L/R + Master Trim Fader */}
+          <div className="flex items-end justify-around gap-1.5 py-2.5 px-2 bg-[#080B11] border border-slate-800 rounded-md">
+            <VerticalVuMeter
+              label="PRE"
+              levelDb={telemetry.preRmsDb}
+              peakDb={telemetry.prePeakDb}
+              muted={!telemetry.isRunning}
+              tone="pre"
+              showScale
+              height={152}
+            />
+            <VerticalVuMeter
+              label="POST"
+              levelDb={telemetry.postRmsDb}
+              peakDb={telemetry.postPeakDb}
+              muted={!telemetry.isRunning || emergencyMuted}
+              tone="post"
+              height={152}
+            />
+            <VerticalVuMeter
+              label="GR"
+              levelDb={telemetry.gainReductionDb}
+              muted={!telemetry.isRunning || dsp.bypassed}
+              inverted
+              height={152}
+            />
+
+            <div className="flex items-end gap-1 pl-1 border-l border-slate-800/80">
+              {[
+                { label: 'L', fillKey: 'postLFill' as const, peakKey: 'postLPeak' as const },
+                { label: 'R', fillKey: 'postRFill' as const, peakKey: 'postRPeak' as const },
+              ].map((m) => (
+                <div key={m.label} className="flex flex-col items-center gap-1">
+                  <div className="relative w-2.5 h-[152px] rounded-xs bg-[#05080D] border border-slate-800 overflow-hidden">
+                    <div
+                      ref={(el) => {
+                        masterRefs.current[m.fillKey] = el;
+                      }}
+                      className="absolute bottom-0 inset-x-0 will-change-[height,filter,box-shadow]"
+                      style={{
+                        height: '0%',
+                        background:
+                          'linear-gradient(to top, #059669 0%, #10B981 50%, #34D399 68%, #F59E0B 82%, #EF4444 96%)',
+                      }}
+                    />
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        backgroundImage:
+                          'repeating-linear-gradient(to top, transparent 0px, transparent 5px, rgba(5,8,13,0.92) 5px, rgba(5,8,13,0.92) 7px)',
+                      }}
+                    />
+                    <div
+                      ref={(el) => {
+                        masterRefs.current[m.peakKey] = el;
+                      }}
+                      className="absolute inset-x-0 h-[2px] pointer-events-none will-change-[bottom,opacity]"
+                      style={{ bottom: '0%', opacity: 0 }}
+                    />
+                  </div>
+                  <span className="font-mono text-[8px] font-semibold text-sky-400 leading-none">
+                    {m.label}
+                  </span>
                 </div>
-                <span className={`font-mono text-[9px] ${m.color}`}>{m.label}</span>
-              </div>
-            ))}
+              ))}
+            </div>
 
             <VerticalFader
               label="Master Trim Fader"
@@ -2237,9 +2421,10 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                 onClick={() => {
                   const next = !talkbackActive;
                   setTalkbackActive(next);
+                  liveAudioEngine.setTalkbackActive(next);
                   onLogAutomationEvent?.(
                     next ? 'Engaged Stage Talkback' : 'Released Stage Talkback',
-                    `Cue monitor level ${cueLevelDb} dB`
+                    `Cue monitor level ${cueLevelDb} dB (${next ? '-14 dB dim active' : 'full cue'})`
                   );
                 }}
               />
@@ -2248,7 +2433,9 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
             <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-[#080B11] border border-slate-800">
               <span className="font-mono text-[10px] text-slate-400">CUE / PFL MONITOR</span>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-sky-400 tabular-nums">{cueLevelDb} dB</span>
+                <span className="font-mono text-[10px] text-sky-400 tabular-nums w-[5.5ch] text-right">
+                  {cueLevelDb} dB
+                </span>
                 <input
                   type="range"
                   aria-label="Cue Monitor Level"
@@ -2256,7 +2443,11 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   max={6}
                   step={1}
                   value={cueLevelDb}
-                  onChange={(e) => setCueLevelDb(Number(e.target.value))}
+                  onChange={(e) => {
+                    const nextVal = Number(e.target.value);
+                    setCueLevelDb(nextVal);
+                    liveAudioEngine.setMonitorLevelDb(nextVal);
+                  }}
                   className="w-20 accent-sky-400 cursor-pointer"
                 />
               </div>

@@ -34,12 +34,8 @@ const STAGE_MIC_NODES = [
   { id: 'mic-choir-r', label: 'Choir Condenser R', x: 76, y: 20, pattern: 'Cardioid', nullAngleDeg: 180, ch: 6 },
 ];
 
-const WIRELESS_RF_FLEET = [
-  { id: 'rf-1', slot: 'RX-A1', label: 'Preacher Beltpack', freqMhz: '518.425 MHz', rfDbm: -64, battPct: 88, ant: 'A', squelch: 'LOCKED' },
-  { id: 'rf-2', slot: 'RX-A2', label: 'Pastor Handheld', freqMhz: '522.150 MHz', rfDbm: -68, battPct: 76, ant: 'B', squelch: 'LOCKED' },
-  { id: 'rf-3', slot: 'RX-B1', label: 'Worship Lead HH', freqMhz: '530.800 MHz', rfDbm: -61, battPct: 92, ant: 'A', squelch: 'LOCKED' },
-  { id: 'rf-4', slot: 'RX-B2', label: 'Host / Announcements', freqMhz: '538.275 MHz', rfDbm: -74, battPct: 54, ant: 'B', squelch: 'STBY' },
-];
+// Wireless RF telemetry is only populated when a networked RF receiver API is bound;
+// otherwise display real hardware input capture & preamp telemetry from the audio stream.
 
 export const MicrophoneIntelligenceModule: React.FC<MicrophoneIntelligenceModuleProps> = ({
   device,
@@ -382,46 +378,51 @@ export const MicrophoneIntelligenceModule: React.FC<MicrophoneIntelligenceModule
 
       {/* Bottom Row: Wireless RF Telemetry + Live Preamp Strip */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
-        {/* Wireless RF Fleet Monitor (Observational) */}
+        {/* Active Mic Capture & Preamp Diagnostics */}
         <div className="xl:col-span-4 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5 space-y-2.5">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <span className="font-mono text-xs font-semibold text-white uppercase flex items-center gap-1.5">
               <Radio className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Wireless RF &amp; Battery Telemetry</span>
+              <span>Live Mic Input Telemetry</span>
             </span>
-            <span className="font-mono text-[10px] text-slate-400">Observational</span>
+            <span className="font-mono text-[10px] text-slate-400">
+              {telemetry.isRunning ? `${telemetry.capturedChannels} Stream Ch` : 'Standby'}
+            </span>
           </div>
 
           <div className="space-y-2">
-            {WIRELESS_RF_FLEET.map((rx) => (
-              <div
-                key={rx.id}
-                className="p-2.5 rounded border border-slate-800 bg-[#070A10] flex items-center justify-between gap-2 text-xs font-mono"
-              >
-                <div className="min-w-0">
-                  <div className="text-slate-100 font-semibold truncate">
-                    {rx.slot} · {rx.label}
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    {rx.freqMhz} · ANT {rx.ant} · {rx.squelch}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 shrink-0 tabular-nums">
-                  <div className="text-right">
-                    <div className="text-[10px] text-sky-400">{rx.rfDbm} dBm</div>
-                    <div className={rx.battPct < 60 ? 'text-[10px] text-amber-400' : 'text-[10px] text-emerald-400'}>
-                      BAT {rx.battPct}%
+            {channels.slice(0, 4).map((ch, idx) => {
+              const chLive = telemetry.isRunning ? telemetry.channelLevels?.[idx] : undefined;
+              const liveRms = chLive && !ch.mute ? chLive.rmsDb : null;
+              return (
+                <div
+                  key={ch.id}
+                  className="p-2.5 rounded border border-slate-800 bg-[#070A10] flex items-center justify-between gap-2 text-xs font-mono"
+                >
+                  <div className="min-w-0">
+                    <div className="text-slate-100 font-semibold truncate">
+                      CH {String(ch.index).padStart(2, '0')} · {ch.name}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      HPF {ch.hpfHz} Hz · {ch.phantom48v ? '+48V' : 'Dynamic'} ·{' '}
+                      {ch.mute ? 'MUTED' : chLive ? 'STREAMING' : telemetry.isRunning ? 'NO STREAM' : 'STANDBY'}
                     </div>
                   </div>
+                  <div className="text-right shrink-0 tabular-nums">
+                    <div className="text-[10px] text-sky-400">
+                      {liveRms !== null ? `${liveRms.toFixed(1)} dBFS` : '--'}
+                    </div>
+                    <div className="text-[10px] text-slate-400">GAIN +{ch.gainDb} dB</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="p-2.5 rounded border border-slate-800 bg-[#090D14] text-[10px] font-mono text-slate-400 flex items-start gap-2">
             <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
             <span>
-              Keep speech mics 10–15 cm from mouth; engage 110–130 Hz HPF before boosting presence.
+              Keep speech mics 10–15 cm from mouth; engage 110–130 Hz HPF before boosting presence. Network UHF RF battery telemetry requires paired receiver hardware.
             </span>
           </div>
         </div>
@@ -437,10 +438,16 @@ export const MicrophoneIntelligenceModule: React.FC<MicrophoneIntelligenceModule
             </span>
           </div>
           <div className="flex gap-2.5 min-w-max">
-            {vocalChannels.map((ch) => {
-              const lvl = telemetry.isRunning
-                ? Math.max(-56, Math.min(-1, telemetry.postRmsDb + (ch.gainDb - 24) * 0.25 + ch.faderDb * 0.65))
-                : -96;
+            {vocalChannels.map((ch, idx) => {
+              const chLive = telemetry.isRunning ? telemetry.channelLevels?.[idx] : undefined;
+              const lvl =
+                telemetry.isRunning && chLive && !ch.mute
+                  ? Math.max(-64, Math.min(-0.2, chLive.rmsDb + ch.faderDb * 0.5))
+                  : -96;
+              const pk =
+                telemetry.isRunning && chLive && !ch.mute
+                  ? Math.max(-64, Math.min(-0.1, chLive.peakDb + ch.faderDb * 0.5))
+                  : -96;
               return (
                 <div
                   key={ch.id}
@@ -455,7 +462,7 @@ export const MicrophoneIntelligenceModule: React.FC<MicrophoneIntelligenceModule
                   <div className="flex items-center justify-around py-1">
                     <SegmentedLedMeter
                       levelDb={lvl}
-                      peakDb={lvl + 4}
+                      peakDb={pk}
                       muted={ch.mute}
                       height={84}
                       segments={12}

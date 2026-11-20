@@ -242,26 +242,33 @@ export interface InstrumentProfile {
   diagnosticNotes: string[];
 }
 
-export type AudioSourceSimulation =
-  | 'preacher-mud'
-  | 'preacher-feedback'
-  | 'bass-hum'
-  | 'worship-band'
-  | 'choir-rehearsal'
-  | 'pink-noise'
-  | 'live-mic';
+export type AudioSourceSimulation = 'live-mic' | 'desktop-audio' | 'pink-noise';
+
+export interface ChannelSignalTelemetry {
+  rmsDb: number;
+  peakDb: number;
+  noiseFloorDb: number;
+  compGrDb?: number;
+}
 
 export interface SignalTelemetry {
   source: AudioSourceSimulation;
   isRunning: boolean;
   sampleRate: number;
+  activeInputLabel: string | null;
+  capturedChannels: number;
   preRmsDb: number;
   postRmsDb: number;
+  postLRmsDb: number;
+  postRRmsDb: number;
   prePeakDb: number;
   postPeakDb: number;
+  postLPeakDb: number;
+  postRPeakDb: number;
   estimatedLufs: number;
   gainReductionDb: number;
   noiseFloorDb: number;
+  channelLevels: ChannelSignalTelemetry[];
   feedbackRisk: {
     detected: boolean;
     frequencyHz: number | null;

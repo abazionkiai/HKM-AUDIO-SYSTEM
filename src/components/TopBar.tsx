@@ -104,20 +104,20 @@ export const TopBar: React.FC<TopBarProps> = ({
   }, [tapTempo.lastTapAt]);
 
   return (
-    <header className="h-14 shrink-0 border-b border-slate-800/90 bg-[#0B0F17] px-4 flex items-center justify-between gap-2.5 overflow-x-auto">
+    <header className="h-14 shrink-0 border-b border-slate-800/90 bg-[#0B0F17] px-4 flex items-center justify-between gap-2.5 overflow-x-auto overflow-y-hidden">
       {/* Zone 1: Brand & Hardware Context */}
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
         <div className="w-2 h-6 rounded-xs bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)] shrink-0" />
         <span className="font-display font-semibold text-sm tracking-tight text-white whitespace-nowrap shrink-0">
           Church Audio Intelligence
         </span>
-        <span className="text-slate-700 hidden 2xl:inline" aria-hidden="true">
+        <span className="text-slate-700 hidden 2xl:inline shrink-0" aria-hidden="true">
           /
         </span>
         <span className="text-xs text-slate-400 truncate hidden 2xl:inline">
           {venueName} · {roomName}
         </span>
-        <span className="text-slate-700 hidden 2xl:inline" aria-hidden="true">
+        <span className="text-slate-700 hidden 2xl:inline shrink-0" aria-hidden="true">
           ·
         </span>
         <span className="text-xs font-mono text-sky-400 truncate hidden 2xl:inline">
@@ -127,12 +127,12 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* Zone 2: Real-Time Audio CPU Monitor, Tap Tempo, Hotkeys, Theme & Signal Source */}
       <div className="flex items-center gap-2 shrink-0">
-        {/* Real-Time Audio Engine CPU & Buffer Underrun Monitor */}
+        {/* Real-Time Audio Engine CPU & Buffer Underrun Monitor (Fixed Width - Zero Jitter) */}
         <button
           type="button"
           onClick={onOpenDiagnostics}
           title={`Audio Engine CPU Load: ${audioCpuPct}% · Buffer ${bufferSize} samples @ ${(sampleRate / 1000).toFixed(1)} kHz (${quantumMs} ms quantum) · Underrun Risk: ${underrunRisk.toUpperCase()} (Click to adjust buffer)`}
-          className={`h-8 px-2.5 rounded border font-mono text-[11px] flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[184px] sm:w-[228px] px-2.5 rounded border font-mono text-[11px] flex items-center justify-between gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
             underrunRisk === 'critical'
               ? 'border-red-500/80 bg-red-950/60 text-red-200 shadow-[0_0_12px_rgba(239,68,68,0.35)]'
               : underrunRisk === 'elevated'
@@ -140,23 +140,25 @@ export const TopBar: React.FC<TopBarProps> = ({
                 : 'border-slate-700 bg-[#121824] text-slate-200 hover:border-slate-500'
           }`}
         >
-          {underrunRisk === 'low' ? (
-            <Cpu className={`w-3.5 h-3.5 shrink-0 ${engineRunning ? 'text-emerald-400' : 'text-slate-400'}`} />
-          ) : (
-            <AlertTriangle
-              className={`w-3.5 h-3.5 shrink-0 ${
-                underrunRisk === 'critical' ? 'text-red-400 animate-pulse' : 'text-amber-400'
-              }`}
-            />
-          )}
-          <span className="tabular-nums font-semibold">
-            CPU {audioCpuPct}%
+          <span className="flex items-center gap-1.5">
+            {underrunRisk === 'low' ? (
+              <Cpu className={`w-3.5 h-3.5 shrink-0 ${engineRunning ? 'text-emerald-400' : 'text-slate-400'}`} />
+            ) : (
+              <AlertTriangle
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  underrunRisk === 'critical' ? 'text-red-400' : 'text-amber-400'
+                }`}
+              />
+            )}
+            <span className="w-[7.2ch] text-left tabular-nums font-semibold">
+              CPU {audioCpuPct}%
+            </span>
           </span>
 
           {/* 8-segment miniature CPU load meter */}
-          <span className="hidden sm:flex items-center gap-0.5" aria-hidden="true">
+          <span className="hidden sm:flex items-center gap-0.5 shrink-0" aria-hidden="true">
             {Array.from({ length: 8 }, (_, idx) => {
-              const lit = idx < activeSegments;
+              const lit = engineRunning && idx < activeSegments;
               const segColor =
                 idx >= 6
                   ? lit
@@ -173,30 +175,41 @@ export const TopBar: React.FC<TopBarProps> = ({
             })}
           </span>
 
-          {underrunRisk !== 'low' && (
-            <span
-              className={`text-[10px] font-bold tracking-tight ${
-                underrunRisk === 'critical' ? 'text-red-300' : 'text-amber-300'
-              }`}
-            >
-              {underrunRisk === 'critical' ? 'XRUN ALERT' : 'XRUN RISK'}
-            </span>
-          )}
+          {/* Reserved fixed-width status slot so label transitions never resize the bar */}
+          <span
+            className={`w-[4.5ch] text-right text-[10px] font-bold tracking-tight shrink-0 ${
+              underrunRisk === 'critical'
+                ? 'text-red-300'
+                : underrunRisk === 'elevated'
+                  ? 'text-amber-300'
+                  : engineRunning
+                    ? 'text-emerald-400'
+                    : 'text-slate-500'
+            }`}
+          >
+            {underrunRisk === 'critical'
+              ? 'XRUN'
+              : underrunRisk === 'elevated'
+                ? 'RISK'
+                : engineRunning
+                  ? 'LIVE'
+                  : 'IDLE'}
+          </span>
         </button>
 
-        {/* Live Tap Tempo Trigger */}
+        {/* Live Tap Tempo Trigger (Fixed Width) */}
         <button
           type="button"
           onClick={onTapTempo}
           title={`Tap Tempo (Quarter: ${tapTempo.quarterMs} ms · Dotted 1/8: ${tapTempo.dottedEighthMs} ms) — Click or press bound shortcut`}
-          className={`h-8 px-2 rounded border font-mono text-[11px] flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[88px] px-2 rounded border font-mono text-[11px] flex items-center justify-between gap-1 whitespace-nowrap shrink-0 ${
             tapFlash
               ? 'border-sky-400 bg-sky-500/25 text-sky-200 shadow-[0_0_10px_rgba(56,189,248,0.4)]'
               : 'border-slate-700 bg-[#121824] text-slate-200 hover:border-slate-500'
           }`}
         >
           <Activity className={`w-3.5 h-3.5 shrink-0 ${tapFlash ? 'text-sky-300' : 'text-sky-400'}`} />
-          <span className="tabular-nums font-semibold">{tapTempo.bpm} BPM</span>
+          <span className="tabular-nums font-semibold text-right flex-1">{tapTempo.bpm} BPM</span>
         </button>
 
         {/* Global Keyboard Shortcuts Modal Trigger */}
@@ -214,13 +227,13 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="hidden md:inline">KEYS</span>
         </button>
 
-        <div className="flex items-center gap-1.5 h-8 px-2 rounded border border-slate-700 bg-[#121824]">
+        <div className="flex items-center gap-1.5 h-8 px-2 rounded border border-slate-700 bg-[#121824] shrink-0">
           <Palette className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           <select
             aria-label="Console Color Theme"
             value={consoleTheme}
             onChange={(e) => onThemeChange(e.target.value as ConsoleThemeId)}
-            className="bg-transparent text-xs font-mono text-slate-200 focus:outline-none cursor-pointer"
+            className="bg-transparent text-xs font-mono text-slate-200 focus:outline-none cursor-pointer w-[178px]"
           >
             {THEME_OPTIONS.map((t) => (
               <option key={t.id} value={t.id} className="bg-[#0E131C] text-slate-100">
@@ -234,17 +247,15 @@ export const TopBar: React.FC<TopBarProps> = ({
           aria-label="Audio Input Source"
           value={audioSource}
           onChange={(e) => onSourceChange(e.target.value as AudioSourceSimulation)}
-          className="hidden xl:block h-8 px-2 text-xs font-mono rounded border border-slate-700 bg-[#121824] text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+          className="hidden lg:block h-8 px-2 text-xs font-mono rounded border border-slate-700 bg-[#121824] text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 w-[236px] shrink-0"
         >
-          <option value="preacher-mud">Test Signal: Preacher (220 Hz Mud)</option>
-          <option value="preacher-feedback">Test Signal: Preacher + 2.4 kHz Ring</option>
-          <option value="bass-hum">Test Signal: Bass Guitar + 50 Hz Hum</option>
-          <option value="worship-band">Test Signal: Full Worship Band</option>
-          <option value="choir-rehearsal">Test Signal: Choir Rehearsal</option>
-          <option value="pink-noise">Test Signal: Calibration Pink Noise</option>
           <option value="live-mic">
             Hardware Input: {activeDevice.model} (Live)
           </option>
+          <option value="desktop-audio">
+            Desktop Audio: System / Browser Loopback
+          </option>
+          <option value="pink-noise">Calibration: Pink Noise (-20 dBFS)</option>
         </select>
       </div>
 
@@ -253,13 +264,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={onToggleEngine}
-          className={`h-8 px-2.5 rounded text-xs font-mono font-semibold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[116px] px-2.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
             engineRunning
               ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
               : 'bg-sky-600 border-sky-400/50 text-white hover:bg-sky-500'
           }`}
         >
-          {engineRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+          {engineRunning ? <Square className="w-3.5 h-3.5 shrink-0" /> : <Play className="w-3.5 h-3.5 shrink-0" />}
           <span>{engineRunning ? 'STOP' : 'START ENGINE'}</span>
         </button>
 
@@ -275,43 +286,43 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
         >
           {monitorAudible && !emergencyMuted ? (
-            <Volume2 className="w-3.5 h-3.5" />
+            <Volume2 className="w-3.5 h-3.5 shrink-0" />
           ) : (
-            <VolumeX className="w-3.5 h-3.5" />
+            <VolumeX className="w-3.5 h-3.5 shrink-0" />
           )}
           <span className="hidden 2xl:inline">MONITOR</span>
         </button>
 
-        {/* Total Signal Bypass Toggle */}
+        {/* Total Signal Bypass Toggle (Fixed Width) */}
         <button
           type="button"
           role="switch"
           aria-checked={totalBypassed}
           onClick={onToggleTotalBypass}
           title="Bypass all software EQ, HPF, compression, and limiting immediately (passes dry signal)"
-          className={`h-8 px-2.5 rounded text-xs font-mono font-semibold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[160px] px-2.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
             totalBypassed
               ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]'
               : 'border-amber-500/40 bg-[#121824] text-amber-300 hover:bg-amber-500/10'
           }`}
         >
-          <GitBranch className="w-3.5 h-3.5" />
+          <GitBranch className="w-3.5 h-3.5 shrink-0" />
           <span>{totalBypassed ? 'TOTAL BYPASS: ON' : 'TOTAL SIGNAL BYPASS'}</span>
         </button>
 
-        {/* Dedicated Global Emergency Mute */}
+        {/* Dedicated Global Emergency Mute (Fixed Width) */}
         <button
           type="button"
           aria-pressed={emergencyMuted}
           onClick={onToggleEmergencyMute}
           title="Immediate global emergency mute for all live PA & monitor outputs"
-          className={`h-8 px-3 rounded text-xs font-mono font-bold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[178px] px-3 rounded text-xs font-mono font-bold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
             emergencyMuted
               ? 'bg-red-600 border-red-300 text-white shadow-[0_0_16px_rgba(239,68,68,0.65)]'
               : 'border-red-500/60 bg-red-950/40 text-red-300 hover:bg-red-600/25'
           }`}
         >
-          <ShieldAlert className="w-3.5 h-3.5" />
+          <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
           <span>{emergencyMuted ? 'EMERGENCY MUTE ACTIVE' : 'GLOBAL EMERGENCY MUTE'}</span>
         </button>
       </div>

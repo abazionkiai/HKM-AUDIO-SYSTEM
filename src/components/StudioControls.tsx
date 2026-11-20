@@ -1,4 +1,5 @@
 import React, { useCallback, useId, useRef } from 'react';
+export { VerticalVuMeter, type VerticalVuMeterProps } from './VerticalVuMeter.tsx';
 
 interface RotaryKnobProps {
   label: string;
@@ -383,10 +384,10 @@ export const SegmentedLedMeter: React.FC<SegmentedLedMeterProps> = ({
   height = 176,
   segments = 20,
 }) => {
-  const norm = Math.max(0, Math.min(1, (levelDb + 56) / 56));
-  const peakNorm = Math.max(0, Math.min(1, (peakDb + 56) / 56));
-  const litCount = muted ? 0 : Math.round(norm * segments);
-  const peakSeg = muted ? -1 : Math.min(segments - 1, Math.floor(peakNorm * segments));
+  const norm = Math.max(0, Math.min(1, (levelDb + 64) / 64));
+  const peakNorm = Math.max(0, Math.min(1, (peakDb + 64) / 64));
+  const litCount = muted || levelDb <= -63.5 ? 0 : Math.max(1, Math.round(norm * segments));
+  const peakSeg = muted || peakDb <= -63.5 ? -1 : Math.min(segments - 1, Math.floor(peakNorm * segments));
 
   return (
     <div

@@ -21,6 +21,7 @@ import {
   Radar,
 } from 'lucide-react';
 import type {
+  AudioSourceSimulation,
   AuditEvent,
   DetectedHardwareEndpoint,
   DriverBackend,
@@ -71,6 +72,10 @@ interface HardwareDiagnosticsModuleProps {
   onScanHardware: (requestBrowserPermission?: boolean) => void;
   onBindDetectedEndpoint: (endpoint: DetectedHardwareEndpoint) => void;
   onClearHardwareCache?: () => void;
+  audioSource?: AudioSourceSimulation;
+  onSelectAudioSource?: (src: AudioSourceSimulation) => void;
+  engineRunning?: boolean;
+  onToggleEngine?: () => void;
 }
 
 const PLATFORM_SPECS: Record<
@@ -144,6 +149,10 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onScanHardware,
   onBindDetectedEndpoint,
   onClearHardwareCache,
+  audioSource = 'live-mic',
+  onSelectAudioSource,
+  engineRunning = false,
+  onToggleEngine,
 }) => {
   const [tab, setTab] = useState<'hardware' | 'remote' | 'plugins' | 'crossplatform' | 'watchdog'>(
     'hardware'
@@ -608,6 +617,42 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
 
       {tab === 'hardware' && (
         <div className="space-y-4">
+          {/* Desktop / Media Player / Browser Audio Loopback Card */}
+          <div className="rounded-lg border border-emerald-500/35 bg-[#0B1416] p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="font-mono text-xs font-semibold text-white uppercase flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>Desktop Audio: System / Browser Loopback Input</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed max-w-4xl">
+                To feed audio from any media player (VLC, Spotify, Media Player, DAW) or another browser tab directly into this console on CH 1–2 L/R, choose{' '}
+                <strong className="text-emerald-300 font-mono">Desktop Audio: System / Browser Loopback</strong> in the top input bar (uses Web Audio display-audio loopback — check <em>&ldquo;Share system audio&rdquo;</em> in the browser picker) or select your OS loopback bus (<strong className="text-sky-300">Stereo Mix / VB-Audio Virtual Cable</strong> on Windows, <strong className="text-sky-300">BlackHole 2ch</strong> on macOS, <strong className="text-sky-300">PipeWire Monitor</strong> on Linux) below.
+              </p>
+            </div>
+            {onSelectAudioSource && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectAudioSource('desktop-audio');
+                    if (!engineRunning && onToggleEngine) {
+                      onToggleEngine();
+                    }
+                  }}
+                  className={`px-3 py-2 rounded font-mono text-[11px] font-semibold border transition-colors ${
+                    audioSource === 'desktop-audio'
+                      ? 'bg-emerald-600 border-emerald-400 text-white'
+                      : 'bg-[#091015] border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/15'
+                  }`}
+                >
+                  {audioSource === 'desktop-audio' && engineRunning
+                    ? 'DESKTOP LOOPBACK ACTIVE'
+                    : 'CAPTURE DESKTOP / BROWSER AUDIO'}
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Auto-Recognized Connected Hardware Panel */}
           <div className="rounded-lg border border-sky-500/35 bg-[#0D131F] p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">

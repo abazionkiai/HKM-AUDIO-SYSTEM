@@ -17,20 +17,12 @@ interface SpeakerZonesModuleProps {
 }
 
 const DISTRIBUTED_ZONES = [
-  { id: 'dist-balcony', label: 'BALCONY', status: 'normal' as const },
-  { id: 'dist-overflow', label: 'OVERFLOWS', status: 'normal' as const },
-  { id: 'dist-nursery', label: 'NURSERY', status: 'normal' as const },
-  { id: 'dist-youth', label: 'YOUTH', status: 'caution' as const },
-  { id: 'dist-foyer', label: 'FOYER', status: 'critical' as const },
-  { id: 'dist-chapel', label: 'CHAPEL', status: 'normal' as const },
-];
-
-const STAGE_SOURCES = [
-  { id: 'src-l', label: 'L', levelPct: 78 },
-  { id: 'src-r', label: 'R', levelPct: 76 },
-  { id: 'src-c', label: 'C', levelPct: 84 },
-  { id: 'src-mon', label: 'MONITOR MIX', levelPct: 68 },
-  { id: 'src-aux', label: 'AUX MIX', levelPct: 62 },
+  { id: 'dist-balcony', label: 'BALCONY' },
+  { id: 'dist-overflow', label: 'OVERFLOWS' },
+  { id: 'dist-nursery', label: 'NURSERY' },
+  { id: 'dist-youth', label: 'YOUTH' },
+  { id: 'dist-foyer', label: 'FOYER' },
+  { id: 'dist-chapel', label: 'CHAPEL' },
 ];
 
 export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
@@ -120,9 +112,91 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
     return items.slice(0, 4);
   }, [zones, emergencyMuted]);
 
+  const coverageModel = useMemo(() => {
+    const activeZones = zones.filter((z) => !z.mute && !emergencyMuted);
+    if (zones.length === 0 || activeZones.length === 0) {
+      return {
+        uniformPct: 0,
+        cells: Array.from({ length: 4 }, () => Array.from({ length: 6 }, () => '#EF4444')),
+      };
+    }
+    const avgLevel = activeZones.reduce((acc, z) => acc + z.levelDb, 0) / activeZones.length;
+    const avgDelayErr =
+      activeZones.reduce(
+        (acc, z) => acc + Math.abs(z.delayMs - Number((z.distanceMeters * 2.915).toFixed(1))),
+        0
+      ) / activeZones.length;
+    const avgLevelSpread =
+      activeZones.reduce((acc, z) => acc + Math.abs(z.levelDb - avgLevel), 0) / activeZones.length;
+    const activeRatio = activeZones.length / zones.length;
+    const uniformPct = Math.max(
+      12,
+      Math.min(99, Math.round(activeRatio * 100 - avgDelayErr * 2.4 - avgLevelSpread * 3.1))
+    );
+
+    const rows = 4;
+    const cols = 6;
+    const cells: string[][] = [];
+    for (let r = 0; r < rows; r++) {
+      const rowColors: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        const px = (c + 0.5) * (100 / cols);
+        const py = (r + 0.5) * (100 / rows);
+        let bestCoverage = 0;
+        for (const z of activeZones) {
+          const dist = Math.hypot(px - z.x, py - z.y);
+          const normDist = Math.max(0.1, 1 - dist / 95);
+          const delayPenalty = Math.min(0.35, Math.abs(z.delayMs - z.distanceMeters * 2.915) * 0.04);
+          const score = normDist * (1 - delayPenalty) * Math.max(0.35, Math.min(1.2, 1 + z.levelDb / 24));
+          if (score > bestCoverage) bestCoverage = score;
+        }
+        rowColors.push(
+          bestCoverage >= 0.65
+            ? '#10B981'
+            : bestCoverage >= 0.45
+              ? '#84CC16'
+              : bestCoverage >= 0.28
+                ? '#F59E0B'
+                : '#EF4444'
+        );
+      }
+      cells.push(rowColors);
+    }
+    return { uniformPct, cells };
+  }, [zones, emergencyMuted]);
+
+  const stageBusMeters = useMemo(() => {
+    const dbToBar = (db: number) =>
+      telemetry?.isRunning && !emergencyMuted && db > -63.5
+        ? Math.max(0, Math.min(100, Math.round(((db + 64) / 64) * 100)))
+        : 0;
+    const postL = telemetry?.postLRmsDb ?? -96;
+    const postR = telemetry?.postRRmsDb ?? -96;
+    const centerDb = telemetry?.postRmsDb ?? -96;
+    const monZone = zones.find((z) => z.role === 'stage-monitor');
+    const auxZone = zones.find((z) => z.role === 'overflow' || z.role === 'rear-fill');
+    return [
+      { id: 'src-l', label: 'L', levelPct: dbToBar(postL) },
+      { id: 'src-r', label: 'R', levelPct: dbToBar(postR) },
+      { id: 'src-c', label: 'C', levelPct: dbToBar(centerDb) },
+      {
+        id: 'src-mon',
+        label: 'MONITOR MIX',
+        levelPct: monZone?.mute ? 0 : dbToBar(centerDb + (monZone?.levelDb ?? 0)),
+      },
+      {
+        id: 'src-aux',
+        label: 'AUX MIX',
+        levelPct: auxZone?.mute ? 0 : dbToBar(centerDb + (auxZone?.levelDb ?? 0)),
+      },
+    ];
+  }, [telemetry, emergencyMuted, zones]);
+
   const estimatedTempC = selectedZone
-    ? Math.round(48 + Math.max(0, selectedZone.levelDb + 6) * 2.1 + (telemetry?.isRunning ? 4 : 0))
-    : 52;
+    ? telemetry?.isRunning && !selectedZone.mute && !emergencyMuted
+      ? Math.round(34 + Math.max(0, telemetry.postRmsDb + 60) * 0.45 + Math.max(0, selectedZone.levelDb + 6) * 1.4)
+      : 24
+    : 24;
   const nominalImpedance = selectedZone?.role === 'sub' ? '4.0 Ω' : '7.8 Ω';
 
   // Build 6-row rack display mapped to available zones
@@ -149,7 +223,10 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
 
         <div className="flex flex-wrap items-center gap-4 font-mono text-[11px]">
           <div className="text-slate-400">
-            SESSION: <span className="text-emerald-400 font-semibold">Sunday Morning · {emergencyMuted ? 'MUTED' : 'NORMAL'}</span>
+            STATUS:{' '}
+            <span className={emergencyMuted ? 'text-red-400 font-semibold' : telemetry?.isRunning ? 'text-emerald-400 font-semibold' : 'text-slate-300 font-semibold'}>
+              {emergencyMuted ? 'MUTED' : telemetry?.isRunning ? 'ENGINE LIVE' : 'STANDBY'}
+            </span>
           </div>
           <div className="text-slate-400">
             ZONES: <span className="text-sky-300 font-semibold">{zoneStats.normal}/{zoneStats.total} LIVE</span>
@@ -260,12 +337,7 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
 
             <div className="bg-[#070A10] border border-slate-800 rounded p-2 space-y-1.5">
               <div className="grid grid-cols-6 gap-1">
-                {[
-                  ['#059669', '#10B981', '#10B981', '#10B981', '#059669', '#0EA5E9'],
-                  ['#10B981', '#22C55E', '#84CC16', '#22C55E', '#10B981', '#10B981'],
-                  ['#84CC16', '#EAB308', '#F59E0B', '#EAB308', '#84CC16', '#22C55E'],
-                  ['#F59E0B', '#EF4444', '#EF4444', '#F59E0B', '#10B981', '#059669'],
-                ].map((row, rIdx) =>
+                {coverageModel.cells.map((row, rIdx) =>
                   row.map((bg, cIdx) => (
                     <div
                       key={`${rIdx}-${cIdx}`}
@@ -276,10 +348,10 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
                 )}
               </div>
               <div className="flex items-center justify-between font-mono text-[10px] text-slate-400 pt-1">
-                <span>92% Uniform</span>
-                <span className="text-emerald-400">● Excellent</span>
-                <span className="text-amber-400">● Good</span>
-                <span className="text-red-400">● Null</span>
+                <span>{coverageModel.uniformPct}% Uniform</span>
+                <span className="text-emerald-400">● Strong</span>
+                <span className="text-amber-400">● Edge</span>
+                <span className="text-red-400">● Null/Off</span>
               </div>
             </div>
           </div>
@@ -292,8 +364,15 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
             <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
               {zones.map((z) => {
                 const isSel = z.id === selectedId;
-                const sigBars = z.mute || emergencyMuted ? 0 : Math.min(5, Math.max(2, Math.round((z.levelDb + 20) / 5)));
-                const thermBars = z.mute ? 1 : Math.min(5, Math.max(2, Math.round((z.levelDb + 16) / 4.5)));
+                const liveLevelDb = (telemetry?.postRmsDb ?? -96) + z.levelDb;
+                const sigBars =
+                  !telemetry?.isRunning || z.mute || emergencyMuted || liveLevelDb <= -63.5
+                    ? 0
+                    : Math.min(5, Math.max(1, Math.round(((liveLevelDb + 64) / 64) * 5)));
+                const thermBars =
+                  !telemetry?.isRunning || z.mute || emergencyMuted
+                    ? 0
+                    : Math.min(5, Math.max(1, Math.round((z.levelDb + 16) / 5)));
                 return (
                   <button
                     key={z.id}
@@ -413,7 +492,7 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
               Stage Sources
             </div>
             <div className="grid grid-cols-5 gap-2">
-              {STAGE_SOURCES.map((src) => (
+              {stageBusMeters.map((src) => (
                 <div
                   key={src.id}
                   className="rounded border border-slate-700/80 bg-gradient-to-b from-[#171E2C] to-[#0D121B] p-2 space-y-1.5"
@@ -422,12 +501,12 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
                     {src.label}
                   </div>
                   <div className="h-5 rounded bg-[#070A10] border border-slate-800 px-1.5 flex items-center justify-between gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                    <span className={`w-1.5 h-1.5 rounded-full ${src.levelPct > 0 ? 'bg-sky-400' : 'bg-slate-700'}`} />
                     <div className="flex-1 h-1.5 bg-slate-800 rounded-xs overflow-hidden">
                       <div
-                        className="h-full bg-sky-400"
+                        className="h-full bg-sky-400 transition-[width] duration-75"
                         style={{
-                          width: `${telemetry?.isRunning ? src.levelPct : 18}%`,
+                          width: `${src.levelPct}%`,
                         }}
                       />
                     </div>
@@ -623,11 +702,9 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
                         className={`w-2 h-2 rounded-full ${
                           isMuted
                             ? 'bg-red-500'
-                            : dz.status === 'caution'
-                              ? 'bg-amber-400'
-                              : dz.status === 'critical'
-                                ? 'bg-red-400'
-                                : 'bg-emerald-400'
+                            : telemetry?.isRunning
+                              ? 'bg-emerald-400'
+                              : 'bg-slate-600'
                         }`}
                       />
                       <span className="w-2 h-2 rounded-full bg-slate-700" />
