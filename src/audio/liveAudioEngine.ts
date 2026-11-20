@@ -1,9 +1,10 @@
-import type {
-  AudioSourceSimulation,
-  ChannelSignalTelemetry,
-  DspConfig,
-  InputChannel,
-  SignalTelemetry,
+import {
+  type AudioSourceSimulation,
+  type ChannelSignalTelemetry,
+  type DspConfig,
+  type InputChannel,
+  type SignalTelemetry,
+  ISO_31_FREQUENCIES,
 } from '../types/audio.ts';
 
 export interface SpectrumSnapshot {
@@ -99,6 +100,34 @@ class LiveAudioEngine {
   private limiterNode: DynamicsCompressorNode | null = null;
   private delayNode: DelayNode | null = null;
 
+  // Zero-Hum Standby & Sub-sonic Clean Filters
+  private subSonicNode: BiquadFilterNode | null = null;
+  private humNotchFundamental: BiquadFilterNode | null = null;
+  private humNotchHarmonic1: BiquadFilterNode | null = null;
+  private humNotchHarmonic2: BiquadFilterNode | null = null;
+  private standbyGateGainNode: GainNode | null = null;
+  private standbySilenceFrames = 0;
+
+  // 31-Band ISO 1/3-octave Stereo Graphic Equalizer
+  private eq31Nodes: BiquadFilterNode[] = [];
+
+  // Active 3-Way Linkwitz-Riley Crossover & Alignment Delay Network
+  private xoverBypassGain: GainNode | null = null;
+  private xoverSubLp1: BiquadFilterNode | null = null;
+  private xoverSubLp2: BiquadFilterNode | null = null;
+  private xoverSubDelay: DelayNode | null = null;
+  private xoverSubGain: GainNode | null = null;
+
+  private xoverMidHp: BiquadFilterNode | null = null;
+  private xoverMidLp: BiquadFilterNode | null = null;
+  private xoverMidGain: GainNode | null = null;
+
+  private xoverHighHp1: BiquadFilterNode | null = null;
+  private xoverHighHp2: BiquadFilterNode | null = null;
+  private xoverHighDelay: DelayNode | null = null;
+  private xoverHighGain: GainNode | null = null;
+  private xoverSumNode: GainNode | null = null;
+
   // Mid/Side Stereo Width Matrix nodes
   private widthSplitter: ChannelSplitterNode | null = null;
   private widthMerger: ChannelMergerNode | null = null;
@@ -108,6 +137,9 @@ class LiveAudioEngine {
   private widthLRGain: GainNode | null = null;
 
   private monitorGain: GainNode | null = null;
+  private preferredOutputDeviceId: string | undefined = undefined;
+  private standbySilenceTimerSec = 0;
+  private standbyGateIsClosed = false;
 
   // Analysers (Pre-DSP bus sum vs Post-DSP stereo L/R)
   private preAnalyser: AnalyserNode | null = null;
@@ -175,6 +207,24 @@ class LiveAudioEngine {
 
   public getActiveInputLabel(): string | null {
     return this.activeInputLabel;
+  }
+
+  public async setOutputDevice(deviceId?: string): Promise<boolean> {
+    this.preferredOutputDeviceId = deviceId || undefined;
+    if (this.ctx && 'setSinkId' in this.ctx && typeof (this.ctx as any).setSinkId === 'function') {
+      try {
+        await (this.ctx as any).setSinkId(deviceId || '');
+        return true;
+      } catch (err) {
+        console.warn('AudioContext.setSinkId failed:', err);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  public getPreferredOutputDeviceId(): string {
+    return this.preferredOutputDeviceId || '';
   }
 
   public stop(): void {
@@ -307,6 +357,30 @@ class LiveAudioEngine {
     this.gateGainNode = ctx.createGain();
     this.gateGainNode.gain.value = 1;
 
+    // Zero-Hum Clean Standby & Sub-sonic Filter Nodes
+    this.subSonicNode = ctx.createBiquadFilter();
+    this.subSonicNode.type = 'highpass';
+    this.subSonicNode.frequency.value = 18;
+    this.subSonicNode.Q.value = 0.707;
+
+    this.humNotchFundamental = ctx.createBiquadFilter();
+    this.humNotchFundamental.type = 'notch';
+    this.humNotchFundamental.frequency.value = 60;
+    this.humNotchFundamental.Q.value = 14;
+
+    this.humNotchHarmonic1 = ctx.createBiquadFilter();
+    this.humNotchHarmonic1.type = 'notch';
+    this.humNotchHarmonic1.frequency.value = 120;
+    this.humNotchHarmonic1.Q.value = 14;
+
+    this.humNotchHarmonic2 = ctx.createBiquadFilter();
+    this.humNotchHarmonic2.type = 'notch';
+    this.humNotchHarmonic2.frequency.value = 180;
+    this.humNotchHarmonic2.Q.value = 14;
+
+    this.standbyGateGainNode = ctx.createGain();
+    this.standbyGateGainNode.gain.value = 1;
+
     this.deEsserNode = ctx.createBiquadFilter();
     this.deEsserNode.type = 'peaking';
     this.deEsserNode.frequency.value = 6200;
@@ -335,6 +409,67 @@ class LiveAudioEngine {
     this.limiterNode.attack.value = 0.001;
 
     this.delayNode = ctx.createDelay(0.5);
+
+    // 31-Band ISO 1/3-Octave Graphic EQ Nodes (Constant-Q = 4.31)
+    this.eq31Nodes = ISO_31_FREQUENCIES.map((hz) => {
+      const f = ctx.createBiquadFilter();
+      f.type = 'peaking';
+      f.frequency.value = hz;
+      f.Q.value = 4.31;
+      f.gain.value = 0;
+      return f;
+    });
+
+    // Active 3-Way Linkwitz-Riley Crossover Network
+    this.xoverBypassGain = ctx.createGain();
+    this.xoverBypassGain.gain.value = 0;
+
+    // Subwoofer band (LR-24 = cascaded 2nd order Butterworth)
+    this.xoverSubLp1 = ctx.createBiquadFilter();
+    this.xoverSubLp1.type = 'lowpass';
+    this.xoverSubLp1.frequency.value = 80;
+    this.xoverSubLp1.Q.value = 0.707;
+
+    this.xoverSubLp2 = ctx.createBiquadFilter();
+    this.xoverSubLp2.type = 'lowpass';
+    this.xoverSubLp2.frequency.value = 80;
+    this.xoverSubLp2.Q.value = 0.707;
+
+    this.xoverSubDelay = ctx.createDelay(0.05);
+    this.xoverSubGain = ctx.createGain();
+    this.xoverSubGain.gain.value = 1;
+
+    // Mid band (Band-pass = HPF at sub-crossover, LPF at high-crossover)
+    this.xoverMidHp = ctx.createBiquadFilter();
+    this.xoverMidHp.type = 'highpass';
+    this.xoverMidHp.frequency.value = 80;
+    this.xoverMidHp.Q.value = 0.707;
+
+    this.xoverMidLp = ctx.createBiquadFilter();
+    this.xoverMidLp.type = 'lowpass';
+    this.xoverMidLp.frequency.value = 2500;
+    this.xoverMidLp.Q.value = 0.707;
+
+    this.xoverMidGain = ctx.createGain();
+    this.xoverMidGain.gain.value = 1;
+
+    // High band (LR-24 highpass = cascaded 2nd order Butterworth)
+    this.xoverHighHp1 = ctx.createBiquadFilter();
+    this.xoverHighHp1.type = 'highpass';
+    this.xoverHighHp1.frequency.value = 2500;
+    this.xoverHighHp1.Q.value = 0.707;
+
+    this.xoverHighHp2 = ctx.createBiquadFilter();
+    this.xoverHighHp2.type = 'highpass';
+    this.xoverHighHp2.frequency.value = 2500;
+    this.xoverHighHp2.Q.value = 0.707;
+
+    this.xoverHighDelay = ctx.createDelay(0.02);
+    this.xoverHighGain = ctx.createGain();
+    this.xoverHighGain.gain.value = 1;
+
+    this.xoverSumNode = ctx.createGain();
+    this.xoverSumNode.gain.value = 1;
 
     // Mid/Side Stereo Width Matrix (L' = same*L + cross*R, R' = same*R + cross*L)
     this.widthSplitter = ctx.createChannelSplitter(2);
@@ -365,11 +500,17 @@ class LiveAudioEngine {
     this.monitorGain = ctx.createGain();
     this.monitorGain.gain.value = 0;
 
-    // Signal flow: busMixSum -> inputGain -> preAnalyser -> gateGain -> deEsser -> hpf -> eq0..5 -> lpf -> comp -> makeup -> limiter -> delay -> widthMatrix -> postAnalyser -> outputs
+    // Signal flow: busMixSum -> inputGain -> preAnalyser -> subSonicNode -> humNotch -> gateGain -> standbyGateGain -> deEsser -> hpf -> eq0..5 -> lpf -> comp -> makeup -> limiter -> delay -> widthMatrix -> eq31Nodes -> xoverNetwork -> postAnalyser -> outputs
     this.busMixSum.connect(this.inputGain);
     this.inputGain.connect(this.preAnalyser);
-    this.preAnalyser.connect(this.gateGainNode);
-    this.gateGainNode.connect(this.deEsserNode);
+
+    this.preAnalyser.connect(this.subSonicNode);
+    this.subSonicNode.connect(this.humNotchFundamental);
+    this.humNotchFundamental.connect(this.humNotchHarmonic1);
+    this.humNotchHarmonic1.connect(this.humNotchHarmonic2);
+    this.humNotchHarmonic2.connect(this.gateGainNode);
+    this.gateGainNode.connect(this.standbyGateGainNode);
+    this.standbyGateGainNode.connect(this.deEsserNode);
     this.deEsserNode.connect(this.hpfNode);
 
     let prev: AudioNode = this.hpfNode;
@@ -387,14 +528,44 @@ class LiveAudioEngine {
     this.delayNode.connect(this.widthSplitter);
     this.widthSplitter.connect(this.widthLLGain, 0);
     this.widthSplitter.connect(this.widthRLGain, 1);
-    this.widthSplitter.connect(this.widthLRGain, 0);
-    this.widthSplitter.connect(this.widthRRGain, 1);
-    this.widthLLGain.connect(this.widthMerger, 0, 0);
-    this.widthRLGain.connect(this.widthMerger, 0, 0);
     this.widthLRGain.connect(this.widthMerger, 0, 1);
+    this.widthRLGain.connect(this.widthMerger, 0, 0);
+    this.widthLLGain.connect(this.widthMerger, 0, 0);
     this.widthRRGain.connect(this.widthMerger, 0, 1);
 
-    this.widthMerger.connect(this.postAnalyser);
+    // 31-Band Stereo Graphic EQ Cascade
+    let eq31Chain: AudioNode = this.widthMerger;
+    for (const eq31 of this.eq31Nodes) {
+      eq31Chain.connect(eq31);
+      eq31Chain = eq31;
+    }
+
+    // Active 3-Way Linkwitz-Riley Crossover Split & Summing
+    // 1. Full-range bypass path
+    eq31Chain.connect(this.xoverBypassGain);
+    this.xoverBypassGain.connect(this.xoverSumNode);
+
+    // 2. Subwoofer path (4th order LR-24 = cascaded 2nd order Butterworth LPF)
+    eq31Chain.connect(this.xoverSubLp1);
+    this.xoverSubLp1.connect(this.xoverSubLp2);
+    this.xoverSubLp2.connect(this.xoverSubDelay);
+    this.xoverSubDelay.connect(this.xoverSubGain);
+    this.xoverSubGain.connect(this.xoverSumNode);
+
+    // 3. Mid path (Band-pass = HPF at sub-cutoff, LPF at high-cutoff)
+    eq31Chain.connect(this.xoverMidHp);
+    this.xoverMidHp.connect(this.xoverMidLp);
+    this.xoverMidLp.connect(this.xoverMidGain);
+    this.xoverMidGain.connect(this.xoverSumNode);
+
+    // 4. High path (4th order LR-24 = cascaded 2nd order Butterworth HPF)
+    eq31Chain.connect(this.xoverHighHp1);
+    this.xoverHighHp1.connect(this.xoverHighHp2);
+    this.xoverHighHp2.connect(this.xoverHighDelay);
+    this.xoverHighDelay.connect(this.xoverHighGain);
+    this.xoverHighGain.connect(this.xoverSumNode);
+
+    this.xoverSumNode.connect(this.postAnalyser);
     this.postAnalyser.connect(this.postSplitter);
     this.postSplitter.connect(this.postLAnalyser, 0);
     this.postSplitter.connect(this.postRAnalyser, 1);
@@ -575,6 +746,103 @@ class LiveAudioEngine {
       this.widthRRGain.gain.setTargetAtTime(same, now, 0.015);
       this.widthRLGain.gain.setTargetAtTime(cross, now, 0.015);
       this.widthLRGain.gain.setTargetAtTime(cross, now, 0.015);
+    }
+
+    // Clean Standby & Sub-sonic DC Blocker
+    if (this.subSonicNode) {
+      const dcActive = !dsp.bypassed && (dsp.cleanStandby?.dcBlockerEnabled !== false);
+      this.subSonicNode.frequency.setTargetAtTime(dcActive ? 18 : 5, now, 0.015);
+    }
+
+    // Mains Hum Notch Elimination (50 Hz / 60 Hz + Harmonics)
+    if (this.humNotchFundamental && this.humNotchHarmonic1 && this.humNotchHarmonic2) {
+      const notchMode = dsp.bypassed ? 'off' : (dsp.cleanStandby?.mainsHumNotch ?? '60hz');
+      if (notchMode === '50hz') {
+        this.humNotchFundamental.frequency.setTargetAtTime(50, now, 0.015);
+        this.humNotchFundamental.Q.setTargetAtTime(14, now, 0.015);
+        this.humNotchHarmonic1.frequency.setTargetAtTime(100, now, 0.015);
+        this.humNotchHarmonic1.Q.setTargetAtTime(14, now, 0.015);
+        this.humNotchHarmonic2.frequency.setTargetAtTime(150, now, 0.015);
+        this.humNotchHarmonic2.Q.setTargetAtTime(14, now, 0.015);
+      } else if (notchMode === '60hz') {
+        this.humNotchFundamental.frequency.setTargetAtTime(60, now, 0.015);
+        this.humNotchFundamental.Q.setTargetAtTime(14, now, 0.015);
+        this.humNotchHarmonic1.frequency.setTargetAtTime(120, now, 0.015);
+        this.humNotchHarmonic1.Q.setTargetAtTime(14, now, 0.015);
+        this.humNotchHarmonic2.frequency.setTargetAtTime(180, now, 0.015);
+        this.humNotchHarmonic2.Q.setTargetAtTime(14, now, 0.015);
+      } else {
+        this.humNotchFundamental.Q.setTargetAtTime(0.001, now, 0.015);
+        this.humNotchHarmonic1.Q.setTargetAtTime(0.001, now, 0.015);
+        this.humNotchHarmonic2.Q.setTargetAtTime(0.001, now, 0.015);
+      }
+    }
+
+    // 31-Band ISO 1/3-Octave Graphic EQ
+    const eq31Config = dsp.graphicEq31;
+    const eq31Active = !dsp.bypassed && (eq31Config?.enabled ?? true);
+    this.eq31Nodes.forEach((node, idx) => {
+      const bandConfig = eq31Config?.bands?.[idx];
+      const gainDb = eq31Active && bandConfig ? bandConfig.gainDb : 0;
+      node.gain.setTargetAtTime(gainDb, now, 0.015);
+    });
+
+    // Active 3-Way Linkwitz-Riley Crossover & Time Alignment
+    const xover = dsp.crossover;
+    const xoverActive = !dsp.bypassed && (xover?.enabled ?? true);
+    if (
+      this.xoverBypassGain &&
+      this.xoverSubLp1 &&
+      this.xoverSubLp2 &&
+      this.xoverSubDelay &&
+      this.xoverSubGain &&
+      this.xoverMidHp &&
+      this.xoverMidLp &&
+      this.xoverMidGain &&
+      this.xoverHighHp1 &&
+      this.xoverHighHp2 &&
+      this.xoverHighDelay &&
+      this.xoverHighGain
+    ) {
+      if (xoverActive && xover) {
+        this.xoverBypassGain.gain.setTargetAtTime(0, now, 0.015);
+
+        const subToMid = Math.min(nyquist, Math.max(40, xover.subToMidHz || 80));
+        const midToHigh = Math.min(nyquist, Math.max(subToMid + 200, xover.midToHighHz || 2500));
+
+        const anySolo = Boolean(xover.sub.solo || xover.mid.solo || xover.high.solo);
+
+        // Subwoofer band (LR-24)
+        this.xoverSubLp1.frequency.setTargetAtTime(subToMid, now, 0.015);
+        this.xoverSubLp2.frequency.setTargetAtTime(subToMid, now, 0.015);
+        const subDelaySec = Math.max(0, Math.min(0.045, (xover.sub.delayMs || 0) / 1000));
+        this.xoverSubDelay.delayTime.setTargetAtTime(subDelaySec, now, 0.015);
+        const subSign = xover.sub.polarityInverted ? -1 : 1;
+        const subLinear = (xover.sub.mute || (anySolo && !xover.sub.solo)) ? 0 : dbToLinear(xover.sub.gainDb || 0) * subSign;
+        this.xoverSubGain.gain.setTargetAtTime(subLinear, now, 0.015);
+
+        // Mid / Vocal band (Band-pass)
+        this.xoverMidHp.frequency.setTargetAtTime(subToMid, now, 0.015);
+        this.xoverMidLp.frequency.setTargetAtTime(midToHigh, now, 0.015);
+        const midSign = xover.mid.polarityInverted ? -1 : 1;
+        const midLinear = (xover.mid.mute || (anySolo && !xover.mid.solo)) ? 0 : dbToLinear(xover.mid.gainDb || 0) * midSign;
+        this.xoverMidGain.gain.setTargetAtTime(midLinear, now, 0.015);
+
+        // High / Horn band (LR-24)
+        this.xoverHighHp1.frequency.setTargetAtTime(midToHigh, now, 0.015);
+        this.xoverHighHp2.frequency.setTargetAtTime(midToHigh, now, 0.015);
+        const highDelaySec = Math.max(0, Math.min(0.02, (xover.high.delayMs || 0) / 1000));
+        this.xoverHighDelay.delayTime.setTargetAtTime(highDelaySec, now, 0.015);
+        const highSign = xover.high.polarityInverted ? -1 : 1;
+        const highLinear = (xover.high.mute || (anySolo && !xover.high.solo)) ? 0 : dbToLinear(xover.high.gainDb || 0) * highSign;
+        this.xoverHighGain.gain.setTargetAtTime(highLinear, now, 0.015);
+      } else {
+        // Crossover bypassed -> send clean full-range audio
+        this.xoverBypassGain.gain.setTargetAtTime(1, now, 0.015);
+        this.xoverSubGain.gain.setTargetAtTime(0, now, 0.015);
+        this.xoverMidGain.gain.setTargetAtTime(0, now, 0.015);
+        this.xoverHighGain.gain.setTargetAtTime(0, now, 0.015);
+      }
     }
   }
 
@@ -929,6 +1197,39 @@ class LiveAudioEngine {
       this.gateGainNode.gain.setTargetAtTime(1, now, 0.015);
     }
 
+    // Adaptive Standby Gate: Zero Standby Hums, Buzzes, and Cable Noise
+    if (this.standbyGateGainNode && this.lastDsp && !this.lastDsp.bypassed) {
+      const standbyCfg = this.lastDsp.cleanStandby;
+      const standbyEnabled = standbyCfg?.standbyGateEnabled ?? true;
+      const thresholdDb = standbyCfg?.standbyGateThresholdDb ?? -56;
+      const holdSec = (standbyCfg?.standbyGateHoldMs ?? 1000) / 1000;
+
+      if (standbyEnabled) {
+        if (preStats.rmsDb < thresholdDb) {
+          this.standbySilenceTimerSec += 0.05;
+          if (this.standbySilenceTimerSec >= holdSec) {
+            this.standbyGateIsClosed = true;
+          }
+        } else if (preStats.rmsDb >= thresholdDb + 1.5) {
+          this.standbySilenceTimerSec = 0;
+          this.standbyGateIsClosed = false;
+        }
+
+        const targetGain = this.standbyGateIsClosed ? 0.00001 : 1.0;
+        this.standbyGateGainNode.gain.setTargetAtTime(
+          targetGain,
+          now,
+          this.standbyGateIsClosed ? 0.08 : 0.005
+        );
+      } else {
+        this.standbyGateIsClosed = false;
+        this.standbyGateGainNode.gain.setTargetAtTime(1.0, now, 0.015);
+      }
+    } else if (this.standbyGateGainNode) {
+      this.standbyGateIsClosed = false;
+      this.standbyGateGainNode.gain.setTargetAtTime(1.0, now, 0.015);
+    }
+
     // Dynamic De-Esser detector & gain cut tracking sibilant band energy
     let deEssCutDb = 0;
     if (this.deEsserNode && this.lastDsp && !this.lastDsp.bypassed && this.lastDsp.deEsser.enabled) {
@@ -1129,4 +1430,17 @@ export function subscribeHardwareChanges(cb: () => void): () => void {
   return () => {
     navigator.mediaDevices.removeEventListener('devicechange', cb);
   };
+}
+
+export async function enumerateAudioOutputs(): Promise<MediaDeviceInfo[]> {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+    return [];
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'audiooutput');
+  } catch (err) {
+    console.warn('enumerateAudioOutputs failed:', err);
+    return [];
+  }
 }

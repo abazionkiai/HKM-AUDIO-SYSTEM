@@ -1,13 +1,17 @@
-import type {
-  AcousticMeasurement,
-  BassDiConfig,
-  DspConfig,
-  HardwareDevice,
-  InputChannel,
-  InstrumentProfile,
-  MicrophoneProfile,
-  ServicePreset,
-  SpeakerZone,
+import {
+  type AcousticMeasurement,
+  type BassDiConfig,
+  type DspConfig,
+  type HardwareDevice,
+  type InputChannel,
+  type InstrumentProfile,
+  type MicrophoneProfile,
+  type ServicePreset,
+  type SpeakerZone,
+  type GraphicEq31Config,
+  type ActiveCrossoverConfig,
+  type CleanStandbyConfig,
+  ISO_31_FREQUENCIES,
 } from '../types/audio.ts';
 
 export const DEFAULT_BASS_DI_CONFIG: BassDiConfig = {
@@ -556,6 +560,50 @@ export const DEFAULT_DSP_CONFIG: DspConfig = {
   polarityInverted: false,
   stereoWidth: 1.0,
   masterDelayMs: 0,
+  graphicEq31: {
+    enabled: true,
+    rangeDb: 12,
+    bands: ISO_31_FREQUENCIES.map((hz) => ({ hz, gainDb: 0 })),
+  },
+  crossover: {
+    enabled: true,
+    subToMidHz: 80,
+    midToHighHz: 2500,
+    slope: 'LR24',
+    sub: {
+      name: 'Subwoofer',
+      enabled: true,
+      gainDb: 0,
+      mute: false,
+      solo: false,
+      polarityInverted: false,
+      delayMs: 0,
+    },
+    mid: {
+      name: 'Mid / Main Vocals',
+      enabled: true,
+      gainDb: 0,
+      mute: false,
+      solo: false,
+      polarityInverted: false,
+      delayMs: 0,
+    },
+    high: {
+      name: 'High / Horns',
+      enabled: true,
+      gainDb: 0,
+      mute: false,
+      solo: false,
+      polarityInverted: false,
+      delayMs: 0,
+    },
+  },
+  cleanStandby: {
+    dcBlockerEnabled: true,
+    mainsHumNotch: '60hz',
+    adaptiveStandbyGate: true,
+    standbyGateThresholdDb: -56,
+  },
 };
 
 export const SERVICE_PRESETS: ServicePreset[] = [

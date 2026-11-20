@@ -25,6 +25,11 @@ import {
   RotaryKnob,
   SegmentedLedMeter,
 } from './StudioControls.tsx';
+import { StereoGraphicEqModule } from './StereoGraphicEqModule.tsx';
+import { ActiveCrossoverModule } from './ActiveCrossoverModule.tsx';
+import { CleanStandbyModule } from './CleanStandbyModule.tsx';
+
+type DspViewTab = 'chain' | 'graphic-eq' | 'crossover' | 'clean-standby';
 
 interface DspEngineModuleProps {
   dsp: DspConfig;
@@ -75,6 +80,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
   const [slotA, setSlotA] = useState<DspConfig | null>(null);
   const [slotB, setSlotB] = useState<DspConfig | null>(null);
   const [activeCompareSlot, setActiveCompareSlot] = useState<'A' | 'B'>('A');
+  const [activeDspTab, setActiveDspTab] = useState<DspViewTab>('chain');
 
   const selectedBand =
     dsp.eqBands.find((b) => b.id === selectedBandId) ?? dsp.eqBands[0];
@@ -356,16 +362,73 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
 
         {/* CENTER (7 cols): CENTRAL DSP PROCESSING CHAIN + MAIN OUTPUTS BRIDGE */}
         <div className="xl:col-span-7 rounded-lg border border-slate-800 bg-[#0B1018] p-3 flex flex-col justify-between gap-3">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-            <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-white">
-              Central DSP Processing Chain
-            </span>
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-2 gap-2">
+            <div className="flex items-center p-0.5 rounded bg-[#070A10] border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setActiveDspTab('chain')}
+                className={`px-2.5 py-1 text-[11px] font-mono font-semibold rounded transition-colors ${
+                  activeDspTab === 'chain'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                1. PEQ &amp; DYNAMICS
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDspTab('graphic-eq')}
+                className={`px-2.5 py-1 text-[11px] font-mono font-semibold rounded transition-colors ${
+                  activeDspTab === 'graphic-eq'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                2. 31-BAND GRAPHIC EQ
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDspTab('crossover')}
+                className={`px-2.5 py-1 text-[11px] font-mono font-semibold rounded transition-colors ${
+                  activeDspTab === 'crossover'
+                    ? 'bg-violet-500/20 text-violet-300 border border-violet-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                3. ACTIVE CROSSOVER
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDspTab('clean-standby')}
+                className={`px-2.5 py-1 text-[11px] font-mono font-semibold rounded transition-colors ${
+                  activeDspTab === 'clean-standby'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                4. ZERO-HUM STANDBY
+              </button>
+            </div>
+
             <span className="font-mono text-[10px] text-emerald-400">
               {validation.valid ? 'SIGNAL PATH CONTINUOUS · GREEN TRACE ACTIVE' : validation.errors[0]}
             </span>
           </div>
 
-          {/* 7 Vertical Connected DSP Columns */}
+          {activeDspTab === 'graphic-eq' && (
+            <StereoGraphicEqModule dsp={dsp} onUpdateDsp={onUpdateDsp} panelLocked={panelLocked} />
+          )}
+
+          {activeDspTab === 'crossover' && (
+            <ActiveCrossoverModule dsp={dsp} onUpdateDsp={onUpdateDsp} panelLocked={panelLocked} />
+          )}
+
+          {activeDspTab === 'clean-standby' && (
+            <CleanStandbyModule dsp={dsp} onUpdateDsp={onUpdateDsp} telemetry={telemetry} panelLocked={panelLocked} />
+          )}
+
+          {activeDspTab === 'chain' && (
+          /* 7 Vertical Connected DSP Columns */
           <div className="relative overflow-x-auto pb-1">
             {/* Neon Green Signal Bus Trace Line across processing blocks */}
             <div
@@ -893,6 +956,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
               </div>
             </div>
           </div>
+          )}
 
           {/* MAIN OUTPUTS HORIZONTAL SEGMENTED LED METER BRIDGE */}
           <div className="rounded border border-slate-800 bg-[#070A10] p-2.5 space-y-2">

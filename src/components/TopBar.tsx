@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AppLogo } from './AppLogo.tsx';
 import {
   Volume2,
   VolumeX,
@@ -50,6 +51,9 @@ interface TopBarProps {
   onTapTempo: () => void;
   onOpenShortcuts: () => void;
   shortcutsArmed: boolean;
+  outputDevices?: MediaDeviceInfo[];
+  activeOutputDeviceId?: string;
+  onSelectOutputDevice?: (deviceId: string) => void;
 }
 
 const THEME_OPTIONS: { id: ConsoleThemeId; label: string }[] = [
@@ -89,6 +93,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onTapTempo,
   onOpenShortcuts,
   shortcutsArmed,
+  outputDevices = [],
+  activeOutputDeviceId = '',
+  onSelectOutputDevice,
 }) => {
   const platformLabel =
     platform === 'windows' ? 'Windows' : platform === 'macos' ? 'macOS' : 'Linux';
@@ -106,8 +113,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="h-14 shrink-0 border-b border-slate-800/90 bg-[#0B0F17] px-4 flex items-center justify-between gap-2.5 overflow-x-auto overflow-y-hidden">
       {/* Zone 1: Brand & Hardware Context */}
-      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-        <div className="w-2 h-6 rounded-xs bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)] shrink-0" />
+      <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
+        <AppLogo className="w-6 h-6 shrink-0 shadow-[0_0_12px_rgba(56,189,248,0.4)]" />
         <span className="font-display font-semibold text-sm tracking-tight text-white whitespace-nowrap shrink-0">
           Church Audio Intelligence
         </span>
@@ -127,11 +134,11 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* Zone 2: Real-Time Audio CPU Monitor, Tap Tempo, Hotkeys, Theme & Signal Source */}
       <div className="flex items-center gap-2 shrink-0">
-        {/* Real-Time Audio Engine CPU & Buffer Underrun Monitor (Fixed Width - Zero Jitter) */}
+        {/* Real-Time Audio Engine DSP & Buffer Underrun Monitor (Fixed Width - Zero Jitter) */}
         <button
           type="button"
           onClick={onOpenDiagnostics}
-          title={`Audio Engine CPU Load: ${audioCpuPct}% · Buffer ${bufferSize} samples @ ${(sampleRate / 1000).toFixed(1)} kHz (${quantumMs} ms quantum) · Underrun Risk: ${underrunRisk.toUpperCase()} (Click to adjust buffer)`}
+          title={`Audio Engine DSP Load: ${audioCpuPct}% · Buffer ${bufferSize} samples @ ${(sampleRate / 1000).toFixed(1)} kHz (${quantumMs} ms quantum) · Underrun Risk: ${underrunRisk.toUpperCase()} · Host OS CPU: <2% (Click for Audio Diagnostics)`}
           className={`h-8 w-[184px] sm:w-[228px] px-2.5 rounded border font-mono text-[11px] flex items-center justify-between gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
             underrunRisk === 'critical'
               ? 'border-red-500/80 bg-red-950/60 text-red-200 shadow-[0_0_12px_rgba(239,68,68,0.35)]'
@@ -151,7 +158,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               />
             )}
             <span className="w-[7.2ch] text-left tabular-nums font-semibold">
-              CPU {audioCpuPct}%
+              DSP {audioCpuPct}%
             </span>
           </span>
 
@@ -257,6 +264,27 @@ export const TopBar: React.FC<TopBarProps> = ({
           </option>
           <option value="pink-noise">Calibration: Pink Noise (-20 dBFS)</option>
         </select>
+
+        {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
+          <div className="hidden xl:flex items-center gap-1.5 h-8 px-2 rounded border border-slate-700 bg-[#121824] shrink-0">
+            <Volume2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <select
+              aria-label="Audio Output Destination"
+              value={activeOutputDeviceId || ''}
+              onChange={(e) => onSelectOutputDevice(e.target.value)}
+              className="bg-transparent text-xs font-mono text-slate-200 focus:outline-none cursor-pointer w-[190px] truncate"
+            >
+              <option value="" className="bg-[#0E131C] text-slate-100">
+                Out: System Default
+              </option>
+              {outputDevices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId} className="bg-[#0E131C] text-slate-100">
+                  Out: {d.label || `Speaker (${d.deviceId.slice(0, 6)})`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Zone 3: Engine Transport & High-Priority Live Safety Controls */}

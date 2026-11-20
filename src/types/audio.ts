@@ -123,6 +123,55 @@ export interface EqBand {
   q: number;
 }
 
+export const ISO_31_FREQUENCIES = [
+  20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+  2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000,
+] as const;
+
+export interface GraphicEq31Band {
+  hz?: number;
+  frequencyHz?: number;
+  index?: number;
+  gainDb: number;
+}
+
+export interface GraphicEq31Config {
+  enabled: boolean;
+  rangeDb: 6 | 12;
+  bands: GraphicEq31Band[];
+}
+
+export interface CrossoverBandConfig {
+  name: string;
+  enabled: boolean;
+  gainDb: number;
+  mute: boolean;
+  solo: boolean;
+  polarityInverted: boolean;
+  delayMs: number;
+}
+
+export interface ActiveCrossoverConfig {
+  enabled: boolean;
+  subToMidHz: number;
+  midToHighHz: number;
+  slope: 'LR24' | 'LR48' | 'BW18';
+  slopeDbPerOct?: number;
+  sub: CrossoverBandConfig;
+  mid: CrossoverBandConfig;
+  high: CrossoverBandConfig;
+}
+
+export interface CleanStandbyConfig {
+  dcBlockerEnabled: boolean;
+  dcBlockerHz?: number;
+  mainsHumNotch: 'off' | '50hz' | '60hz';
+  adaptiveStandbyGate: boolean;
+  standbyGateEnabled?: boolean;
+  standbyGateThresholdDb: number;
+  standbyGateHoldMs?: number;
+}
+
 export interface DspConfig {
   bypassed: boolean;
   inputTrimDb: number;
@@ -157,6 +206,9 @@ export interface DspConfig {
   polarityInverted: boolean;
   stereoWidth: number; // 0 to 1.5 (1 = normal)
   masterDelayMs: number;
+  graphicEq31?: GraphicEq31Config;
+  crossover?: ActiveCrossoverConfig;
+  cleanStandby?: CleanStandbyConfig;
 }
 
 export interface BroadcastDspConfig {

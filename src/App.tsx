@@ -49,6 +49,7 @@ import {
 import {
   liveAudioEngine,
   subscribeHardwareChanges,
+  enumerateAudioOutputs,
   type SpectrumSnapshot,
 } from './audio/liveAudioEngine.ts';
 import { scanBrowserMediaDevices } from './utils/hardwareRecognition.ts';
@@ -227,6 +228,14 @@ export default function App() {
   const [scanningHardware, setScanningHardware] = useState(false);
   const [hotPlugEndpoint, setHotPlugEndpoint] = useState<DetectedHardwareEndpoint | null>(null);
   const [preferredBrowserInputId, setPreferredBrowserInputId] = useState<string | undefined>(undefined);
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [preferredOutputDeviceId, setPreferredOutputDeviceId] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem('church_audio_output_device_id') || '';
+    } catch {
+      return '';
+    }
+  });
   const activeOnBusSignaturesRef = useRef<Set<string>>(new Set());
   const cachedSynthDevicesRef = useRef<HardwareDevice[]>([]);
 
@@ -614,6 +623,32 @@ export default function App() {
     []
   );
 
+  const handleSelectOutputDevice = useCallback(async (deviceId: string) => {
+    setPreferredOutputDeviceId(deviceId);
+    try {
+      window.localStorage.setItem('church_audio_output_device_id', deviceId);
+    } catch {
+      // ignore
+    }
+    await liveAudioEngine.setOutputDevice(deviceId);
+    logAudit('Audio Output Changed', deviceId ? `Target device: ${deviceId}` : 'Default system output', 'operator');
+  }, [logAudit]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshOutputs = () => {
+      enumerateAudioOutputs().then((devs) => {
+        if (active) setOutputDevices(devs);
+      });
+    };
+    refreshOutputs();
+    const unsub = subscribeHardwareChanges(refreshOutputs);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
+
   const updateAndPersistMidiMappings = useCallback((next: MidiMapping[]) => {
     setMidiMappings(next);
     appFetch('/api/midi-mappings', {
@@ -784,7 +819,7 @@ export default function App() {
       }
 
       // Compute realistic audio processing load % from buffer quantum deadline,
-      // active DSP nodes, sustained event-loop scheduling pressure, and sampling cost.
+      // active DSP nodes, event-loop timing pressure, and callback execution time.
       const quantumMs = (bufferSize / Math.max(8000, sampleRate)) * 1000;
       const activeStages =
         (dsp.bypassed
@@ -798,21 +833,25 @@ export default function App() {
             (dsp.limiter.enabled ? 1 : 0)) +
         plugins.filter((p) => p.kind === 'dsp-processor' && p.status === 'active').length;
 
-      const bufferPressure = Math.min(58, (3.2 / Math.max(0.6, quantumMs)) * 22);
-      const dspGraphCost = activeStages * 2.2;
-      const jitterPenalty = Math.min(18, Math.max(0, intervalDelta - 85) * 0.25) + execMs * 2.0;
+      // Realistic DSP engine load: base thread overhead (~3%), buffer deadline pressure, and active DSP node graph
+      const bufferPressure = Math.max(0, (3.0 - quantumMs) * 2.5);
+      const dspGraphCost = activeStages * 0.45;
+      const timingCost = (execMs / Math.max(1, quantumMs)) * 15;
+      const jitterPenalty = Math.min(25, Math.max(0, intervalDelta - 95) * 0.2);
       const rawLoad = Math.min(
         98,
-        Math.max(8, Math.round(10 + bufferPressure + dspGraphCost + jitterPenalty))
+        Math.max(4, Math.round(3 + bufferPressure + dspGraphCost + timingCost + jitterPenalty))
       );
 
       setAudioCpuPct((prev) => {
-        const smoothed = Math.round((prev === 0 ? rawLoad : prev * 0.86 + rawLoad * 0.14));
+        const smoothed = Math.round((prev === 0 ? rawLoad : prev * 0.82 + rawLoad * 0.18));
         return smoothed === prev ? prev : smoothed;
       });
 
-      const isCriticalFrame = rawLoad >= 85 || snap.telemetry.clippingEvents > 2;
-      const isElevatedFrame = rawLoad >= 65 || intervalDelta > 125;
+      // Buffer underrun (XRUN) happens when audio processing callback misses the deadline
+      // or the main event loop delays the audio tick significantly
+      const isCriticalFrame = rawLoad >= 85 || intervalDelta > 175 || execMs > quantumMs * 0.85;
+      const isElevatedFrame = rawLoad >= 65 || intervalDelta > 120 || execMs > quantumMs * 0.6;
 
       xrunStreakRef.current.critical = isCriticalFrame
         ? Math.min(10, xrunStreakRef.current.critical + 1)
@@ -822,9 +861,9 @@ export default function App() {
         : Math.max(0, xrunStreakRef.current.elevated - 1);
 
       const nextRisk: 'low' | 'elevated' | 'critical' =
-        xrunStreakRef.current.critical >= 4 || snap.telemetry.clippingEvents > 2
+        xrunStreakRef.current.critical >= 4
           ? 'critical'
-          : xrunStreakRef.current.elevated >= 5
+          : xrunStreakRef.current.elevated >= 4
             ? 'elevated'
             : 'low';
 
@@ -1290,6 +1329,9 @@ export default function App() {
 
       if (ep.browserDeviceId) {
         setPreferredBrowserInputId(ep.browserDeviceId);
+        if (/speaker|headphone|earphone|line out|cable in/i.test(ep.name)) {
+          void handleSelectOutputDevice(ep.browserDeviceId);
+        }
       }
       setHotPlugEndpoint(null);
       await handleSelectDevice(targetDevice, ep.recommendedDriver);
@@ -1788,6 +1830,9 @@ export default function App() {
         onTapTempo={() => executeShortcutAction('tap-tempo', 'CLICK')}
         onOpenShortcuts={() => setShowShortcutsModal(true)}
         shortcutsArmed={shortcutsGlobalEnabled}
+        outputDevices={outputDevices}
+        activeOutputDeviceId={preferredOutputDeviceId}
+        onSelectOutputDevice={handleSelectOutputDevice}
       />
 
       {(emergencyMuted || dsp.bypassed) && (

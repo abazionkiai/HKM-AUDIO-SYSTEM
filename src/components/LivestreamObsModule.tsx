@@ -1,5 +1,17 @@
-import React, { useState } from 'react';
-import { Radio, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Radio,
+  AlertTriangle,
+  CheckCircle2,
+  RefreshCw,
+  Settings2,
+  Key,
+  Eye,
+  EyeOff,
+  X,
+  Info,
+  Tv,
+} from 'lucide-react';
 import type {
   BroadcastDspConfig,
   HardwareDevice,
@@ -12,6 +24,7 @@ import {
   RotaryKnob,
   SegmentedLedMeter,
 } from './StudioControls.tsx';
+import { obsWsService, type ObsConnectionState } from '../services/obsWebSocket.ts';
 
 interface LivestreamObsModuleProps {
   broadcastDsp: BroadcastDspConfig;
@@ -30,10 +43,43 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   telemetry,
   device,
 }) => {
-  const [obsProbeError, setObsProbeError] = useState<string | null>(null);
+  const [obsState, setObsState] = useState<ObsConnectionState>(() => obsWsService.getState());
   const [speechStemDb, setSpeechStemDb] = useState<number>(0);
   const [bandStemDb, setBandStemDb] = useState<number>(-2.5);
   const [roomAmbiencePct, setRoomAmbiencePct] = useState<number>(18);
+
+  // Settings & Banner Controls
+  const [showSettings, setShowSettings] = useState(false);
+  const [wsUrl, setWsUrl] = useState(() => obsWsService.getConfig().url);
+  const [wsPassword, setWsPassword] = useState(() => obsWsService.getConfig().password);
+  const [showPassword, setShowPassword] = useState(false);
+  const [dismissedStereoNote, setDismissedStereoNote] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('church_audio_stereo_note_dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [dismissedOfflineWarning, setDismissedOfflineWarning] = useState(false);
+
+  // Subscribe to live OBS WebSocket service
+  useEffect(() => {
+    const unsub = obsWsService.subscribe((next) => {
+      setObsState(next);
+      onUpdateObs({
+        connected: next.connected,
+        streaming: next.telemetry.streaming,
+        recording: next.telemetry.recording,
+        bitrateKbps: next.telemetry.bitrateKbps,
+        droppedFrames: next.telemetry.droppedFrames,
+        cpuUsagePct: next.telemetry.cpuUsagePct,
+        activeScene: next.activeScene,
+        scenes: next.scenes,
+        websocketUrl: wsUrl,
+      });
+    });
+    return unsub;
+  }, [onUpdateObs, wsUrl]);
 
   const roomLufs = telemetry.isRunning ? telemetry.estimatedLufs : -70;
   const broadcastLufs = telemetry.isRunning
@@ -43,30 +89,39 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
     ? Number((broadcastLufs - broadcastDsp.targetLufs).toFixed(1))
     : 0;
 
-  const handleToggleObsConnection = () => {
-    setObsProbeError(null);
-    if (obsStatus.connected) {
-      onUpdateObs({ connected: false, streaming: false, bitrateKbps: 0, cpuUsagePct: 0 });
-      return;
+  const handleConnectObs = () => {
+    setDismissedOfflineWarning(false);
+    obsWsService.connect(wsUrl, wsPassword);
+  };
+
+  const handleDisconnectObs = () => {
+    obsWsService.disconnect();
+  };
+
+  const handleToggleStream = async () => {
+    await obsWsService.toggleStream();
+  };
+
+  const handleSceneClick = async (scene: string) => {
+    if (obsState.connected) {
+      await obsWsService.setProgramScene(scene);
+    } else {
+      onUpdateObs({ activeScene: scene });
     }
+  };
+
+  const handleSyncCheck = async () => {
+    if (obsState.connected) {
+      await obsWsService.syncInitialObsState();
+    }
+  };
+
+  const handleDismissStereoNote = () => {
+    setDismissedStereoNote(true);
     try {
-      const ws = new WebSocket(obsStatus.websocketUrl);
-      const timeout = window.setTimeout(() => {
-        ws.close();
-        setObsProbeError(`No OBS WebSocket v5 server responded at ${obsStatus.websocketUrl}. Start OBS Studio with WebSocket Server enabled on port 4455.`);
-      }, 2200);
-      ws.onopen = () => {
-        window.clearTimeout(timeout);
-        onUpdateObs({ connected: true });
-        ws.close();
-      };
-      ws.onerror = () => {
-        window.clearTimeout(timeout);
-        onUpdateObs({ connected: false, streaming: false });
-        setObsProbeError(`Unable to reach OBS Studio at ${obsStatus.websocketUrl}. Verify OBS WebSocket v5 is running locally.`);
-      };
+      window.localStorage.setItem('church_audio_stereo_note_dismissed', 'true');
     } catch {
-      setObsProbeError(`Invalid OBS WebSocket URL: ${obsStatus.websocketUrl}`);
+      // ignore
     }
   };
 
@@ -77,16 +132,34 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
         <div className="flex items-center gap-3">
           <div
             className={`w-2.5 h-8 rounded-xs ${
-              obsStatus.streaming
-                ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.7)]'
-                : 'bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]'
+              obsState.telemetry.streaming
+                ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.8)] animate-pulse'
+                : obsState.connected
+                  ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.7)]'
+                  : 'bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]'
             }`}
           />
           <div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-[11px] font-bold text-sky-400">08</span>
-              <h1 className="font-display text-lg font-semibold text-white tracking-tight">
-                LIVESTREAM BROADCAST &amp; OBS STUDIO CONSOLE
+              <h1 className="font-display text-lg font-semibold text-white tracking-tight flex items-center gap-2">
+                <span>LIVESTREAM BROADCAST &amp; OBS STUDIO CONSOLE</span>
+                {obsState.connected ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    CONNECTED
+                  </span>
+                ) : obsState.connecting ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    CONNECTING...
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-slate-800 border border-slate-700 text-slate-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                    STANDBY
+                  </span>
+                )}
               </h1>
             </div>
             <p className="text-[11px] font-mono text-slate-400">
@@ -98,37 +171,200 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSettings((prev) => !prev)}
+            title="Configure OBS WebSocket Host, Port & Password"
+            className={`h-8 px-2.5 rounded border font-mono text-[11px] flex items-center gap-1.5 transition-colors ${
+              showSettings
+                ? 'border-sky-400 bg-sky-500/20 text-sky-200'
+                : 'border-slate-700 bg-[#121824] text-slate-300 hover:border-slate-500'
+            }`}
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span>WS CONFIG</span>
+          </button>
+
+          {obsState.connected ? (
+            <ConsolePushButton
+              label="DISCONNECT WS"
+              active={true}
+              tone="emerald"
+              onClick={handleDisconnectObs}
+            />
+          ) : (
+            <ConsolePushButton
+              label={obsState.connecting ? 'CONNECTING...' : 'CONNECT OBS WS'}
+              active={false}
+              tone="emerald"
+              onClick={handleConnectObs}
+            />
+          )}
+
           <ConsolePushButton
-            label={obsStatus.connected ? 'OBS WS CONNECTED' : 'CONNECT OBS WS'}
-            active={obsStatus.connected}
-            tone="emerald"
-            onClick={handleToggleObsConnection}
-          />
-          <ConsolePushButton
-            label={obsStatus.streaming ? 'ON AIR · STOP STREAM' : 'GO LIVE (OBS)'}
-            active={obsStatus.streaming}
+            label={obsState.telemetry.streaming ? 'ON AIR · STOP STREAM' : 'GO LIVE (OBS)'}
+            active={obsState.telemetry.streaming}
             tone="red"
-            disabled={!obsStatus.connected}
-            onClick={() => onUpdateObs({ streaming: !obsStatus.streaming })}
+            disabled={!obsState.connected}
+            onClick={handleToggleStream}
           />
         </div>
       </div>
 
-      {obsProbeError && (
-        <div className="p-3 rounded-lg border border-amber-500/35 bg-amber-500/10 text-xs font-mono text-amber-200 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <span>{obsProbeError}</span>
+      {/* Expandable OBS WebSocket Configuration Drawer */}
+      {showSettings && (
+        <div className="p-3.5 rounded-lg border border-slate-700 bg-[#0B0F19] text-xs font-mono space-y-3">
+          <div className="flex items-center justify-between text-slate-300 border-b border-slate-800 pb-2">
+            <span className="font-semibold flex items-center gap-2 text-white">
+              <Radio className="w-4 h-4 text-sky-400" />
+              <span>OBS STUDIO WEBSOCKET V5 CONNECTION SETTINGS</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSettings(false)}
+              className="p-1 text-slate-400 hover:text-slate-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] text-slate-400 mb-1">WebSocket Server URL</label>
+              <input
+                type="text"
+                value={wsUrl}
+                onChange={(e) => {
+                  setWsUrl(e.target.value);
+                  obsWsService.setConfig(e.target.value, wsPassword);
+                }}
+                placeholder="ws://127.0.0.1:4455"
+                className="w-full px-2.5 py-1.5 rounded border border-slate-700 bg-[#141B28] text-white focus:border-sky-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-slate-400 mb-1 flex items-center justify-between">
+                <span>Server Password (SHA-256 Authenticated)</span>
+                <span className="text-[10px] text-slate-500">Auto-detected from OBS</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={wsPassword}
+                  onChange={(e) => {
+                    setWsPassword(e.target.value);
+                    obsWsService.setConfig(wsUrl, e.target.value);
+                  }}
+                  placeholder="Enter OBS WebSocket password"
+                  className="w-full pl-8 pr-8 py-1.5 rounded border border-slate-700 bg-[#141B28] text-white focus:border-sky-500 focus:outline-none"
+                />
+                <Key className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((p) => !p)}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-200"
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[11px] text-slate-400">
+              Protocol: obs-websocket v5 · Port 4455 enabled in OBS Studio settings
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleConnectObs}
+                className="px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs"
+              >
+                Test &amp; Connect Now
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {!device.capabilities.perChannelCapture && (
-        <div className="p-3 rounded-lg border border-amber-500/35 bg-amber-500/10 text-xs text-amber-200 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold font-mono">STEREO BUS NOTE ({device.model}): </span>
-            This mixer exposes a 2-channel USB stereo bus. Broadcast EQ/limiting processes the summed stereo bus; route AUX/GROUP outputs to a 4+ channel interface or digital mixer for separate stream stems.
+      {/* OBS Offline Smart Guidance Card (Dismissible & Actionable) */}
+      {!obsState.connected && !dismissedOfflineWarning && (
+        <div className="p-3.5 rounded-lg border border-slate-800 bg-[#0C101A] text-xs font-mono text-slate-300 flex items-start justify-between gap-3 shadow-md">
+          <div className="flex items-start gap-3">
+            <Tv className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <div className="font-semibold text-white flex items-center gap-2">
+                <span>OBS Studio Standby</span>
+                <span className="text-slate-500 text-[11px]">({wsUrl})</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                OBS WebSocket server v5 is configured on port 4455. Launch OBS Studio on this computer, then click{' '}
+                <button
+                  type="button"
+                  onClick={handleConnectObs}
+                  className="text-sky-400 underline hover:text-sky-300 font-semibold inline"
+                >
+                  Connect OBS WS
+                </button>{' '}
+                to sync live program scenes, stream controls, and dropped frames.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleConnectObs}
+              className="px-2.5 py-1 rounded border border-sky-500/50 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20 text-[11px]"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedOfflineWarning(true)}
+              className="p-1 text-slate-500 hover:text-slate-300"
+              title="Dismiss note"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
+      )}
+
+      {/* Stereo Bus Advisory Card (Dismissible & Clean) */}
+      {!device.capabilities.perChannelCapture && (
+        dismissedStereoNote ? (
+          <div className="flex items-center justify-between px-3 py-1.5 rounded border border-slate-800 bg-[#0A0E16] text-[11px] font-mono text-slate-400">
+            <span className="flex items-center gap-2">
+              <Info className="w-3.5 h-3.5 text-sky-400" />
+              <span>Stereo Bus Mode: Summed 2-Ch USB ({device.model})</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setDismissedStereoNote(false)}
+              className="text-sky-400 hover:underline"
+            >
+              View Routing Note
+            </button>
+          </div>
+        ) : (
+          <div className="p-3 rounded-lg border border-slate-800 bg-[#0E131E] text-xs text-slate-300 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <div className="text-[11px] leading-relaxed">
+                <span className="font-semibold font-mono text-white">ROUTING ADVISORY ({device.model}): </span>
+                This mixer exposes a 2-channel USB stereo bus. Broadcast EQ/limiting processes the summed stereo bus; route AUX/GROUP outputs to a 4+ channel interface or digital mixer for separate stream stems.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleDismissStereoNote}
+              className="px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-[10px] font-mono text-slate-300 hover:text-white hover:bg-slate-700 shrink-0"
+              title="Acknowledge note"
+            >
+              Acknowledge
+            </button>
+          </div>
+        )
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
@@ -331,20 +567,32 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
               <Radio className="w-4 h-4 text-sky-400" />
               <span>OBS Studio v5 WebSocket Switcher</span>
             </span>
-            <span className="font-mono text-[11px] text-slate-400">{obsStatus.websocketUrl}</span>
+            <span className="font-mono text-[11px] text-slate-400 flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${obsState.connected ? 'bg-emerald-400 shadow-[0_0_6px_#10B981]' : 'bg-slate-600'}`} />
+              <span>{wsUrl}</span>
+            </span>
           </div>
 
           <div className="space-y-2">
-            <div className="font-mono text-[10px] text-slate-400 uppercase">Program Scene Pads</div>
+            <div className="flex items-center justify-between">
+              <div className="font-mono text-[10px] text-slate-400 uppercase">
+                Program Scene Pads {obsState.connected ? '(Live OBS Synced)' : '(Local Mode)'}
+              </div>
+              {obsState.connected && (
+                <span className="font-mono text-[10px] text-sky-400">
+                  Active: {obsState.activeScene}
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2.5">
-              {obsStatus.scenes.map((scene) => {
-                const active = obsStatus.activeScene === scene;
+              {obsState.scenes.map((scene) => {
+                const active = obsState.activeScene === scene;
                 return (
                   <button
                     key={scene}
                     type="button"
-                    onClick={() => onUpdateObs({ activeScene: scene })}
-                    className={`px-3 py-2.5 rounded border font-mono text-xs text-left transition-all flex items-center justify-between ${
+                    onClick={() => handleSceneClick(scene)}
+                    className={`px-3 py-2.5 rounded border font-mono text-xs text-left transition-all flex items-center justify-between cursor-pointer ${
                       active
                         ? 'border-sky-400 bg-sky-500/20 text-white shadow-[0_0_12px_rgba(56,189,248,0.25)]'
                         : 'border-slate-800 bg-[#090D14] text-slate-400 hover:border-slate-600 hover:text-slate-200'
@@ -399,17 +647,19 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
             <div>
               <div className="text-[10px] text-slate-500">BITRATE</div>
               <div className="text-slate-100 tabular-nums">
-                {obsStatus.streaming ? `${obsStatus.bitrateKbps} kbps` : 'IDLE'}
+                {obsState.telemetry.streaming ? `${obsState.telemetry.bitrateKbps} kbps` : 'IDLE'}
               </div>
             </div>
             <div>
               <div className="text-[10px] text-slate-500">DROPPED</div>
-              <div className="text-emerald-400 tabular-nums">{obsStatus.droppedFrames} frames</div>
+              <div className="text-emerald-400 tabular-nums">
+                {obsState.telemetry.droppedFrames} frames
+              </div>
             </div>
             <div className="flex justify-end">
               <button
                 type="button"
-                onClick={() => onUpdateObs({ syncWarning: false })}
+                onClick={handleSyncCheck}
                 className="px-2.5 py-1.5 rounded border border-slate-700 bg-[#121824] text-[11px] text-slate-200 hover:border-sky-500/50 flex items-center gap-1"
               >
                 <RefreshCw className="w-3 h-3 text-sky-400" />

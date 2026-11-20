@@ -10,7 +10,7 @@ interface RotaryKnobProps {
   defaultValue?: number;
   unit?: string;
   size?: number;
-  accent?: 'sky' | 'emerald' | 'amber' | 'red';
+  accent?: 'sky' | 'emerald' | 'amber' | 'red' | 'fuchsia';
   disabled?: boolean;
   formatValue?: (val: number) => string;
   onChange: (next: number) => void;
@@ -21,6 +21,7 @@ const ACCENT_COLORS = {
   emerald: { stroke: '#10B981', glow: 'rgba(16,185,129,0.45)', text: 'text-emerald-400' },
   amber: { stroke: '#F59E0B', glow: 'rgba(245,158,11,0.45)', text: 'text-amber-400' },
   red: { stroke: '#EF4444', glow: 'rgba(239,68,68,0.45)', text: 'text-red-400' },
+  fuchsia: { stroke: '#D946EF', glow: 'rgba(217,70,239,0.45)', text: 'text-fuchsia-400' },
 };
 
 export const RotaryKnob: React.FC<RotaryKnobProps> = ({
@@ -419,7 +420,7 @@ export const SegmentedLedMeter: React.FC<SegmentedLedMeterProps> = ({
 interface ConsolePushButtonProps {
   label: string;
   active: boolean;
-  tone?: 'red' | 'amber' | 'emerald' | 'sky';
+  tone?: 'red' | 'amber' | 'emerald' | 'sky' | 'fuchsia';
   disabled?: boolean;
   onClick: () => void;
 }
@@ -438,7 +439,9 @@ export const ConsolePushButton: React.FC<ConsolePushButtonProps> = ({
         ? 'bg-amber-500 border-amber-300 text-slate-950 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
         : tone === 'emerald'
           ? 'bg-emerald-500/90 border-emerald-300 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.4)]'
-          : 'bg-sky-500 border-sky-300 text-slate-950 shadow-[0_0_10px_rgba(56,189,248,0.4)]';
+          : tone === 'fuchsia'
+            ? 'bg-fuchsia-600/90 border-fuchsia-400 text-white shadow-[0_0_10px_rgba(217,70,239,0.45)]'
+            : 'bg-sky-500 border-sky-300 text-slate-950 shadow-[0_0_10px_rgba(56,189,248,0.4)]';
 
   return (
     <button
