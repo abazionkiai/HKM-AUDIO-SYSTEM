@@ -76,12 +76,12 @@ export const CleanStandbyModule: React.FC<CleanStandbyModuleProps> = ({
               1. Adaptive Standby Gate
             </span>
             <span className="font-mono text-[10px] text-slate-400">
-              {standby.standbyGateEnabled ? 'ENABLED' : 'DISABLED'}
+              {standby.adaptiveStandbyGate || standby.standbyGateEnabled ? 'ENABLED' : 'DISABLED'}
             </span>
           </div>
 
           <p className="text-xs text-slate-300 leading-relaxed">
-            Eliminates quiescent amplifier hiss and cable idle hum when audio stops. After silence persists for {standby.standbyGateHoldMs} ms, output drops smoothly to complete silence (-96 dB) and snaps active in 5 ms when speech or music begins.
+            Eliminates quiescent amplifier hiss and cable idle hum when audio stops. After silence persists for {standby.standbyGateHoldMs ?? 1000} ms, output drops smoothly to complete silence (-96 dB) and snaps active in 5 ms when speech or music begins.
           </p>
 
           <div className="flex items-center justify-around py-2">
@@ -112,10 +112,13 @@ export const CleanStandbyModule: React.FC<CleanStandbyModuleProps> = ({
           </div>
 
           <ConsolePushButton
-            label={standby.standbyGateEnabled ? 'STANDBY GATE: ACTIVE' : 'STANDBY GATE: OFF'}
-            active={Boolean(standby.standbyGateEnabled)}
+            label={standby.adaptiveStandbyGate || standby.standbyGateEnabled ? 'STANDBY GATE: ACTIVE' : 'STANDBY GATE: OFF'}
+            active={Boolean(standby.adaptiveStandbyGate || standby.standbyGateEnabled)}
             tone="emerald"
-            onClick={() => updateStandby({ standbyGateEnabled: !standby.standbyGateEnabled })}
+            onClick={() => {
+              const next = !(standby.adaptiveStandbyGate || standby.standbyGateEnabled);
+              updateStandby({ adaptiveStandbyGate: next, standbyGateEnabled: next });
+            }}
           />
         </div>
 

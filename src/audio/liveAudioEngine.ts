@@ -1200,7 +1200,9 @@ class LiveAudioEngine {
     // Adaptive Standby Gate: Zero Standby Hums, Buzzes, and Cable Noise
     if (this.standbyGateGainNode && this.lastDsp && !this.lastDsp.bypassed) {
       const standbyCfg = this.lastDsp.cleanStandby;
-      const standbyEnabled = standbyCfg?.standbyGateEnabled ?? true;
+      const standbyEnabled = standbyCfg
+        ? ((standbyCfg.standbyGateEnabled ?? standbyCfg.adaptiveStandbyGate) !== false)
+        : true;
       const thresholdDb = standbyCfg?.standbyGateThresholdDb ?? -56;
       const holdSec = (standbyCfg?.standbyGateHoldMs ?? 1000) / 1000;
 

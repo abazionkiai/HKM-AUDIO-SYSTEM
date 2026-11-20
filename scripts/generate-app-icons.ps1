@@ -1,4 +1,4 @@
-﻿Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Drawing
 
 $size = 512
 $bmp = New-Object System.Drawing.Bitmap $size, $size

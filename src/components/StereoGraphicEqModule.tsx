@@ -151,7 +151,8 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
     });
   };
 
-  const formatFreqLabel = (hz: number) => {
+  const formatFreqLabel = (hz?: number) => {
+    if (!hz) return '1k';
     if (hz >= 1000) {
       return `${(hz / 1000).toString().replace('.0', '')}k`;
     }
