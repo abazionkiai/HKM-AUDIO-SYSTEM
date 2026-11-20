@@ -10,3 +10,5 @@ coverage/
 # Runtime SQLite persistence
 .data/*.sqlite*
 .data/*.json
+src-tauri/target/
+src-tauri/gen/

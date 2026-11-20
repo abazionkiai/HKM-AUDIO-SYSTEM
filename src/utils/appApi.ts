@@ -13,13 +13,17 @@ declare global {
   }
 }
 
+export function isDesktopApp(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.__TAURI__?.core?.invoke);
+}
+
 /** Uses the native, allowlisted state API in Tauri and the Express API on web. */
 export async function appFetch(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  const invoke = typeof window === 'undefined' ? undefined : window.__TAURI__?.core?.invoke;
-  if (!invoke) return fetch(input, init);
+  const core = typeof window === 'undefined' ? undefined : window.__TAURI__?.core;
+  if (!core?.invoke) return fetch(input, init);
 
   const requestUrl = input instanceof Request ? input.url : input.toString();
   const url = new URL(requestUrl, window.location.href);
@@ -38,7 +42,7 @@ export async function appFetch(
   }
 
   try {
-    const result = await invoke<DesktopApiResponse>('desktop_api_request', {
+    const result = await core.invoke<DesktopApiResponse>('desktop_api_request', {
       method,
       path: url.pathname,
       body,

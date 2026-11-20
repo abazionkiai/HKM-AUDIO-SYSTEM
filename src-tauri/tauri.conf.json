@@ -19,15 +19,26 @@
         "height": 1000,
         "minWidth": 1120,
         "minHeight": 720,
-        "resizable": true
+        "resizable": true,
+        "create": false
       }
     ],
     "security": {
+      "devCsp": {
+        "default-src": "'self'",
+        "base-uri": "'self'",
+        "object-src": "'none'",
+        "connect-src": ["'self'", "ipc:", "http://ipc.localhost", "ws://127.0.0.1:3000", "ws://localhost:3000"],
+        "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
+        "img-src": ["'self'", "asset:", "http://asset.localhost", "data:", "blob:"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        "script-src": "'self'"
+      },
       "csp": {
         "default-src": "'self'",
         "base-uri": "'self'",
         "object-src": "'none'",
-        "connect-src": ["'self'", "ipc:", "http://ipc.localhost"],
+        "connect-src": ["'self'", "ipc:", "http://ipc.localhost", "ws://127.0.0.1:4455"],
         "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
         "img-src": ["'self'", "asset:", "http://asset.localhost", "data:", "blob:"],
         "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
@@ -38,7 +49,8 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
-    "category": "Multimedia",
+    "category": "Music",
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "shortDescription": "Church audio control and signal analysis"
   }
 }

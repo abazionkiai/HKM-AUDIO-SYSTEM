@@ -83,7 +83,7 @@ import {
   isEditableEventTarget,
   normalizeKeyEvent,
 } from './utils/keyboardShortcuts.ts';
-import { appFetch } from './utils/appApi.ts';
+import { appFetch, isDesktopApp } from './utils/appApi.ts';
 
 const INITIAL_TELEMETRY: SignalTelemetry = {
   source: 'live-mic',
@@ -117,6 +117,7 @@ const INITIAL_SPECTRUM: SpectrumSnapshot = {
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
+    if (isDesktopApp()) return null;
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get('mode') === 'remote') {
@@ -324,7 +325,9 @@ export default function App() {
 
     Promise.allSettled([
       appFetch('/api/state').then((r) => (r.ok ? r.json() : null)),
-      appFetch('/api/remote/session').then((r) => (r.ok ? r.json() : null)),
+      isDesktopApp()
+        ? Promise.resolve(null)
+        : appFetch('/api/remote/session').then((r) => (r.ok ? r.json() : null)),
     ])
       .then(([stateRes, remoteRes]) => {
         if (!active) return;
@@ -401,7 +404,7 @@ export default function App() {
 
   // Persistent Desktop WebSocket Link for Real-Time Sync with Linked Mobile Companions
   useEffect(() => {
-    if (remoteCompanionToken) return;
+    if (isDesktopApp() || remoteCompanionToken) return;
     let closedByEffect = false;
     let reconnectTimer: number | null = null;
 
@@ -485,7 +488,7 @@ export default function App() {
     }
 
     const timer = window.setTimeout(() => {
-      fetch('/api/state/sync', {
+      appFetch('/api/state/sync', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1033,7 +1036,7 @@ export default function App() {
 
   const handleUpdateRemoteAccess = useCallback((patch: Partial<RemoteAccessConfig>) => {
     setRemoteAccess((prev) => ({ ...prev, ...patch }));
-    fetch('/api/remote/session', {
+    appFetch('/api/remote/session', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
@@ -1046,7 +1049,7 @@ export default function App() {
   }, []);
 
   const handleRotateRemoteToken = useCallback(() => {
-    fetch('/api/remote/rotate-token', { method: 'POST' })
+    appFetch('/api/remote/rotate-token', { method: 'POST' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.remoteAccess) {
@@ -1058,7 +1061,7 @@ export default function App() {
   }, []);
 
   const handleDisconnectRemoteClient = useCallback((clientId: string) => {
-    fetch(`/api/remote/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' })
+    appFetch(`/api/remote/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (Array.isArray(data?.clients)) setRemoteClients(data.clients);
@@ -1100,7 +1103,7 @@ export default function App() {
     async (dev: HardwareDevice, overrideDriver?: DriverBackend) => {
       // 1. Persist the current device's mix profile before switching away
       if (activeDevice.id !== dev.id) {
-        fetch(`/api/hardware/profiles/${encodeURIComponent(activeDevice.id)}`, {
+        appFetch(`/api/hardware/profiles/${encodeURIComponent(activeDevice.id)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1125,7 +1128,7 @@ export default function App() {
 
       // 2. Recall per-device mix profile from SQLite if previously used
       try {
-        const res = await fetch(`/api/hardware/profiles/${encodeURIComponent(dev.id)}`);
+        const res = await appFetch(`/api/hardware/profiles/${encodeURIComponent(dev.id)}`);
         const data = res.ok ? await res.json() : null;
         if (data?.profile && Array.isArray(data.profile.channels) && data.profile.channels.length > 0) {
           setChannels(data.profile.channels);
@@ -1180,7 +1183,7 @@ export default function App() {
         }
 
         const [serverRes, browserEndpoints] = await Promise.all([
-          fetch('/api/hardware/scan')
+          appFetch('/api/hardware/scan')
             .then((r) => (r.ok ? r.json() : { endpoints: [] }))
             .catch(() => ({ endpoints: [] })),
           scanBrowserMediaDevices(platform),
@@ -2079,6 +2082,7 @@ export default function App() {
           ) : (
             <HardwareDiagnosticsModule
               devices={devices}
+              desktopBuild={isDesktopApp()}
               activeDevice={activeDevice}
               onSelectDevice={handleSelectDevice}
               platform={platform}

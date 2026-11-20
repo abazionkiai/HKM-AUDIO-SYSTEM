@@ -1,10 +1,18 @@
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
-use std::{fs, io::Write, path::PathBuf};
-use tauri::{AppHandle, Manager};
+use std::{fs, io::Write, path::PathBuf, sync::Mutex};
+use tauri::{
+    webview::{PermissionKind, PermissionResponse, WebviewWindowBuilder},
+    AppHandle, Manager, State,
+};
 
 const MAX_STATE_BYTES: usize = 10 * 1024 * 1024;
+
+#[derive(Default)]
+struct DesktopState {
+    state_lock: Mutex<()>,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +51,9 @@ fn initial_state() -> Value {
             "venueName": "Main Campus",
             "roomName": "Primary Sanctuary (650 Seats)",
             "targetPlatform": "windows",
+            "driver": "ASIO",
+            "sampleRate": 48000,
+            "bufferSize": 128,
             "activeDeviceId": "yamaha-mg16xu"
         },
         "versions": [],
@@ -57,7 +68,8 @@ fn initial_state() -> Value {
         }],
         "midiMappings": [],
         "automationSnapshots": [],
-        "keyboardShortcuts": []
+        "keyboardShortcuts": [],
+        "deviceProfiles": {}
     })
 }
 
@@ -99,7 +111,10 @@ fn write_state(path: &PathBuf, state: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn as_object_mut<'a>(value: &'a mut Value, label: &str) -> Result<&'a mut Map<String, Value>, String> {
+fn as_object_mut<'a>(
+    value: &'a mut Value,
+    label: &str,
+) -> Result<&'a mut Map<String, Value>, String> {
     value
         .as_object_mut()
         .ok_or_else(|| format!("{label} must be a JSON object."))
@@ -144,6 +159,27 @@ fn api_request_inner(
     let mut state = read_state(&state_file)?;
     let response = match (method, path) {
         ("GET", "/api/state") => return Ok(ApiResponse::success(state)),
+        ("PUT", "/api/state/sync") => {
+            let snapshot = body_object(body, "State snapshot")?;
+            for key in [
+                "venue",
+                "channels",
+                "dsp",
+                "activePresetId",
+                "broadcastDsp",
+                "zones",
+                "obsStatus",
+                "measurement",
+                "bassDi",
+                "emergencyMuted",
+                "findings",
+            ] {
+                if let Some(value) = snapshot.get(key) {
+                    state[key] = value.clone();
+                }
+            }
+            json!({ "ok": true })
+        }
         ("POST", "/api/venue") => {
             let patch = body_object(body, "Venue payload")?;
             let object = as_object_mut(&mut state["venue"], "Venue state")?;
@@ -193,8 +229,12 @@ fn api_request_inner(
         }
         ("POST", "/api/audit") => {
             let mut event = body_object(body, "Audit event")?;
-            event.entry("id".to_string()).or_insert_with(|| json!(format!("evt-{}", Utc::now().timestamp_millis())));
-            event.entry("timestamp".to_string()).or_insert_with(|| json!(Utc::now().to_rfc3339()));
+            event
+                .entry("id".to_string())
+                .or_insert_with(|| json!(format!("evt-{}", Utc::now().timestamp_millis())));
+            event
+                .entry("timestamp".to_string())
+                .or_insert_with(|| json!(Utc::now().to_rfc3339()));
             let events = state_array_mut(&mut state, "auditEvents")?;
             events.insert(0, Value::Object(event));
             events.truncate(100);
@@ -220,14 +260,58 @@ fn api_request_inner(
             let snapshot = body
                 .and_then(|value| value.get("snapshot").cloned().or(Some(value)))
                 .ok_or_else(|| "Automation snapshot is required.".to_string())?;
-            let id = snapshot.get("id").and_then(Value::as_str).ok_or_else(|| {
-                "Automation snapshot must include a string id.".to_string()
-            })?;
+            let id = snapshot
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Automation snapshot must include a string id.".to_string())?;
             let snapshots = state_array_mut(&mut state, "automationSnapshots")?;
             snapshots.retain(|item| item.get("id").and_then(Value::as_str) != Some(id));
             snapshots.insert(0, snapshot);
             snapshots.truncate(40);
             json!({ "ok": true, "automationSnapshots": state["automationSnapshots"] })
+        }
+        _ if path.starts_with("/api/hardware/profiles/") => {
+            let device_id = path.trim_start_matches("/api/hardware/profiles/");
+            if device_id.is_empty()
+                || !device_id.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || character == '-' || character == '_'
+                })
+            {
+                return Ok(ApiResponse::failure(400, "Invalid hardware profile id."));
+            }
+            if !state.get("deviceProfiles").is_some_and(Value::is_object) {
+                state["deviceProfiles"] = json!({});
+            }
+            match method {
+                "GET" => json!({
+                    "ok": true,
+                    "profile": state["deviceProfiles"].get(device_id).cloned().unwrap_or(Value::Null)
+                }),
+                "POST" => {
+                    let profile = Value::Object(body_object(body, "Hardware profile")?);
+                    state["deviceProfiles"][device_id] = profile;
+                    json!({ "ok": true, "deviceId": device_id, "updatedAt": Utc::now().to_rfc3339() })
+                }
+                _ => return Ok(ApiResponse::failure(405, "Method not allowed.")),
+            }
+        }
+        ("GET", "/api/hardware/scan") => {
+            return Ok(ApiResponse::failure(
+                501,
+                "Native Windows audio endpoint discovery is not integrated yet; browser-visible devices can still be scanned.",
+            ));
+        }
+        ("GET", "/api/network/interfaces") => {
+            return Ok(ApiResponse::failure(
+                501,
+                "LAN interface discovery is provided by the web companion host, not the desktop shell.",
+            ));
+        }
+        _ if path.starts_with("/api/remote/") => {
+            return Ok(ApiResponse::failure(
+                501,
+                "FOH companion hosting is provided by the web companion host and is not enabled in the desktop shell yet.",
+            ));
         }
         _ if path.starts_with("/api/automations/") => {
             let id = path.trim_start_matches("/api/automations/");
@@ -245,7 +329,9 @@ fn api_request_inner(
                         as_object_mut(snapshot, "Automation snapshot")?.extend(patch);
                     }
                 }
-                "DELETE" => snapshots.retain(|item| item.get("id").and_then(Value::as_str) != Some(id)),
+                "DELETE" => {
+                    snapshots.retain(|item| item.get("id").and_then(Value::as_str) != Some(id))
+                }
                 _ => return Ok(ApiResponse::failure(405, "Method not allowed.")),
             }
             json!({ "ok": true, "automationSnapshots": state["automationSnapshots"] })
@@ -260,6 +346,7 @@ fn api_request_inner(
 #[tauri::command]
 fn desktop_api_request(
     app: AppHandle,
+    desktop_state: State<'_, DesktopState>,
     method: String,
     path: String,
     body: Option<Value>,
@@ -272,6 +359,11 @@ fn desktop_api_request(
         return ApiResponse::failure(413, "Request body exceeds the 10 MB desktop limit.");
     }
 
+    let _state_guard = match desktop_state.state_lock.lock() {
+        Ok(guard) => guard,
+        Err(_) => return ApiResponse::failure(500, "Desktop state lock is unavailable."),
+    };
+
     match api_request_inner(&app, &method.to_ascii_uppercase(), &path, body) {
         Ok(response) => response,
         Err(error) => ApiResponse::failure(500, error),
@@ -280,6 +372,17 @@ fn desktop_api_request(
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(DesktopState::default())
+        .setup(|app| {
+            let window_config = &app.config().app.windows[0];
+            WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                .on_permission_request(|_, kind| match kind {
+                    PermissionKind::Microphone | PermissionKind::Midi => PermissionResponse::Allow,
+                    _ => PermissionResponse::Default,
+                })
+                .build()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![desktop_api_request])
         .run(tauri::generate_context!())
         .expect("failed to run Church Audio Intelligence desktop application");

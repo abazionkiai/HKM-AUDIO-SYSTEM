@@ -11,6 +11,15 @@ npm run desktop:dev
 npm run desktop:build:windows
 ```
 
+## Local build checkpoint (2026-11-20)
+
+The optimized Windows build produced both installer formats under `src-tauri/target/release/bundle/`:
+
+- MSI: `msi/Church Audio Intelligence_0.1.0_x64_en-US.msi`
+- NSIS: `nsis/Church Audio Intelligence_0.1.0_x64-setup.exe`
+
+The installers are unsigned and have not been installed on a clean machine. The frontend build succeeded; Vite reports the main JavaScript chunk at about 826 KB, above its 500 KB warning threshold.
+
 ## Shipment status
 
 This is the desktop foundation, not a release candidate. The desktop build does not yet include the native ASIO/WASAPI/CamillaDSP audio engine, real OBS control, or a secure AI provider setup. AI actions return an explicit unavailable response in the desktop build. Installer signing, update delivery, hardware qualification, and clean-machine installation checks are still required before distribution.

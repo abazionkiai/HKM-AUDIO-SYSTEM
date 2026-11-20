@@ -43,6 +43,7 @@ import { ArcGauge, ConsolePushButton } from './StudioControls.tsx';
 
 interface HardwareDiagnosticsModuleProps {
   devices: HardwareDevice[];
+  desktopBuild?: boolean;
   activeDevice: HardwareDevice;
   onSelectDevice: (device: HardwareDevice) => void;
   platform: PlatformTarget;
@@ -120,6 +121,7 @@ const PLATFORM_SPECS: Record<
 
 export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps> = ({
   devices,
+  desktopBuild = false,
   activeDevice,
   onSelectDevice,
   platform,
@@ -236,7 +238,9 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
               System Diagnostics, Hardware Adapters &amp; Remote Access
             </h1>
             <p className="text-[11px] font-mono text-slate-400">
-              Tier 1–4 Mixers &amp; Interfaces · QR Mobile FOH Control · Hot-Loadable Plugins · Windows / macOS / Linux
+              {desktopBuild
+                ? 'Windows desktop foundation · Browser-visible devices · Native audio adapters in progress'
+                : 'Tier 1–4 Mixers &amp; Interfaces · QR Mobile FOH Control · Hot-Loadable Plugins · Windows / macOS / Linux'}
             </p>
           </div>
         </div>
@@ -252,7 +256,7 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
             { id: 'plugins', label: `PLUGINS (${plugins.length})`, icon: Puzzle },
             { id: 'crossplatform', label: 'OS & DRIVERS', icon: Layers },
             { id: 'watchdog', label: 'WATCHDOG', icon: ShieldAlert },
-          ].map((item) => {
+          ].filter((item) => !desktopBuild || item.id !== 'remote').map((item) => {
             const Icon = item.icon;
             return (
               <button
