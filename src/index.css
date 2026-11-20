@@ -1,0 +1,794 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-sans: 'DM Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+    /* Default Theme Tokens (Midnight Studio) */
+    --theme-chassis: #070b13;
+    --theme-chrome: #0b101b;
+    --theme-chrome-deep: #080c15;
+    --theme-panel: #0e1524;
+    --theme-panel-alt: #111a2d;
+    --theme-control: #162138;
+    --theme-well: #050810;
+    --theme-border: #1f2d47;
+    --theme-border-strong: #2d4063;
+    --theme-accent: #38bdf8;
+    --theme-accent-strong: #0284c7;
+    --theme-accent-soft: rgba(56, 189, 248, 0.16);
+    --theme-accent-glow: rgba(56, 189, 248, 0.45);
+    --theme-heading: #f8fafc;
+    --theme-text: #e2e8f0;
+    --theme-muted: #94a3b8;
+    --theme-ambient: radial-gradient(circle at 18% 0%, rgba(56, 189, 248, 0.08), transparent 46%),
+      radial-gradient(circle at 86% 100%, rgba(14, 165, 233, 0.06), transparent 42%);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--theme-chassis);
+    color: var(--theme-text);
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono, code, pre, .tabular-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Smooth chrome theme transitions */
+body,
+header,
+aside,
+main {
+  transition: background-color 220ms ease, border-color 220ms ease, color 180ms ease;
+}
+
+/* ============================================================================
+   Clean Hardware-Accelerated Button Animations (Best Practices)
+   ============================================================================ */
+button:not(:disabled) {
+  cursor: pointer;
+  transition:
+    transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 170ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 150ms ease;
+  will-change: transform;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-0.5px);
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97) translateY(0.5px);
+  transition-duration: 65ms;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--theme-accent, #38bdf8);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Tactile console illuminated switch micro-interaction */
+.console-push-btn {
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.console-push-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 28%, rgba(255, 255, 255, 0.16) 50%, transparent 72%);
+  transform: translateX(-115%);
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.console-push-btn:not(:disabled):hover::after {
+  transform: translateX(115%);
+}
+
+.console-push-btn[data-active='true']:not(:disabled):active {
+  transform: scale(0.96) translateY(0.5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  header,
+  aside,
+  main,
+  button:not(:disabled),
+  .console-push-btn::after {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  button:not(:disabled):hover,
+  button:not(:disabled):active {
+    transform: none !important;
+  }
+}
+
+/* Custom hairline scrollbars for studio consoles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* Precision fader range styling */
+input[type="range"].studio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].studio-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(148, 163, 184, 0.28);
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--theme-accent, #0ea5e9);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  margin-top: -5px;
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+
+/* ============================================================================
+   Console Surface Color Themes (Full-Spectrum Token & Surface Mapping)
+   ============================================================================ */
+
+/* Theme 1: Midnight Studio (Enhanced Deep Navy Chassis & Ice Cyan Ambient Glow) */
+[data-console-theme="midnight-studio"] main {
+  background-color: var(--theme-chassis);
+  background-image: var(--theme-ambient);
+}
+
+/* Theme 2: Warm Analog Console (Vintage Walnut/Espresso Chassis + Amber VU) */
+[data-console-theme="analog-amber"] {
+  --theme-chassis: #1e130b;
+  --theme-chrome: #28190e;
+  --theme-chrome-deep: #180f08;
+  --theme-panel: #311f12;
+  --theme-panel-alt: #3b2617;
+  --theme-control: #472e1c;
+  --theme-well: #110a05;
+  --theme-border: #5c3c24;
+  --theme-border-strong: #785031;
+  --theme-accent: #f59e0b;
+  --theme-accent-strong: #d97706;
+  --theme-accent-soft: rgba(245, 158, 11, 0.2);
+  --theme-accent-glow: rgba(245, 158, 11, 0.5);
+  --theme-heading: #fef3c7;
+  --theme-text: #f5e6d3;
+  --theme-muted: #d6bfa6;
+  --theme-ambient: radial-gradient(circle at 20% 0%, rgba(245, 158, 11, 0.14), transparent 48%),
+    radial-gradient(circle at 85% 95%, rgba(217, 119, 6, 0.12), transparent 42%);
+}
+
+/* Theme 3: Broadcast Emerald (Deep Spruce/Marine Teal + Phosphor Mint) */
+[data-console-theme="broadcast-emerald"] {
+  --theme-chassis: #041915;
+  --theme-chrome: #08231d;
+  --theme-chrome-deep: #03120f;
+  --theme-panel: #0c2e27;
+  --theme-panel-alt: #103930;
+  --theme-control: #15473c;
+  --theme-well: #020e0b;
+  --theme-border: #1e5c4e;
+  --theme-border-strong: #297a67;
+  --theme-accent: #10b981;
+  --theme-accent-strong: #059669;
+  --theme-accent-soft: rgba(16, 185, 129, 0.2);
+  --theme-accent-glow: rgba(16, 185, 129, 0.5);
+  --theme-heading: #ecfdf5;
+  --theme-text: #d1fae5;
+  --theme-muted: #86c9b2;
+  --theme-ambient: radial-gradient(circle at 22% 0%, rgba(16, 185, 129, 0.14), transparent 48%),
+    radial-gradient(circle at 82% 100%, rgba(20, 184, 166, 0.1), transparent 44%);
+}
+
+/* Theme 4: Sanctuary Indigo (Rich Royal Velvet Indigo + Electric Lavender) */
+[data-console-theme="sanctuary-indigo"] {
+  --theme-chassis: #130e2b;
+  --theme-chrome: #1b143d;
+  --theme-chrome-deep: #0e0a21;
+  --theme-panel: #22194c;
+  --theme-panel-alt: #291f5c;
+  --theme-control: #332770;
+  --theme-well: #0a0718;
+  --theme-border: #463791;
+  --theme-border-strong: #5d4bb8;
+  --theme-accent: #a78bfa;
+  --theme-accent-strong: #7c3aed;
+  --theme-accent-soft: rgba(167, 139, 250, 0.22);
+  --theme-accent-glow: rgba(167, 139, 250, 0.5);
+  --theme-heading: #f5f3ff;
+  --theme-text: #e4ddff;
+  --theme-muted: #b6abdf;
+  --theme-ambient: radial-gradient(circle at 18% 0%, rgba(167, 139, 250, 0.16), transparent 50%),
+    radial-gradient(circle at 86% 95%, rgba(99, 102, 241, 0.14), transparent 45%);
+}
+
+/* Theme 5: Daylight FOH (Crisp Sunlit Architectural Console) */
+[data-console-theme="daylight-foh"] {
+  --theme-chassis: #dce6f2;
+  --theme-chrome: #f4f7fb;
+  --theme-chrome-deep: #e6edf6;
+  --theme-panel: #ffffff;
+  --theme-panel-alt: #f8fafc;
+  --theme-control: #e2e8f0;
+  --theme-well: #0b101b;
+  --theme-border: #cbd5e1;
+  --theme-border-strong: #94a3b8;
+  --theme-accent: #0284c7;
+  --theme-accent-strong: #0369a1;
+  --theme-accent-soft: rgba(2, 132, 199, 0.14);
+  --theme-accent-glow: rgba(2, 132, 199, 0.35);
+  --theme-heading: #0f172a;
+  --theme-text: #1e293b;
+  --theme-muted: #475569;
+  --theme-ambient: radial-gradient(circle at 20% 0%, rgba(2, 132, 199, 0.08), transparent 45%),
+    radial-gradient(circle at 88% 92%, rgba(56, 189, 248, 0.07), transparent 40%);
+}
+
+/* Theme 6: Warm Daylight Sand (Architectural Ivory & Burnished Copper) */
+[data-console-theme="warm-daylight"] {
+  --theme-chassis: #eae2d3;
+  --theme-chrome: #f7f3eb;
+  --theme-chrome-deep: #efe8da;
+  --theme-panel: #fdfbf7;
+  --theme-panel-alt: #f5efe4;
+  --theme-control: #e7decb;
+  --theme-well: #16110d;
+  --theme-border: #d6c8b2;
+  --theme-border-strong: #b49f80;
+  --theme-accent: #d97706;
+  --theme-accent-strong: #b45309;
+  --theme-accent-soft: rgba(217, 119, 6, 0.14);
+  --theme-accent-glow: rgba(217, 119, 6, 0.35);
+  --theme-heading: #1c1917;
+  --theme-text: #292524;
+  --theme-muted: #57534e;
+  --theme-ambient: radial-gradient(circle at 18% 0%, rgba(217, 119, 6, 0.08), transparent 46%),
+    radial-gradient(circle at 86% 94%, rgba(180, 83, 9, 0.06), transparent 42%);
+}
+
+/* ============================================================================
+   Shared Variable-Driven Surface Overrides Across All Non-Default Themes
+   ============================================================================ */
+[data-console-theme]:not([data-console-theme="midnight-studio"]) main {
+  background-color: var(--theme-chassis);
+  background-image: var(--theme-ambient);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#080B10\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#0A0D14\] {
+  background-color: var(--theme-chassis);
+  color: var(--theme-text);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#0B0F17\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#0B1018\] {
+  background-color: var(--theme-chrome);
+  color: var(--theme-text);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#080B11\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#080C13\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#090D14\] {
+  background-color: var(--theme-chrome-deep);
+  color: var(--theme-text);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#0D1119\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#0E131C\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#101622\] {
+  background-color: var(--theme-panel);
+  color: var(--theme-text);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#111723\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#121722\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#121824\] {
+  background-color: var(--theme-panel-alt);
+  color: var(--theme-text);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#121B2B\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#141E2F\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#141F2D\] {
+  background-color: var(--theme-control);
+  color: var(--theme-text);
+}
+
+/* Gradient Panels Across Live Console, DSP Engine & Speaker Management */
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .from-\[\#131924\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .from-\[\#141B27\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .from-\[\#151C28\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .from-\[\#161D29\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .from-\[\#171E2C\] {
+  --tw-gradient-from: var(--theme-panel-alt);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .via-\[\#10151F\] {
+  --tw-gradient-via: var(--theme-panel);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .to-\[\#0B0F17\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .to-\[\#0D121B\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .to-\[\#0E131C\] {
+  --tw-gradient-to: var(--theme-chrome);
+}
+
+/* Recessed Meter / Oscilloscope / Waveform Bays */
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#070A10\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#070A0F\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#05070B\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#05080D\],
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .bg-\[\#030508\] {
+  background-color: var(--theme-well);
+}
+
+/* Borders */
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .border-slate-800,
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .border-slate-800\/90,
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .border-slate-800\/80,
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .border-slate-800\/60 {
+  border-color: var(--theme-border);
+}
+
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .border-slate-700,
+[data-console-theme]:not([data-console-theme="midnight-studio"]) .border-slate-700\/80 {
+  border-color: var(--theme-border-strong);
+}
+
+/* Accent Color Shifts for Studio Themes (Warm Analog, Broadcast Emerald, Sanctuary Indigo) */
+[data-console-theme="analog-amber"] .text-sky-400,
+[data-console-theme="broadcast-emerald"] .text-sky-400,
+[data-console-theme="sanctuary-indigo"] .text-sky-400 {
+  color: var(--theme-accent);
+}
+
+[data-console-theme="analog-amber"] .text-sky-300,
+[data-console-theme="broadcast-emerald"] .text-sky-300,
+[data-console-theme="sanctuary-indigo"] .text-sky-300 {
+  color: var(--theme-heading);
+}
+
+[data-console-theme="analog-amber"] .bg-sky-600,
+[data-console-theme="analog-amber"] .bg-sky-500,
+[data-console-theme="broadcast-emerald"] .bg-sky-600,
+[data-console-theme="broadcast-emerald"] .bg-sky-500,
+[data-console-theme="sanctuary-indigo"] .bg-sky-600,
+[data-console-theme="sanctuary-indigo"] .bg-sky-500 {
+  background-color: var(--theme-accent-strong);
+  color: #ffffff;
+}
+
+[data-console-theme="analog-amber"] .bg-sky-400,
+[data-console-theme="broadcast-emerald"] .bg-sky-400,
+[data-console-theme="sanctuary-indigo"] .bg-sky-400 {
+  background-color: var(--theme-accent);
+}
+
+[data-console-theme="analog-amber"] .bg-sky-500\/15,
+[data-console-theme="analog-amber"] .bg-sky-500\/20,
+[data-console-theme="broadcast-emerald"] .bg-sky-500\/15,
+[data-console-theme="broadcast-emerald"] .bg-sky-500\/20,
+[data-console-theme="sanctuary-indigo"] .bg-sky-500\/15,
+[data-console-theme="sanctuary-indigo"] .bg-sky-500\/20 {
+  background-color: var(--theme-accent-soft);
+}
+
+[data-console-theme="analog-amber"] .border-sky-500\/30,
+[data-console-theme="analog-amber"] .border-sky-500\/40,
+[data-console-theme="analog-amber"] .border-sky-300,
+[data-console-theme="analog-amber"] .border-sky-400,
+[data-console-theme="analog-amber"] .border-sky-400\/60,
+[data-console-theme="broadcast-emerald"] .border-sky-500\/30,
+[data-console-theme="broadcast-emerald"] .border-sky-500\/40,
+[data-console-theme="broadcast-emerald"] .border-sky-300,
+[data-console-theme="broadcast-emerald"] .border-sky-400,
+[data-console-theme="broadcast-emerald"] .border-sky-400\/60,
+[data-console-theme="sanctuary-indigo"] .border-sky-500\/30,
+[data-console-theme="sanctuary-indigo"] .border-sky-500\/40,
+[data-console-theme="sanctuary-indigo"] .border-sky-300,
+[data-console-theme="sanctuary-indigo"] .border-sky-400,
+[data-console-theme="sanctuary-indigo"] .border-sky-400\/60 {
+  border-color: var(--theme-accent);
+}
+
+[data-console-theme="analog-amber"] .hover\:bg-sky-500:hover,
+[data-console-theme="broadcast-emerald"] .hover\:bg-sky-500:hover,
+[data-console-theme="sanctuary-indigo"] .hover\:bg-sky-500:hover {
+  background-color: var(--theme-accent);
+}
+
+[data-console-theme="analog-amber"] .text-white,
+[data-console-theme="broadcast-emerald"] .text-white,
+[data-console-theme="sanctuary-indigo"] .text-white {
+  color: var(--theme-heading);
+}
+
+[data-console-theme="analog-amber"] .text-slate-300,
+[data-console-theme="analog-amber"] .text-slate-400,
+[data-console-theme="broadcast-emerald"] .text-slate-300,
+[data-console-theme="broadcast-emerald"] .text-slate-400,
+[data-console-theme="sanctuary-indigo"] .text-slate-300,
+[data-console-theme="sanctuary-indigo"] .text-slate-400 {
+  color: var(--theme-muted);
+}
+
+/* ============================================================================
+   High-Contrast Light Polarity Rules (Daylight FOH & Warm Daylight Sand)
+   ============================================================================ */
+[data-console-theme="daylight-foh"] .text-white,
+[data-console-theme="daylight-foh"] .text-slate-100,
+[data-console-theme="daylight-foh"] .text-slate-200,
+[data-console-theme="warm-daylight"] .text-white,
+[data-console-theme="warm-daylight"] .text-slate-100,
+[data-console-theme="warm-daylight"] .text-slate-200 {
+  color: var(--theme-heading);
+}
+
+[data-console-theme="daylight-foh"] .text-slate-300,
+[data-console-theme="warm-daylight"] .text-slate-300 {
+  color: var(--theme-text);
+}
+
+[data-console-theme="daylight-foh"] .text-slate-400,
+[data-console-theme="daylight-foh"] .text-slate-500,
+[data-console-theme="warm-daylight"] .text-slate-400,
+[data-console-theme="warm-daylight"] .text-slate-500 {
+  color: var(--theme-muted);
+}
+
+[data-console-theme="daylight-foh"] .text-sky-400,
+[data-console-theme="daylight-foh"] .text-sky-300,
+[data-console-theme="warm-daylight"] .text-sky-400,
+[data-console-theme="warm-daylight"] .text-sky-300 {
+  color: var(--theme-accent-strong);
+}
+
+[data-console-theme="daylight-foh"] .text-emerald-400,
+[data-console-theme="daylight-foh"] .text-emerald-300,
+[data-console-theme="warm-daylight"] .text-emerald-400,
+[data-console-theme="warm-daylight"] .text-emerald-300 {
+  color: #047857;
+}
+
+[data-console-theme="daylight-foh"] .text-amber-300,
+[data-console-theme="daylight-foh"] .text-amber-400,
+[data-console-theme="warm-daylight"] .text-amber-300,
+[data-console-theme="warm-daylight"] .text-amber-400 {
+  color: #b45309;
+}
+
+[data-console-theme="daylight-foh"] .text-red-300,
+[data-console-theme="warm-daylight"] .text-red-300 {
+  color: #b91c1c;
+}
+
+[data-console-theme="daylight-foh"] .bg-sky-500\/15,
+[data-console-theme="daylight-foh"] .bg-sky-500\/20,
+[data-console-theme="warm-daylight"] .bg-sky-500\/15,
+[data-console-theme="warm-daylight"] .bg-sky-500\/20 {
+  background-color: var(--theme-accent-soft);
+}
+
+[data-console-theme="daylight-foh"] .border-sky-500\/30,
+[data-console-theme="daylight-foh"] .border-sky-500\/40,
+[data-console-theme="warm-daylight"] .border-sky-500\/30,
+[data-console-theme="warm-daylight"] .border-sky-500\/40 {
+  border-color: var(--theme-accent);
+}
+
+[data-console-theme="warm-daylight"] .bg-sky-600,
+[data-console-theme="warm-daylight"] .bg-sky-500 {
+  background-color: #d97706;
+  color: #ffffff;
+}
+
+/* Preserve crisp white typography inside dark meter/oscilloscope wells & solid action pills */
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-white,
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-slate-100,
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-slate-200,
+[data-console-theme="daylight-foh"] .bg-\[\#05070B\] .text-white,
+[data-console-theme="daylight-foh"] .bg-\[\#05070B\] .text-slate-100,
+[data-console-theme="daylight-foh"] .bg-\[\#05080D\] .text-white,
+[data-console-theme="daylight-foh"] .bg-\[\#05080D\] .text-slate-100,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-white,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-slate-100,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-slate-200,
+[data-console-theme="warm-daylight"] .bg-\[\#05070B\] .text-white,
+[data-console-theme="warm-daylight"] .bg-\[\#05070B\] .text-slate-100,
+[data-console-theme="warm-daylight"] .bg-\[\#05080D\] .text-white,
+[data-console-theme="warm-daylight"] .bg-\[\#05080D\] .text-slate-100 {
+  color: #f8fafc;
+}
+
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-slate-300,
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-slate-400,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-slate-300,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-slate-400 {
+  color: #cbd5e1;
+}
+
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-sky-300,
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-sky-400,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-sky-300,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-sky-400 {
+  color: #38bdf8;
+}
+
+[data-console-theme="daylight-foh"] .bg-\[\#070A10\] .text-emerald-400,
+[data-console-theme="warm-daylight"] .bg-\[\#070A10\] .text-emerald-400 {
+  color: #34d399;
+}
+
+/* Keep VerticalFader slot dark while readout pill matches light chrome */
+[data-console-theme="daylight-foh"] .bg-\[\#080B10\].font-mono,
+[data-console-theme="warm-daylight"] .bg-\[\#080B10\].font-mono {
+  background-color: var(--theme-panel);
+  color: var(--theme-heading);
+}
+
+[data-console-theme="daylight-foh"] .bg-sky-600,
+[data-console-theme="daylight-foh"] .bg-sky-600 span,
+[data-console-theme="daylight-foh"] .bg-red-600,
+[data-console-theme="daylight-foh"] .bg-red-600 span,
+[data-console-theme="warm-daylight"] .bg-sky-600,
+[data-console-theme="warm-daylight"] .bg-sky-600 span,
+[data-console-theme="warm-daylight"] .bg-red-600,
+[data-console-theme="warm-daylight"] .bg-red-600 span {
+  color: #ffffff;
+}
+
+/* Light-mode Emergency Mute & CPU Alert readability */
+[data-console-theme="daylight-foh"] .bg-red-950\/40,
+[data-console-theme="warm-daylight"] .bg-red-950\/40 {
+  background-color: rgba(220, 38, 38, 0.12);
+}
+
+[data-console-theme="daylight-foh"] .bg-red-950\/60,
+[data-console-theme="daylight-foh"] .bg-red-950\/80,
+[data-console-theme="warm-daylight"] .bg-red-950\/60,
+[data-console-theme="warm-daylight"] .bg-red-950\/80 {
+  background-color: #dc2626;
+  color: #ffffff;
+}
+
+[data-console-theme="daylight-foh"] .bg-red-950\/80 span,
+[data-console-theme="warm-daylight"] .bg-red-950\/80 span {
+  color: #ffffff;
+}
+
+/* Hover state polish for light themes */
+[data-console-theme="daylight-foh"] .hover\:bg-slate-800\/60:hover,
+[data-console-theme="daylight-foh"] .hover\:bg-slate-800:hover,
+[data-console-theme="warm-daylight"] .hover\:bg-slate-800\/60:hover,
+[data-console-theme="warm-daylight"] .hover\:bg-slate-800:hover {
+  background-color: var(--theme-control);
+}
+
+[data-console-theme="daylight-foh"] select option,
+[data-console-theme="warm-daylight"] select option {
+  background-color: var(--theme-panel);
+  color: var(--theme-heading);
+}
+
+/* ============================================================================
+   Dedicated High-Contrast Navigation Dock Styling (Distinct from TopBar & Main)
+   ============================================================================ */
+:root,
+[data-console-theme="midnight-studio"] {
+  --nav-bg: linear-gradient(180deg, #162235 0%, #111b2b 100%);
+  --nav-sub-bg: #18253a;
+  --nav-elevated: #21324d;
+  --nav-border: #2c4366;
+  --nav-text: #f1f5f9;
+  --nav-muted: #9eb3cf;
+  --nav-accent: #38bdf8;
+  --nav-active-bg: #0f172a;
+  --nav-active-text: #ffffff;
+  --nav-active-chip: rgba(56, 189, 248, 0.22);
+}
+
+[data-console-theme="analog-amber"] {
+  --nav-bg: linear-gradient(180deg, #472b18 0%, #382112 100%);
+  --nav-sub-bg: #2a180d;
+  --nav-elevated: #59361f;
+  --nav-border: #825332;
+  --nav-text: #fef3c7;
+  --nav-muted: #e2be96;
+  --nav-accent: #fbbf24;
+  --nav-active-bg: #1e1108;
+  --nav-active-text: #fffbeb;
+  --nav-active-chip: rgba(251, 191, 36, 0.24);
+}
+
+[data-console-theme="broadcast-emerald"] {
+  --nav-bg: linear-gradient(180deg, #124036 0%, #0d3028 100%);
+  --nav-sub-bg: #09241e;
+  --nav-elevated: #175245;
+  --nav-border: #257a67;
+  --nav-text: #ecfdf5;
+  --nav-muted: #9ad8c2;
+  --nav-accent: #34d399;
+  --nav-active-bg: #051713;
+  --nav-active-text: #ffffff;
+  --nav-active-chip: rgba(52, 211, 153, 0.24);
+}
+
+[data-console-theme="sanctuary-indigo"] {
+  --nav-bg: linear-gradient(180deg, #2d2161 0%, #23194d 100%);
+  --nav-sub-bg: #1a123b;
+  --nav-elevated: #3a2b7d;
+  --nav-border: #5c48b8;
+  --nav-text: #f5f3ff;
+  --nav-muted: #c7bcf0;
+  --nav-accent: #c4b5fd;
+  --nav-active-bg: #130c2e;
+  --nav-active-text: #ffffff;
+  --nav-active-chip: rgba(196, 181, 253, 0.25);
+}
+
+/* Contrasting Deep Architectural Steel-Navy Navigation Band on Light Themes */
+[data-console-theme="daylight-foh"] {
+  --nav-bg: linear-gradient(180deg, #1e293b 0%, #172030 100%);
+  --nav-sub-bg: #0f172a;
+  --nav-elevated: #28354a;
+  --nav-border: #334155;
+  --nav-text: #f8fafc;
+  --nav-muted: #cbd5e1;
+  --nav-accent: #38bdf8;
+  --nav-active-bg: #0284c7;
+  --nav-active-text: #ffffff;
+  --nav-active-chip: rgba(56, 189, 248, 0.28);
+}
+
+/* Contrasting Espresso-Charcoal Navigation Band on Warm Daylight Sand */
+[data-console-theme="warm-daylight"] {
+  --nav-bg: linear-gradient(180deg, #292524 0%, #1f1c1b 100%);
+  --nav-sub-bg: #171412;
+  --nav-elevated: #3b3532;
+  --nav-border: #57534e;
+  --nav-text: #fafaf9;
+  --nav-muted: #d6d3d1;
+  --nav-accent: #fbbf24;
+  --nav-active-bg: #d97706;
+  --nav-active-text: #ffffff;
+  --nav-active-chip: rgba(251, 191, 36, 0.28);
+}
+
+.console-nav-shell {
+  background: var(--nav-bg);
+  border-color: var(--nav-border);
+  color: var(--nav-text);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+.console-nav-subbar {
+  background-color: var(--nav-sub-bg);
+  border-color: var(--nav-border);
+  color: var(--nav-text);
+}
+
+.console-nav-cat {
+  color: var(--nav-muted);
+  border: 1px solid transparent;
+  background-color: transparent;
+}
+
+.console-nav-cat:hover {
+  color: var(--nav-text);
+  background-color: var(--nav-elevated);
+}
+
+.console-nav-cat[data-active='true'] {
+  color: var(--nav-active-text);
+  background-color: var(--nav-active-bg);
+  border-color: var(--nav-accent);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.25);
+}
+
+.console-nav-tab {
+  color: var(--nav-muted);
+  border-bottom: 2px solid transparent;
+  border-top: 2px solid transparent;
+  background-color: transparent;
+}
+
+.console-nav-tab:hover {
+  color: var(--nav-text);
+  background-color: var(--nav-elevated);
+}
+
+.console-nav-tab[data-active='true'] {
+  color: var(--nav-active-text);
+  background-color: var(--nav-elevated);
+  border-bottom-color: var(--nav-accent);
+}
+
+[data-dock='bottom'] .console-nav-tab[data-active='true'] {
+  border-bottom-color: transparent;
+  border-top-color: var(--nav-accent);
+}
+
+.console-nav-pill {
+  background-color: var(--nav-sub-bg);
+  border: 1px solid var(--nav-border);
+  color: var(--nav-muted);
+}
+
+.console-nav-pill:hover {
+  color: var(--nav-text);
+  border-color: var(--nav-accent);
+}
+
+.console-nav-pill[data-active='true'] {
+  background-color: var(--nav-active-chip);
+  border-color: var(--nav-accent);
+  color: var(--nav-active-text);
+}
+
+.console-nav-num {
+  color: var(--nav-muted);
+}
+
+[data-active='true'] .console-nav-num {
+  color: var(--nav-accent);
+}
+
+.console-nav-muted {
+  color: var(--nav-muted);
+}
+
+.console-nav-text {
+  color: var(--nav-text);
+}
+

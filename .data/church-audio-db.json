@@ -1,0 +1,32 @@
+{
+  "venue": {
+    "organization": "Grace Community Fellowship",
+    "venueName": "Main Campus",
+    "roomName": "Primary Sanctuary (650 Seats)",
+    "targetPlatform": "windows",
+    "activeDeviceId": "yamaha-mg16xu"
+  },
+  "versions": [],
+  "diagnostics": [],
+  "auditEvents": [
+    {
+      "id": "evt-1795164068249-nm4l",
+      "timestamp": "2026-11-20T08:41:08.249Z",
+      "actor": "Volunteer Operator",
+      "action": "Started Audio Engine",
+      "detail": "Source: preacher-mud · Device: MG16XU",
+      "authority": "operator"
+    },
+    {
+      "id": "evt-init-1",
+      "timestamp": "2026-11-20T08:39:21.560Z",
+      "actor": "System Watchdog",
+      "action": "Local Configuration Store Initialized",
+      "detail": "Windows WASAPI/ASIO hardware abstraction and CamillaDSP v2 schema ready.",
+      "authority": "system"
+    }
+  ],
+  "midiMappings": [],
+  "automationSnapshots": [],
+  "keyboardShortcuts": []
+}

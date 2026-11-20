@@ -1,0 +1,6 @@
+{
+  "name": "Church Audio Intelligence",
+  "description": "Cross-platform church sound engineering, DSP management, acoustic measurement, livestream studio, and evidence-based AI diagnostics platform.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
