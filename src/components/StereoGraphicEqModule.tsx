@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Sliders, RotateCcw, Zap, Sparkles, Volume2, Shield } from 'lucide-react';
+import { Sliders, RotateCcw, Sparkles, Link2, Unlink, Copy, Volume2, Flame, Zap } from 'lucide-react';
 import type { DspConfig, GraphicEq31Config } from '../types/audio.ts';
 import { ISO_31_FREQUENCIES } from '../types/audio.ts';
 import { ConsolePushButton } from './StudioControls.tsx';
+import { PrecisionVerticalFader } from './PrecisionVerticalFader.tsx';
 
 interface StereoGraphicEqModuleProps {
   dsp: DspConfig;
@@ -23,12 +24,42 @@ const PRESET_CURVES: {
     apply: () => Array(31).fill(0),
   },
   {
+    id: 'superbass-slam',
+    name: '⚡ SUPERBASS SLAM (+8 dB)',
+    description: 'Deep subwoofer expansion with massive low-end weight (31.5-63Hz) and clean mid cut',
+    apply: () => {
+      return ISO_31_FREQUENCIES.map((hz) => {
+        if (hz <= 31.5) return 4.0;
+        if (hz === 40 || hz === 50) return 7.5;
+        if (hz === 63) return 8.0;
+        if (hz === 80) return 5.0;
+        if (hz === 100) return 2.5;
+        if (hz >= 200 && hz <= 315) return -2.5;
+        return 0;
+      });
+    },
+  },
+  {
+    id: 'punch-kick',
+    name: '💥 PUNCHY 808 & KICK',
+    description: 'Tight sub punch (+6dB @ 63-100Hz) with aggressive sub-sonic rumble filtering below 35Hz',
+    apply: () => {
+      return ISO_31_FREQUENCIES.map((hz) => {
+        if (hz <= 31.5) return -6.0;
+        if (hz === 40) return 2.0;
+        if (hz >= 63 && hz <= 100) return 6.5;
+        if (hz === 250) return -2.0;
+        return 0;
+      });
+    },
+  },
+  {
     id: 'speech-clarity',
     name: 'SPEECH CLARITY',
     description: 'Reduces pulpit boominess & chest resonance (-3dB @ 250Hz) and boosts speech presence (+2.5dB @ 2.5kHz-4kHz)',
     apply: () => {
       return ISO_31_FREQUENCIES.map((hz) => {
-        if (hz < 63) return -9;
+        if (hz < 63) return -9.0;
         if (hz >= 200 && hz <= 315) return -3.0;
         if (hz >= 2000 && hz <= 4000) return 2.5;
         if (hz >= 16000) return -2.0;
@@ -53,7 +84,7 @@ const PRESET_CURVES: {
   },
   {
     id: 'feedback-suppression',
-    name: 'SANCTUARY NOTCH TRAP',
+    name: 'NOTCH TRAP (ANTI-RING)',
     description: 'Pre-emptive cuts at typical church room mode resonance frequencies (160Hz, 400Hz, 800Hz, 3.15kHz)',
     apply: () => {
       return ISO_31_FREQUENCIES.map((hz) => {
@@ -70,22 +101,8 @@ const PRESET_CURVES: {
     description: 'Transparent top-end lift (+3dB @ 8k-16kHz) for broadcast clarity and cymbal definition without harshness',
     apply: () => {
       return ISO_31_FREQUENCIES.map((hz) => {
-        if (hz < 50) return -4;
+        if (hz < 50) return -4.0;
         if (hz >= 6300 && hz <= 16000) return 3.0;
-        return 0;
-      });
-    },
-  },
-  {
-    id: 'sub-punch',
-    name: 'PUNCHY SUBS / CLEAN LOWS',
-    description: 'Tight sub punch (+3dB @ 63-100Hz) with aggressive sub-sonic rumble filtering below 40Hz',
-    apply: () => {
-      return ISO_31_FREQUENCIES.map((hz) => {
-        if (hz <= 31.5) return -12;
-        if (hz === 40) return -4;
-        if (hz >= 63 && hz <= 100) return 3.5;
-        if (hz === 250) return -2;
         return 0;
       });
     },
@@ -98,30 +115,125 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
   panelLocked = false,
 }) => {
   const [rangeMode, setRangeMode] = useState<6 | 12>(12);
+  const [activeTab, setActiveTab] = useState<'L' | 'R'>('L');
+
   const eqConfig: GraphicEq31Config = useMemo(() => {
-    if (dsp.graphicEq31 && dsp.graphicEq31.bands && dsp.graphicEq31.bands.length === 31) {
-      return dsp.graphicEq31;
+    const defaultBands = ISO_31_FREQUENCIES.map((hz) => ({ hz, gainDb: 0 }));
+    if (dsp.graphicEq31 && Array.isArray(dsp.graphicEq31.bands) && dsp.graphicEq31.bands.length === 31) {
+      return {
+        ...dsp.graphicEq31,
+        stereoLinked: dsp.graphicEq31.stereoLinked ?? true,
+        activeChannel: dsp.graphicEq31.activeChannel ?? 'L',
+        bandsRight:
+          dsp.graphicEq31.bandsRight && dsp.graphicEq31.bandsRight.length === 31
+            ? dsp.graphicEq31.bandsRight
+            : [...dsp.graphicEq31.bands],
+        outputAssignment: dsp.graphicEq31.outputAssignment || 'main-lr',
+      };
     }
     return {
       enabled: true,
       rangeDb: rangeMode,
-      bands: ISO_31_FREQUENCIES.map((freq) => ({
-        hz: freq,
-        gainDb: 0,
-      })),
+      stereoLinked: true,
+      activeChannel: 'L',
+      bands: defaultBands,
+      bandsRight: defaultBands,
+      outputAssignment: 'main-lr',
     };
   }, [dsp.graphicEq31, rangeMode]);
+
+  const isLinked = eqConfig.stereoLinked ?? true;
+  const currentBands =
+    activeTab === 'L' || isLinked ? eqConfig.bands : eqConfig.bandsRight || eqConfig.bands;
 
   const handleBandChange = (index: number, newGainDb: number) => {
     if (panelLocked) return;
     const clamped = Math.max(-rangeMode, Math.min(rangeMode, newGainDb));
-    const nextBands = eqConfig.bands.map((b, i) =>
-      i === index ? { ...b, gainDb: clamped } : b
-    );
+
+    if (isLinked) {
+      const nextBands = eqConfig.bands.map((b, i) => (i === index ? { ...b, gainDb: clamped } : b));
+      onUpdateDsp({
+        graphicEq31: {
+          ...eqConfig,
+          bands: nextBands,
+          bandsRight: nextBands,
+        },
+      });
+    } else if (activeTab === 'L') {
+      const nextBandsL = eqConfig.bands.map((b, i) => (i === index ? { ...b, gainDb: clamped } : b));
+      onUpdateDsp({
+        graphicEq31: {
+          ...eqConfig,
+          bands: nextBandsL,
+        },
+      });
+    } else {
+      const rightList = eqConfig.bandsRight || eqConfig.bands;
+      const nextBandsR = rightList.map((b, i) => (i === index ? { ...b, gainDb: clamped } : b));
+      onUpdateDsp({
+        graphicEq31: {
+          ...eqConfig,
+          bandsRight: nextBandsR,
+        },
+      });
+    }
+  };
+
+  // One-touch SuperBass Instant Injection
+  const handleTriggerSuperBass = (boostAmount: number) => {
+    if (panelLocked) return;
+    const targetFreqs = [31.5, 40, 50, 63, 80];
+    const updateList = (bands: typeof eqConfig.bands) =>
+      bands.map((b, idx) => {
+        const hz = b.hz ?? (ISO_31_FREQUENCIES[idx] ?? 1000);
+        if (targetFreqs.includes(hz)) {
+          const factor = hz === 50 || hz === 63 ? 1.0 : hz === 40 ? 0.85 : 0.65;
+          const nextVal = Math.min(rangeMode, Math.max(-rangeMode, Number((b.gainDb + boostAmount * factor).toFixed(1))));
+          return { ...b, gainDb: nextVal };
+        }
+        return b;
+      });
+
+    const nextBandsL = updateList(eqConfig.bands);
+    const nextBandsR = isLinked ? nextBandsL : updateList(eqConfig.bandsRight || eqConfig.bands);
+
     onUpdateDsp({
       graphicEq31: {
         ...eqConfig,
-        bands: nextBands,
+        bands: nextBandsL,
+        bandsRight: nextBandsR,
+      },
+    });
+  };
+
+  const handleToggleStereoLink = () => {
+    if (panelLocked) return;
+    const nextLink = !isLinked;
+    onUpdateDsp({
+      graphicEq31: {
+        ...eqConfig,
+        stereoLinked: nextLink,
+        bandsRight: nextLink ? [...eqConfig.bands] : eqConfig.bandsRight || [...eqConfig.bands],
+      },
+    });
+  };
+
+  const handleCopyLtoR = () => {
+    if (panelLocked) return;
+    onUpdateDsp({
+      graphicEq31: {
+        ...eqConfig,
+        bandsRight: [...eqConfig.bands],
+      },
+    });
+  };
+
+  const handleCopyRtoL = () => {
+    if (panelLocked || !eqConfig.bandsRight) return;
+    onUpdateDsp({
+      graphicEq31: {
+        ...eqConfig,
+        bands: [...eqConfig.bandsRight],
       },
     });
   };
@@ -129,14 +241,16 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
   const handleApplyPreset = (preset: typeof PRESET_CURVES[0]) => {
     if (panelLocked) return;
     const gains = preset.apply();
-    const nextBands = eqConfig.bands.map((b, i) => ({
+    const updated = eqConfig.bands.map((b, i) => ({
       ...b,
       gainDb: Math.max(-rangeMode, Math.min(rangeMode, gains[i] ?? 0)),
     }));
+
     onUpdateDsp({
       graphicEq31: {
         ...eqConfig,
-        bands: nextBands,
+        bands: updated,
+        bandsRight: isLinked ? updated : eqConfig.bandsRight || updated,
       },
     });
   };
@@ -151,6 +265,16 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
     });
   };
 
+  const handleOutputAssignment = (bus: string) => {
+    if (panelLocked) return;
+    onUpdateDsp({
+      graphicEq31: {
+        ...eqConfig,
+        outputAssignment: bus,
+      },
+    });
+  };
+
   const formatFreqLabel = (hz?: number) => {
     if (!hz) return '1k';
     if (hz >= 1000) {
@@ -159,17 +283,16 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
     return `${hz}`;
   };
 
-  // SVG Response curve calculations
-  const curvePoints = useMemo(() => {
+  const calculateCurve = (bands: typeof eqConfig.bands) => {
     const width = 860;
     const height = 90;
     const paddingX = 14;
     const availableWidth = width - paddingX * 2;
     const baselineY = height / 2;
 
-    const coords = eqConfig.bands.map((band, idx) => {
+    const coords = bands.map((band, idx) => {
       const x = paddingX + (idx / 30) * availableWidth;
-      const normalizedGain = band.gainDb / rangeMode; // -1 to +1
+      const normalizedGain = band.gainDb / rangeMode;
       const y = baselineY - normalizedGain * (height * 0.42);
       return { x, y };
     });
@@ -183,36 +306,66 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
       d += ` C ${cpX} ${prev.y}, ${cpX} ${cur.y}, ${cur.x} ${cur.y}`;
     }
     return d;
-  }, [eqConfig.bands, rangeMode]);
+  };
+
+  const curveLeft = useMemo(() => calculateCurve(eqConfig.bands), [eqConfig.bands, rangeMode]);
+  const curveRight = useMemo(
+    () => calculateCurve(eqConfig.bandsRight || eqConfig.bands),
+    [eqConfig.bandsRight, eqConfig.bands, rangeMode]
+  );
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-800 bg-[#0B0F17] p-4 text-slate-200">
+    <div className="space-y-3.5 rounded-xl border border-slate-800 bg-gradient-to-b from-[#0D121F] via-[#090D16] to-[#06080E] p-4 text-slate-200 shadow-2xl">
       {/* Top Header Strip */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-2.5 h-8 rounded-xs bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.6)]" />
+          <div className="w-2.5 h-9 rounded-xs bg-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.8)]" />
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-bold text-cyan-400">PRO EQ-31</span>
+              <span className="font-mono text-xs font-bold text-cyan-400 tracking-wider">PRO STEREO EQ-31</span>
               <h2 className="font-display text-base font-semibold text-white tracking-tight">
-                31-Band Stereo Graphic Equalizer (ISO 1/3-Octave Standard)
+                Dual-Channel 31-Band Stereo Graphic Equalizer
               </h2>
             </div>
             <p className="text-[11px] font-mono text-slate-400">
-              Constant-Q (4.31) Precision Filters · Post-Master Dynamics · Acoustic Room Tuning
+              Illuminated Constant-Q Sliders · Stereo L/R Matrix Routing · Instant SuperBass Accel
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+          {/* Stereo Link Mode Toggle */}
+          <button
+            type="button"
+            disabled={panelLocked}
+            onClick={handleToggleStereoLink}
+            className={`px-3 py-1 rounded border text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              isLinked
+                ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                : 'bg-amber-500/15 border-amber-400/50 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+            }`}
+          >
+            {isLinked ? (
+              <>
+                <Link2 className="w-3.5 h-3.5 text-cyan-400" />
+                <span>LINKED STEREO (L+R)</span>
+              </>
+            ) : (
+              <>
+                <Unlink className="w-3.5 h-3.5 text-amber-400" />
+                <span>DUAL INDEPENDENT</span>
+              </>
+            )}
+          </button>
+
           {/* Range Selector: +/-12dB or +/-6dB */}
           <div className="flex items-center rounded border border-slate-800 bg-[#070A10] p-0.5">
             <button
               type="button"
               onClick={() => setRangeMode(12)}
-              className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors ${
+              className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
                 rangeMode === 12
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -221,9 +374,9 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
             <button
               type="button"
               onClick={() => setRangeMode(6)}
-              className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors ${
+              className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
                 rangeMode === 6
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -236,7 +389,7 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
             type="button"
             disabled={panelLocked}
             onClick={() => handleApplyPreset(PRESET_CURVES[0])}
-            className="px-2.5 py-1 rounded border border-slate-700 bg-[#121824] hover:bg-slate-800 text-slate-200 flex items-center gap-1.5 transition-colors disabled:opacity-40"
+            className="px-2.5 py-1 rounded border border-slate-700 bg-[#121824] hover:bg-slate-800 text-slate-200 flex items-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
           >
             <RotateCcw className="w-3 h-3 text-cyan-400" />
             <span>FLAT RESET</span>
@@ -244,7 +397,7 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
 
           {/* Bypass / Active Toggle */}
           <ConsolePushButton
-            label={eqConfig.enabled && !dsp.bypassed ? 'EQ-31 ACTIVE' : 'EQ-31 BYPASS'}
+            label={eqConfig.enabled && !dsp.bypassed ? 'EQ ACTIVE' : 'EQ BYPASS'}
             active={eqConfig.enabled && !dsp.bypassed}
             tone={eqConfig.enabled && !dsp.bypassed ? 'emerald' : 'amber'}
             onClick={handleToggleEnabled}
@@ -252,36 +405,156 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
         </div>
       </div>
 
-      {/* Preset Curve Pills Bar */}
-      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-        <span className="font-mono text-[10px] uppercase text-slate-400 mr-1 flex items-center gap-1">
-          <Sparkles className="w-3 h-3 text-cyan-400" />
-          Acoustic Profiles:
-        </span>
-        {PRESET_CURVES.map((curve) => (
+      {/* SuperBass Quick Boost Action Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-gradient-to-r from-cyan-950/40 via-[#0A101C] to-fuchsia-950/30 border border-cyan-500/30">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase font-bold text-cyan-300 flex items-center gap-1.5">
+            <Flame className="w-3.5 h-3.5 text-fuchsia-400 animate-pulse" />
+            SuperBass Accelerator:
+          </span>
           <button
-            key={curve.id}
             type="button"
             disabled={panelLocked}
-            onClick={() => handleApplyPreset(curve)}
-            title={curve.description}
-            className="px-2 py-0.5 rounded border border-slate-800 bg-[#0E1420] hover:border-cyan-500/40 hover:bg-[#131D2E] text-[10px] font-mono text-slate-300 transition-colors disabled:opacity-40"
+            onClick={() => handleTriggerSuperBass(4.0)}
+            className="px-2.5 py-1 rounded border border-cyan-400/50 bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-200 font-mono text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-[0_0_8px_rgba(6,182,212,0.3)]"
           >
-            {curve.name}
+            <Zap className="w-3 h-3 text-cyan-300" />
+            +4 dB SUB PUNCH
           </button>
-        ))}
+          <button
+            type="button"
+            disabled={panelLocked}
+            onClick={() => handleTriggerSuperBass(7.5)}
+            className="px-2.5 py-1 rounded border border-fuchsia-400/60 bg-fuchsia-600/25 hover:bg-fuchsia-600/40 text-fuchsia-200 font-mono text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-[0_0_10px_rgba(217,70,239,0.3)]"
+          >
+            <Flame className="w-3 h-3 text-fuchsia-300" />
+            +7.5 dB SUB SLAM
+          </button>
+        </div>
+
+        {/* Real-World Hardware Output Routing Matrix */}
+        <div className="flex items-center gap-2 font-mono text-[11px]">
+          <span className="text-slate-400 text-[10px] uppercase font-semibold flex items-center gap-1">
+            <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
+            Output Bus:
+          </span>
+          <select
+            value={eqConfig.outputAssignment || 'main-lr'}
+            onChange={(e) => handleOutputAssignment(e.target.value)}
+            disabled={panelLocked}
+            className="rounded border border-slate-700 bg-[#06090F] px-2.5 py-1 text-xs text-white font-mono focus:border-cyan-400 focus:outline-hidden cursor-pointer"
+          >
+            <option value="main-lr">Master PA Output (Main Sanctuary L/R)</option>
+            <option value="aux-sub">Aux 1 / Dedicated Subwoofer Array Bus</option>
+            <option value="aux-mids">Aux 2 / Platform Vocal Cluster</option>
+            <option value="balcony-fill">Out 3-4 / Balcony Delay Zone</option>
+            <option value="cryroom-overflow">Out 5-6 / Foyer &amp; Overflow</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Channel Selector Bar when Independent */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 p-2 rounded-lg bg-[#080C14] border border-slate-800">
+        <div className="flex items-center gap-1.5 font-mono text-[11px]">
+          <span className="text-slate-400 text-[10px] uppercase font-semibold mr-1">Channel Focus:</span>
+          {isLinked ? (
+            <div className="px-3 py-1 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
+              CH 1 &amp; CH 2 (STEREO PA COUPLED)
+            </div>
+          ) : (
+            <div className="flex items-center rounded border border-slate-800 bg-[#06090F] p-0.5">
+              <button
+                type="button"
+                onClick={() => setActiveTab('L')}
+                className={`px-3 py-1 rounded font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === 'L'
+                    ? 'bg-cyan-500/25 border border-cyan-500/50 text-cyan-200'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                CH 1 (LEFT PA)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('R')}
+                className={`px-3 py-1 rounded font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === 'R'
+                    ? 'bg-violet-500/25 border border-violet-500/50 text-violet-200'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-violet-400" />
+                CH 2 (RIGHT PA)
+              </button>
+            </div>
+          )}
+
+          {!isLinked && (
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                type="button"
+                onClick={handleCopyLtoR}
+                className="px-2 py-0.5 rounded border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-[10px] text-cyan-300 flex items-center gap-1 cursor-pointer"
+                title="Copy Left Channel EQ curve onto Right Channel"
+              >
+                <Copy className="w-3 h-3" />
+                COPY L &rarr; R
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyRtoL}
+                className="px-2 py-0.5 rounded border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-[10px] text-violet-300 flex items-center gap-1 cursor-pointer"
+                title="Copy Right Channel EQ curve onto Left Channel"
+              >
+                <Copy className="w-3 h-3" />
+                COPY R &rarr; L
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Preset Curve Pills Bar */}
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="font-mono text-[10px] uppercase text-slate-400 mr-1 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-cyan-400" />
+            Curves:
+          </span>
+          {PRESET_CURVES.map((curve) => (
+            <button
+              key={curve.id}
+              type="button"
+              disabled={panelLocked}
+              onClick={() => handleApplyPreset(curve)}
+              title={curve.description}
+              className="px-2 py-0.5 rounded border border-slate-800 bg-[#0E1420] hover:border-cyan-500/40 hover:bg-[#131D2E] text-[10px] font-mono text-slate-300 transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              {curve.name}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Real-Time SVG Frequency Response Display */}
-      <div className="relative rounded-md border border-slate-800 bg-[#070A10] p-2 overflow-hidden shadow-inner">
-        <div className="absolute top-1.5 left-2 font-mono text-[9px] text-cyan-400/80 font-semibold tracking-wider">
-          LIVE EQUALIZATION TRANSFER CURVE (20 Hz — 20 kHz)
-        </div>
-        <div className="absolute top-1.5 right-2 font-mono text-[9px] text-slate-500">
-          Range: ±{rangeMode} dB
+      <div className="relative rounded-md border border-slate-800 bg-[#05080F] p-2.5 overflow-hidden shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)]">
+        <div className="flex items-center justify-between font-mono text-[9px] mb-1">
+          <div className="flex items-center gap-3">
+            <span className="text-cyan-400 font-semibold tracking-wider flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
+              CH 1 / LEFT TRANSFER CURVE
+            </span>
+            {!isLinked && (
+              <span className="text-violet-400 font-semibold tracking-wider flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_6px_rgba(167,139,250,0.8)]" />
+                CH 2 / RIGHT TRANSFER CURVE
+              </span>
+            )}
+          </div>
+          <span className="text-slate-500 font-mono">Range: ±{rangeMode} dB</span>
         </div>
 
-        <svg viewBox="0 0 860 90" className="w-full h-20 overflow-visible mt-2">
+        <svg viewBox="0 0 860 90" className="w-full h-20 overflow-visible mt-1">
           {/* Horizontal Grid lines */}
           <line x1={0} y1={12} x2={860} y2={12} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
           <line x1={0} y1={45} x2={860} y2={45} stroke="rgba(148,163,184,0.3)" />
@@ -302,17 +575,29 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
             );
           })}
 
-          {/* Active EQ Glow Curve */}
+          {/* Right Curve when Independent */}
+          {!isLinked && (
+            <path
+              d={curveRight}
+              fill="none"
+              stroke="#A78BFA"
+              strokeWidth={2}
+              strokeDasharray="4 2"
+              opacity={0.8}
+            />
+          )}
+
+          {/* Left / Active EQ Glow Curve */}
           <path
-            d={curvePoints}
+            d={curveLeft}
             fill="none"
             stroke={eqConfig.enabled && !dsp.bypassed ? '#06B6D4' : '#F59E0B'}
             strokeWidth={2.5}
-            className="filter drop-shadow-[0_0_8px_rgba(6,182,212,0.6)]"
+            className="filter drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]"
           />
 
           {/* Data Points */}
-          {eqConfig.bands.map((band, idx) => {
+          {currentBands.map((band, idx) => {
             const x = 14 + (idx / 30) * (860 - 28);
             const normalizedGain = band.gainDb / rangeMode;
             const y = 45 - normalizedGain * (90 * 0.42);
@@ -322,20 +607,23 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
                 cx={x}
                 cy={y}
                 r={band.gainDb !== 0 ? 3 : 1.5}
-                fill={eqConfig.enabled && !dsp.bypassed ? '#38BDF8' : '#F59E0B'}
+                fill={
+                  activeTab === 'R' && !isLinked
+                    ? '#A78BFA'
+                    : eqConfig.enabled && !dsp.bypassed
+                      ? '#38BDF8'
+                      : '#F59E0B'
+                }
               />
             );
           })}
         </svg>
       </div>
 
-      {/* 31 Vertical Precision Fader Strip */}
-      <div className="relative rounded-md border border-slate-800 bg-[#080C14] p-3 overflow-x-auto">
-        <div className="flex items-end justify-between min-w-[820px] gap-1 px-1">
-          {eqConfig.bands.map((band, idx) => {
-            const isZero = band.gainDb === 0;
-            const isBoost = band.gainDb > 0;
-            const isCut = band.gainDb < 0;
+      {/* 31 Vertical Precision Faders with Neon Lighting & Tactile Drag */}
+      <div className="relative rounded-lg border border-slate-800 bg-[#05070E] p-3 shadow-inner overflow-x-auto">
+        <div className="flex items-end justify-between min-w-[850px] gap-1 px-1">
+          {currentBands.map((band, idx) => {
             const isKeyFreq =
               band.hz === 63 ||
               band.hz === 125 ||
@@ -348,90 +636,20 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
               band.hz === 16000;
 
             return (
-              <div
+              <PrecisionVerticalFader
                 key={band.hz}
-                className="flex-1 flex flex-col items-center group relative select-none"
-              >
-                {/* Real-time gain value readout */}
-                <span
-                  className={`font-mono text-[9px] mb-1 font-semibold tabular-nums h-4 flex items-center ${
-                    isZero
-                      ? 'text-slate-500'
-                      : isBoost
-                        ? 'text-cyan-400 font-bold'
-                        : 'text-amber-400 font-bold'
-                  }`}
-                >
-                  {band.gainDb > 0 ? `+${band.gainDb.toFixed(1)}` : band.gainDb === 0 ? '0' : band.gainDb.toFixed(1)}
-                </span>
-
-                {/* Vertical Slider Track Container */}
-                <div className="relative h-44 w-5 flex items-center justify-center bg-[#05080E] border border-slate-800/80 rounded">
-                  {/* Center zero detent line */}
-                  <div className="absolute top-1/2 left-0 right-0 h-[1.5px] bg-slate-600/70 z-0" />
-
-                  {/* +6dB / -6dB guide marks */}
-                  <div className="absolute top-[28%] left-1 right-1 h-[1px] bg-slate-800 z-0" />
-                  <div className="absolute top-[72%] left-1 right-1 h-[1px] bg-slate-800 z-0" />
-
-                  {/* Active travel fill bar */}
-                  <div
-                    className={`absolute w-1 rounded-xs transition-all pointer-events-none ${
-                      isBoost ? 'bg-cyan-400/60 shadow-[0_0_6px_rgba(6,182,212,0.6)]' : isCut ? 'bg-amber-400/60' : 'bg-transparent'
-                    }`}
-                    style={{
-                      top: isBoost ? `${50 - (band.gainDb / rangeMode) * 44}%` : '50%',
-                      bottom: isCut ? `${50 + (band.gainDb / rangeMode) * 44}%` : '50%',
-                    }}
-                  />
-
-                  {/* HTML Range Input styled vertically */}
-                  <input
-                    type="range"
-                    min={-rangeMode}
-                    max={rangeMode}
-                    step={0.5}
-                    value={band.gainDb}
-                    disabled={panelLocked}
-                    onChange={(e) => handleBandChange(idx, parseFloat(e.target.value))}
-                    onDoubleClick={() => handleBandChange(idx, 0)}
-                    title={`${band.hz} Hz: ${band.gainDb > 0 ? '+' : ''}${band.gainDb.toFixed(1)} dB (Double-click to reset)`}
-                    aria-label={`${band.hz} Hz Gain`}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    style={{
-                      WebkitAppearance: 'slider-vertical',
-                      appearance: 'none',
-                    }}
-                  />
-
-                  {/* Visual Physical Fader Thumb Knob */}
-                  <div
-                    className={`absolute w-4 h-2.5 rounded-xs border shadow-md pointer-events-none transition-transform z-10 flex items-center justify-center ${
-                      isBoost
-                        ? 'bg-gradient-to-b from-cyan-400 to-cyan-600 border-cyan-300'
-                        : isCut
-                          ? 'bg-gradient-to-b from-amber-400 to-amber-600 border-amber-300'
-                          : 'bg-gradient-to-b from-slate-600 to-slate-800 border-slate-500'
-                    }`}
-                    style={{
-                      top: `calc(${50 - (band.gainDb / rangeMode) * 44}% - 5px)`,
-                    }}
-                  >
-                    <div className="w-2.5 h-[1px] bg-white/80" />
-                  </div>
-                </div>
-
-                {/* Frequency Band Label */}
-                <span
-                  className={`font-mono text-[9px] mt-1.5 transition-colors ${
-                    isKeyFreq
-                      ? 'text-white font-bold'
-                      : 'text-slate-400 group-hover:text-slate-200'
-                  }`}
-                >
-                  {formatFreqLabel(band.hz)}
-                </span>
-              </div>
+                value={band.gainDb}
+                min={-rangeMode}
+                max={rangeMode}
+                step={0.5}
+                label={formatFreqLabel(band.hz)}
+                subLabel={`${band.hz} Hz`}
+                disabled={panelLocked}
+                isKeyFreq={isKeyFreq}
+                accent={activeTab === 'R' && !isLinked ? 'fuchsia' : 'cyan'}
+                onChange={(nextVal) => handleBandChange(idx, nextVal)}
+                onDoubleClick={() => handleBandChange(idx, 0)}
+              />
             );
           })}
         </div>

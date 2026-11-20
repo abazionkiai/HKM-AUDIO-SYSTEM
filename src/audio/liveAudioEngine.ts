@@ -113,6 +113,8 @@ class LiveAudioEngine {
 
   // Active 3-Way Linkwitz-Riley Crossover & Alignment Delay Network
   private xoverBypassGain: GainNode | null = null;
+  private xoverSubHpf: BiquadFilterNode | null = null;
+  private xoverSuperBassFilter: BiquadFilterNode | null = null;
   private xoverSubLp1: BiquadFilterNode | null = null;
   private xoverSubLp2: BiquadFilterNode | null = null;
   private xoverSubDelay: DelayNode | null = null;
@@ -424,7 +426,18 @@ class LiveAudioEngine {
     this.xoverBypassGain = ctx.createGain();
     this.xoverBypassGain.gain.value = 0;
 
-    // Subwoofer band (LR-24 = cascaded 2nd order Butterworth)
+    // Subwoofer band (LR-24 = cascaded 2nd order Butterworth + Subsonic HPF + SuperBass Booster)
+    this.xoverSubHpf = ctx.createBiquadFilter();
+    this.xoverSubHpf.type = 'highpass';
+    this.xoverSubHpf.frequency.value = 28;
+    this.xoverSubHpf.Q.value = 0.707;
+
+    this.xoverSuperBassFilter = ctx.createBiquadFilter();
+    this.xoverSuperBassFilter.type = 'peaking';
+    this.xoverSuperBassFilter.frequency.value = 45;
+    this.xoverSuperBassFilter.Q.value = 2.0;
+    this.xoverSuperBassFilter.gain.value = 0;
+
     this.xoverSubLp1 = ctx.createBiquadFilter();
     this.xoverSubLp1.type = 'lowpass';
     this.xoverSubLp1.frequency.value = 80;
@@ -545,8 +558,10 @@ class LiveAudioEngine {
     eq31Chain.connect(this.xoverBypassGain);
     this.xoverBypassGain.connect(this.xoverSumNode);
 
-    // 2. Subwoofer path (4th order LR-24 = cascaded 2nd order Butterworth LPF)
-    eq31Chain.connect(this.xoverSubLp1);
+    // 2. Subwoofer path (4th order LR-24 = cascaded 2nd order Butterworth LPF + Subsonic + SuperBass)
+    eq31Chain.connect(this.xoverSubHpf);
+    this.xoverSubHpf.connect(this.xoverSuperBassFilter);
+    this.xoverSuperBassFilter.connect(this.xoverSubLp1);
     this.xoverSubLp1.connect(this.xoverSubLp2);
     this.xoverSubLp2.connect(this.xoverSubDelay);
     this.xoverSubDelay.connect(this.xoverSubGain);
@@ -812,7 +827,24 @@ class LiveAudioEngine {
 
         const anySolo = Boolean(xover.sub.solo || xover.mid.solo || xover.high.solo);
 
-        // Subwoofer band (LR-24)
+        // Subwoofer band (LR-24 + Subsonic Protection + SuperBass Sub Booster)
+        if (this.xoverSubHpf && this.xoverSuperBassFilter) {
+          const sb = xover.superBass;
+          const sbActive = Boolean(sb && sb.enabled);
+          const subsonicHz = sb?.subInfrasoundHpfHz ?? 28;
+          this.xoverSubHpf.frequency.setTargetAtTime(subsonicHz, now, 0.015);
+
+          if (sbActive && sb) {
+            const freq = sb.mode === 'punch-808' ? 63 : sb.mode === 'subharmonic' ? 40 : 45;
+            const boostDb = sb.boostDb ?? 4;
+            this.xoverSuperBassFilter.frequency.setTargetAtTime(freq, now, 0.015);
+            this.xoverSuperBassFilter.Q.setTargetAtTime(sb.mode === 'punch-808' ? 2.5 : 1.8, now, 0.015);
+            this.xoverSuperBassFilter.gain.setTargetAtTime(boostDb, now, 0.015);
+          } else {
+            this.xoverSuperBassFilter.gain.setTargetAtTime(0, now, 0.015);
+          }
+        }
+
         this.xoverSubLp1.frequency.setTargetAtTime(subToMid, now, 0.015);
         this.xoverSubLp2.frequency.setTargetAtTime(subToMid, now, 0.015);
         const subDelaySec = Math.max(0, Math.min(0.045, (xover.sub.delayMs || 0) / 1000));

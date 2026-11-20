@@ -1,6 +1,20 @@
-import React, { useMemo } from 'react';
-import { Layers, VolumeX, Volume2, Clock, RotateCw, Activity, ArrowRightLeft } from 'lucide-react';
-import type { DspConfig, ActiveCrossoverConfig } from '../types/audio.ts';
+import React, { useMemo, useState } from 'react';
+import {
+  Sliders,
+  Volume2,
+  Clock,
+  Radio,
+  Flame,
+  Zap,
+  Shield,
+  Layers,
+  ArrowRightLeft,
+  Link2,
+  Unlink,
+  Headphones,
+  Check,
+} from 'lucide-react';
+import type { ActiveCrossoverConfig, CrossoverBandConfig, DspConfig } from '../types/audio.ts';
 import { ConsolePushButton, RotaryKnob } from './StudioControls.tsx';
 
 interface ActiveCrossoverModuleProps {
@@ -14,18 +28,69 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
   onUpdateDsp,
   panelLocked = false,
 }) => {
+  const [activeChannelTab, setActiveChannelTab] = useState<'L' | 'R'>('L');
+
   const xover: ActiveCrossoverConfig = useMemo(() => {
-    if (dsp.crossover) return dsp.crossover;
+    if (dsp.crossover) {
+      return {
+        ...dsp.crossover,
+        stereoLinked: dsp.crossover.stereoLinked ?? true,
+        superBass: dsp.crossover.superBass || {
+          enabled: false,
+          mode: 'deep-sub',
+          boostDb: 6.0,
+          subHarmonics: true,
+          subInfrasoundHpfHz: 28,
+        },
+      };
+    }
     return {
       enabled: true,
-      slope: 'LR24',
+      stereoLinked: true,
       subToMidHz: 80,
       midToHighHz: 2500,
-      sub: { name: 'Subwoofer', enabled: true, gainDb: 0, mute: false, solo: false, delayMs: 4.5, polarityInverted: false },
-      mid: { name: 'Mid / Main Vocals', enabled: true, gainDb: 0, mute: false, solo: false, delayMs: 0, polarityInverted: false },
-      high: { name: 'High / Horns', enabled: true, gainDb: 0, mute: false, solo: false, delayMs: 0.8, polarityInverted: false },
+      slope: 'LR24',
+      sub: {
+        name: 'Subwoofer',
+        enabled: true,
+        gainDb: 0,
+        mute: false,
+        solo: false,
+        polarityInverted: false,
+        delayMs: 4.5,
+        outputAssignment: 'sub-out',
+      },
+      mid: {
+        name: 'Mid / Main Vocals',
+        enabled: true,
+        gainDb: 0,
+        mute: false,
+        solo: false,
+        polarityInverted: false,
+        delayMs: 0,
+        outputAssignment: 'main-lr',
+      },
+      high: {
+        name: 'High Frequency Horns',
+        enabled: true,
+        gainDb: 0,
+        mute: false,
+        solo: false,
+        polarityInverted: false,
+        delayMs: 0.8,
+        outputAssignment: 'horn-out',
+      },
+      superBass: {
+        enabled: false,
+        mode: 'deep-sub',
+        boostDb: 6.0,
+        subHarmonics: true,
+        subInfrasoundHpfHz: 28,
+      },
     };
   }, [dsp.crossover]);
+
+  const isLinked = xover.stereoLinked ?? true;
 
   const updateXover = (patch: Partial<ActiveCrossoverConfig>) => {
     if (panelLocked) return;
@@ -37,35 +102,109 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
     });
   };
 
-  const updateBand = (
-    band: 'sub' | 'mid' | 'high',
-    patch: Partial<ActiveCrossoverConfig['sub']>
-  ) => {
+  const updateBand = (bandKey: 'sub' | 'mid' | 'high', patch: Partial<CrossoverBandConfig>) => {
+    if (panelLocked) return;
+    const targetKey =
+      !isLinked && activeChannelTab === 'R'
+        ? (bandKey === 'sub' ? 'subRight' : bandKey === 'mid' ? 'midRight' : 'highRight')
+        : bandKey;
+
+    const currentBand = (xover as any)[targetKey] || (xover as any)[bandKey];
+    const updatedBand = { ...currentBand, ...patch };
+
+    const updates: Partial<ActiveCrossoverConfig> = {
+      [targetKey]: updatedBand,
+    };
+
+    if (isLinked) {
+      if (bandKey === 'sub') updates.subRight = updatedBand;
+      if (bandKey === 'mid') updates.midRight = updatedBand;
+      if (bandKey === 'high') updates.highRight = updatedBand;
+    }
+
+    updateXover(updates);
+  };
+
+  const activeSubBand: CrossoverBandConfig =
+    !isLinked && activeChannelTab === 'R' && xover.subRight ? xover.subRight : xover.sub;
+  const activeMidBand: CrossoverBandConfig =
+    !isLinked && activeChannelTab === 'R' && xover.midRight ? xover.midRight : xover.mid;
+  const activeHighBand: CrossoverBandConfig =
+    !isLinked && activeChannelTab === 'R' && xover.highRight ? xover.highRight : xover.high;
+
+  // Toggle Solo / Isolate
+  const handleToggleSolo = (bandKey: 'sub' | 'mid' | 'high') => {
+    const band = bandKey === 'sub' ? activeSubBand : bandKey === 'mid' ? activeMidBand : activeHighBand;
+    const nextSolo = !band.solo;
+    updateBand(bandKey, { solo: nextSolo });
+  };
+
+  // Toggle Mute
+  const handleToggleMute = (bandKey: 'sub' | 'mid' | 'high') => {
+    const band = bandKey === 'sub' ? activeSubBand : bandKey === 'mid' ? activeMidBand : activeHighBand;
+    updateBand(bandKey, { mute: !band.mute });
+  };
+
+  // Output Assignment
+  const handleAssignOutput = (bandKey: 'sub' | 'mid' | 'high', outputBus: string) => {
+    updateBand(bandKey, { outputAssignment: outputBus });
+  };
+
+  // SuperBass toggles
+  const superBass = xover.superBass || {
+    enabled: false,
+    mode: 'deep-sub',
+    boostDb: 6.0,
+    subHarmonics: true,
+    subInfrasoundHpfHz: 28,
+  };
+
+  const handleToggleSuperBass = () => {
     if (panelLocked) return;
     updateXover({
-      [band]: {
-        ...xover[band],
-        ...patch,
+      superBass: {
+        ...superBass,
+        enabled: !superBass.enabled,
       },
     });
   };
 
-  // Convert Hz to log-x pixel coordinates (20 Hz to 20 kHz across width 800)
-  const freqToX = (freq: number, width = 800) => {
-    const minFreq = 20;
-    const maxFreq = 20000;
-    const minLog = Math.log10(minFreq);
-    const maxLog = Math.log10(maxFreq);
-    const logVal = Math.log10(Math.max(minFreq, Math.min(maxFreq, freq)));
-    return ((logVal - minLog) / (maxLog - minLog)) * width;
+  const handleSuperBassMode = (mode: 'deep-sub' | 'punch-808' | 'subharmonic') => {
+    if (panelLocked) return;
+    updateXover({
+      superBass: {
+        ...superBass,
+        mode,
+        enabled: true,
+      },
+    });
   };
 
-  // Generate SVG crossover curves
+  const handleSuperBassGain = (boostDb: number) => {
+    if (panelLocked) return;
+    updateXover({
+      superBass: {
+        ...superBass,
+        boostDb: Math.max(0, Math.min(12, Number(boostDb.toFixed(1)))),
+      },
+    });
+  };
+
+  // Crossover visualization geometry
   const curves = useMemo(() => {
     const width = 800;
     const height = 120;
-    const subF = xover.subToMidHz || 80;
-    const highF = xover.midToHighHz || 2500;
+    const minF = 20;
+    const maxF = 20000;
+    const subF = xover.subToMidHz;
+    const highF = xover.midToHighHz;
+
+    const freqToX = (f: number, w: number) => {
+      const minLog = Math.log10(minF);
+      const maxLog = Math.log10(maxF);
+      const fLog = Math.log10(Math.max(minF, Math.min(maxF, f)));
+      return ((fLog - minLog) / (maxLog - minLog)) * w;
+    };
 
     const subPoints: string[] = [];
     const midPoints: string[] = [];
@@ -73,30 +212,25 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
 
     const numPoints = 80;
     for (let i = 0; i <= numPoints; i++) {
-      const freq = 20 * Math.pow(20000 / 20, i / numPoints);
-      const x = freqToX(freq, width);
+      const f = minF * Math.pow(maxF / minF, i / numPoints);
+      const x = freqToX(f, width);
 
-      // LR-24 Sub response (4th order lowpass = (1 / (1 + (f/fc)^2))^2)
-      const subRatio = freq / subF;
-      const subMag = 1 / (1 + Math.pow(subRatio, 4));
-      const subDb = Math.max(-48, 10 * Math.log10(Math.max(1e-5, subMag)) + (xover.sub.gainDb || 0));
+      // LR-24 filter approximation: 24dB/octave slope
+      const subRatio = f / subF;
+      const subDb = -10 * Math.log10(1 + Math.pow(subRatio, 8));
       const subY = height * 0.45 - (subDb / 24) * (height * 0.4);
       subPoints.push(`${x.toFixed(1)},${subY.toFixed(1)}`);
 
-      // LR-24 High response (4th order highpass = ( (f/fc)^2 / (1 + (f/fc)^2) )^2 )
-      const highRatio = freq / highF;
-      const highMag = Math.pow(highRatio, 4) / (1 + Math.pow(highRatio, 4));
-      const highDb = Math.max(-48, 10 * Math.log10(Math.max(1e-5, highMag)) + (xover.high.gainDb || 0));
+      const highRatio = highF / f;
+      const highDb = -10 * Math.log10(1 + Math.pow(highRatio, 8));
       const highY = height * 0.45 - (highDb / 24) * (height * 0.4);
       highPoints.push(`${x.toFixed(1)},${highY.toFixed(1)}`);
 
-      // Mid response (Band-pass = Sub HP * High LP)
-      const midHpRatio = freq / subF;
-      const midHpMag = Math.pow(midHpRatio, 4) / (1 + Math.pow(midHpRatio, 4));
-      const midLpRatio = freq / highF;
-      const midLpMag = 1 / (1 + Math.pow(midLpRatio, 4));
-      const midMag = midHpMag * midLpMag;
-      const midDb = Math.max(-48, 10 * Math.log10(Math.max(1e-5, midMag)) + (xover.mid.gainDb || 0));
+      const midHpRatio = subF / f;
+      const midLpRatio = f / highF;
+      const midHpDb = -10 * Math.log10(1 + Math.pow(midHpRatio, 8));
+      const midLpDb = -10 * Math.log10(1 + Math.pow(midLpRatio, 8));
+      const midDb = midHpDb + midLpDb;
       const midY = height * 0.45 - (midDb / 24) * (height * 0.4);
       midPoints.push(`${x.toFixed(1)},${midY.toFixed(1)}`);
     }
@@ -108,28 +242,54 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
       subSplitX: freqToX(subF, width),
       highSplitX: freqToX(highF, width),
     };
-  }, [xover]);
+  }, [xover.midToHighHz, xover.subToMidHz]);
 
   return (
-    <div className="space-y-4 rounded-lg border border-slate-800 bg-[#0B0F17] p-4 text-slate-200">
+    <div className="space-y-4 rounded-xl border border-slate-800 bg-gradient-to-b from-[#0E121E] via-[#090D17] to-[#06080F] p-4 text-slate-200 shadow-2xl">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-3">
-          <div className="w-2.5 h-8 rounded-xs bg-violet-400 shadow-[0_0_10px_rgba(167,139,250,0.6)]" />
+          <div className="w-2.5 h-9 rounded-xs bg-violet-400 shadow-[0_0_12px_rgba(167,139,250,0.8)]" />
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-bold text-violet-400">LR-24 CROSSOVER</span>
+              <span className="font-mono text-xs font-bold text-violet-400 tracking-wider">
+                LR-24 ACTIVE CROSSOVER
+              </span>
               <h2 className="font-display text-base font-semibold text-white tracking-tight">
-                Active 3-Way Linkwitz-Riley Crossover &amp; Driver Time Alignment
+                Stereo 3-Way Linkwitz-Riley Crossover &amp; Output Matrix
               </h2>
             </div>
             <p className="text-[11px] font-mono text-slate-400">
-              4th-Order 24 dB/Octave Slopes · Zero Acoustic Phase Distortion · Subwoofer &amp; Horn Time Alignment Delay
+              4th-Order 24 dB/Octave Slopes · Driver Time Alignment · SuperBass Subwoofer Synthesizer
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 font-mono text-[11px]">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+          {/* Stereo Link Mode Toggle */}
+          <button
+            type="button"
+            disabled={panelLocked}
+            onClick={() => updateXover({ stereoLinked: !isLinked })}
+            className={`px-3 py-1 rounded border text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              isLinked
+                ? 'bg-violet-500/20 border-violet-400/60 text-violet-200 shadow-[0_0_10px_rgba(167,139,250,0.2)]'
+                : 'bg-amber-500/15 border-amber-400/50 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+            }`}
+          >
+            {isLinked ? (
+              <>
+                <Link2 className="w-3.5 h-3.5 text-violet-400" />
+                <span>LINKED STEREO (L+R)</span>
+              </>
+            ) : (
+              <>
+                <Unlink className="w-3.5 h-3.5 text-amber-400" />
+                <span>DUAL INDEPENDENT</span>
+              </>
+            )}
+          </button>
+
           <ConsolePushButton
             label={xover.enabled && !dsp.bypassed ? 'CROSSOVER ACTIVE' : 'FULL-RANGE BYPASS'}
             active={xover.enabled && !dsp.bypassed}
@@ -139,33 +299,143 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
         </div>
       </div>
 
-      {/* Real-Time Overlapping Linkwitz-Riley Filter Slopes Visualizer */}
-      <div className="relative rounded-md border border-slate-800 bg-[#070A10] p-3 shadow-inner">
-        <div className="flex items-center justify-between mb-2">
-          <div className="font-mono text-[10px] text-slate-400 uppercase flex items-center gap-3">
+      {/* SUPERBASS SUBWOOFER ACCELERATOR SECTION */}
+      <div className="p-3.5 rounded-xl border border-fuchsia-500/40 bg-gradient-to-r from-fuchsia-950/40 via-[#100D1A] to-[#0A0D18] shadow-lg space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-fuchsia-500/20 pb-2">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 shadow-[0_0_10px_rgba(217,70,239,0.3)]">
+              <Flame className="w-4 h-4 text-fuchsia-400 animate-pulse" />
+            </div>
+            <div>
+              <span className="font-mono text-xs font-bold text-white tracking-wide flex items-center gap-1.5">
+                SUPERBASS™ SUB ACCELERATOR &amp; SUBHARMONIC SYNTHESIZER
+              </span>
+              <p className="text-[10px] font-mono text-fuchsia-300/80">
+                Psychoacoustic Low-End Fundamental Generation + 28 Hz Subsonic Cone Protection
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={handleToggleSuperBass}
+              className={`px-3 py-1 rounded text-xs font-mono font-bold flex items-center gap-1.5 border transition cursor-pointer ${
+                superBass.enabled
+                  ? 'bg-fuchsia-600 text-white border-fuchsia-400 shadow-[0_0_12px_rgba(217,70,239,0.5)]'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {superBass.enabled ? 'SUPERBASS ENGAGED' : 'ENGAGE SUPERBASS'}
+            </button>
+          </div>
+        </div>
+
+        {/* SuperBass Tuning Modes & Boost Slider */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+          <div className="flex flex-col gap-1.5">
+            <span className="font-mono text-[10px] text-fuchsia-300 uppercase font-semibold">
+              Sub Acoustic Voicing:
+            </span>
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                disabled={panelLocked}
+                onClick={() => handleSuperBassMode('deep-sub')}
+                className={`px-2.5 py-1 rounded text-[10px] font-mono font-semibold border transition cursor-pointer ${
+                  superBass.mode === 'deep-sub' && superBass.enabled
+                    ? 'bg-fuchsia-500/30 border-fuchsia-400 text-fuchsia-200'
+                    : 'bg-[#090C14] border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                🌊 DEEP SUB (45 Hz)
+              </button>
+              <button
+                type="button"
+                disabled={panelLocked}
+                onClick={() => handleSuperBassMode('punch-808')}
+                className={`px-2.5 py-1 rounded text-[10px] font-mono font-semibold border transition cursor-pointer ${
+                  superBass.mode === 'punch-808' && superBass.enabled
+                    ? 'bg-fuchsia-500/30 border-fuchsia-400 text-fuchsia-200'
+                    : 'bg-[#090C14] border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                💥 808 PUNCH (63 Hz)
+              </button>
+              <button
+                type="button"
+                disabled={panelLocked}
+                onClick={() => handleSuperBassMode('subharmonic')}
+                className={`px-2.5 py-1 rounded text-[10px] font-mono font-semibold border transition cursor-pointer ${
+                  superBass.mode === 'subharmonic' && superBass.enabled
+                    ? 'bg-fuchsia-500/30 border-fuchsia-400 text-fuchsia-200'
+                    : 'bg-[#090C14] border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ⚡ SUBHARMONIC
+              </button>
+            </div>
+          </div>
+
+          {/* Draggable SuperBass Drive Slider */}
+          <div className="space-y-1 md:col-span-2 bg-[#090C14] p-2.5 rounded-lg border border-slate-800">
+            <div className="flex items-center justify-between font-mono text-[11px]">
+              <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                <Flame className="w-3.5 h-3.5 text-fuchsia-400" />
+                SuperBass Subwoofer Boost Level:
+              </span>
+              <span className="text-fuchsia-300 font-bold text-xs bg-fuchsia-950/60 px-2 py-0.5 rounded border border-fuchsia-500/40">
+                +{superBass.boostDb.toFixed(1)} dB
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-[10px] text-slate-500">0 dB</span>
+              <input
+                type="range"
+                min={0}
+                max={12}
+                step={0.5}
+                value={superBass.boostDb}
+                disabled={panelLocked || !superBass.enabled}
+                onChange={(e) => handleSuperBassGain(parseFloat(e.target.value))}
+                className="flex-1 accent-fuchsia-500 cursor-pointer h-2 rounded-lg bg-slate-800"
+              />
+              <span className="font-mono text-[10px] text-fuchsia-400 font-bold">+12 dB MAX</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Real-Time Filter Slopes Visualizer */}
+      <div className="relative rounded-lg border border-slate-800 bg-[#06080F] p-3 shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 font-mono text-[10px]">
+          <div className="text-slate-400 uppercase flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-fuchsia-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-fuchsia-500" />
+              <span className="w-2.5 h-2.5 rounded-full bg-fuchsia-500 shadow-[0_0_6px_rgba(217,70,239,0.8)]" />
               Subwoofer Band (LP-24)
             </span>
             <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
               Mid / Vocal Band (BP-24)
             </span>
             <span className="flex items-center gap-1.5 text-sky-400 font-bold">
-              <span className="w-2.5 h-2.5 rounded-full bg-sky-500" />
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-500 shadow-[0_0_6px_rgba(56,189,248,0.8)]" />
               High Horn Band (HP-24)
             </span>
           </div>
-          <div className="font-mono text-[10px] text-slate-500">
-            Cutoffs: {xover.subToMidHz} Hz / {(xover.midToHighHz / 1000).toFixed(2)} kHz
+          <div className="text-slate-400 font-mono">
+            Cutoffs: <strong className="text-fuchsia-300">{xover.subToMidHz} Hz</strong> /{' '}
+            <strong className="text-sky-300">{(xover.midToHighHz / 1000).toFixed(2)} kHz</strong>
           </div>
         </div>
 
         <svg viewBox="0 0 800 120" className="w-full h-28 overflow-visible">
           {/* Grids */}
-          <line x1={0} y1={25} x2={800} y2={25} stroke="rgba(148,163,184,0.15)" strokeDasharray="3 3" />
-          <line x1={0} y1={55} x2={800} y2={55} stroke="rgba(148,163,184,0.3)" />
-          <line x1={0} y1={85} x2={800} y2={85} stroke="rgba(148,163,184,0.15)" strokeDasharray="3 3" />
+          <line x1={0} y1={25} x2={800} y2={25} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
+          <line x1={0} y1={55} x2={800} y2={55} stroke="rgba(148,163,184,0.25)" />
+          <line x1={0} y1={85} x2={800} y2={85} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
 
           {/* Crossover Cutoff Vertical Guides */}
           <line
@@ -173,7 +443,7 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             y1={0}
             x2={curves.subSplitX}
             y2={120}
-            stroke="rgba(217,70,239,0.5)"
+            stroke="rgba(217,70,239,0.7)"
             strokeDasharray="4 2"
           />
           <line
@@ -181,7 +451,7 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             y1={0}
             x2={curves.highSplitX}
             y2={120}
-            stroke="rgba(56,189,248,0.5)"
+            stroke="rgba(56,189,248,0.7)"
             strokeDasharray="4 2"
           />
 
@@ -190,9 +460,9 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             d={curves.subPath}
             fill="none"
             stroke="#D946EF"
-            strokeWidth={xover.sub.mute ? 1 : 2.5}
-            opacity={xover.sub.mute ? 0.3 : 1}
-            className="filter drop-shadow-[0_0_6px_rgba(217,70,239,0.5)]"
+            strokeWidth={activeSubBand.mute ? 1 : 2.5}
+            opacity={activeSubBand.mute ? 0.25 : 1}
+            className="filter drop-shadow-[0_0_6px_rgba(217,70,239,0.6)]"
           />
 
           {/* Mid Curve */}
@@ -200,9 +470,9 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             d={curves.midPath}
             fill="none"
             stroke="#10B981"
-            strokeWidth={xover.mid.mute ? 1 : 2.5}
-            opacity={xover.mid.mute ? 0.3 : 1}
-            className="filter drop-shadow-[0_0_6px_rgba(16,185,129,0.5)]"
+            strokeWidth={activeMidBand.mute ? 1 : 2.5}
+            opacity={activeMidBand.mute ? 0.25 : 1}
+            className="filter drop-shadow-[0_0_6px_rgba(16,185,129,0.6)]"
           />
 
           {/* High Curve */}
@@ -210,21 +480,23 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             d={curves.highPath}
             fill="none"
             stroke="#38BDF8"
-            strokeWidth={xover.high.mute ? 1 : 2.5}
-            opacity={xover.high.mute ? 0.3 : 1}
-            className="filter drop-shadow-[0_0_6px_rgba(56,189,248,0.5)]"
+            strokeWidth={activeHighBand.mute ? 1 : 2.5}
+            opacity={activeHighBand.mute ? 0.25 : 1}
+            className="filter drop-shadow-[0_0_6px_rgba(56,189,248,0.6)]"
           />
         </svg>
       </div>
 
-      {/* Crossover Cutoff Frequency Sliders */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 rounded-lg border border-slate-800 bg-[#0E131C]">
-        <div className="space-y-1.5">
+      {/* Crossover Frequency Cutoff Draggable Sliders */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 p-3 rounded-lg border border-slate-800 bg-[#0B0F18]">
+        {/* Sub/Mid Cutoff Slider */}
+        <div className="space-y-1.5 bg-[#070A10] p-2.5 rounded-lg border border-slate-800">
           <div className="flex items-center justify-between font-mono text-[11px]">
-            <span className="text-fuchsia-300 font-semibold uppercase">
-              Sub / Mid Crossover Frequency
+            <span className="text-fuchsia-300 font-semibold uppercase flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(217,70,239,0.8)]" />
+              Sub / Mid Crossover Cutoff
             </span>
-            <span className="text-white font-bold bg-[#141C2B] px-2 py-0.5 rounded border border-fuchsia-500/40">
+            <span className="text-white font-bold bg-[#141C2B] px-2.5 py-0.5 rounded border border-fuchsia-500/50">
               {xover.subToMidHz} Hz
             </span>
           </div>
@@ -236,22 +508,24 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             value={xover.subToMidHz}
             disabled={panelLocked}
             onChange={(e) => updateXover({ subToMidHz: parseInt(e.target.value, 10) })}
-            className="w-full accent-fuchsia-500 cursor-pointer"
+            className="w-full accent-fuchsia-500 cursor-pointer h-2 rounded bg-slate-800"
           />
           <div className="flex justify-between font-mono text-[9px] text-slate-500">
             <span>40 Hz</span>
-            <span>80 Hz (Standard)</span>
+            <span className="text-fuchsia-400/80 font-bold">80 Hz (Standard Church Sub)</span>
             <span>120 Hz</span>
             <span>180 Hz</span>
           </div>
         </div>
 
-        <div className="space-y-1.5">
+        {/* Mid/High Cutoff Slider */}
+        <div className="space-y-1.5 bg-[#070A10] p-2.5 rounded-lg border border-slate-800">
           <div className="flex items-center justify-between font-mono text-[11px]">
-            <span className="text-sky-300 font-semibold uppercase">
-              Mid / High Crossover Frequency
+            <span className="text-sky-300 font-semibold uppercase flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]" />
+              Mid / High Horn Crossover Cutoff
             </span>
-            <span className="text-white font-bold bg-[#141C2B] px-2 py-0.5 rounded border border-sky-500/40">
+            <span className="text-white font-bold bg-[#141C2B] px-2.5 py-0.5 rounded border border-sky-500/50">
               {(xover.midToHighHz / 1000).toFixed(2)} kHz
             </span>
           </div>
@@ -263,212 +537,336 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
             value={xover.midToHighHz}
             disabled={panelLocked}
             onChange={(e) => updateXover({ midToHighHz: parseInt(e.target.value, 10) })}
-            className="w-full accent-sky-500 cursor-pointer"
+            className="w-full accent-sky-500 cursor-pointer h-2 rounded bg-slate-800"
           />
           <div className="flex justify-between font-mono text-[9px] text-slate-500">
             <span>1.0 kHz</span>
-            <span>2.5 kHz (Horn Default)</span>
+            <span className="text-sky-400/80 font-bold">2.5 kHz (Horn Default)</span>
             <span>4.0 kHz</span>
             <span>6.0 kHz</span>
           </div>
         </div>
       </div>
 
-      {/* 3 Physical Band Processing Channel Strips */}
+      {/* 3 Physical Band Processing & Output Matrix Strips */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {/* BAND 1: SUBWOOFER */}
-        <div className="rounded-lg border border-fuchsia-500/40 bg-[#120F1A] p-3 flex flex-col justify-between gap-3">
+        {/* BAND 1: SUBWOOFER CHANNEL STRIP */}
+        <div
+          className={`rounded-xl border p-3 flex flex-col justify-between gap-3 transition-all ${
+            activeSubBand.solo
+              ? 'border-fuchsia-400 bg-[#1A0E24] shadow-[0_0_15px_rgba(217,70,239,0.3)]'
+              : 'border-fuchsia-500/35 bg-[#100D18]'
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-fuchsia-500/20 pb-2">
-            <span className="font-mono text-xs font-bold text-fuchsia-300 uppercase">
-              1. SUBWOOFERS
-            </span>
-            <span className="font-mono text-[10px] text-fuchsia-400/80">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(217,70,239,0.8)]" />
+              <span className="font-mono text-xs font-bold text-fuchsia-200 uppercase">
+                1. SUBWOOFER BAND
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-fuchsia-400">
               Low-Pass &lt; {xover.subToMidHz} Hz
             </span>
           </div>
 
+          {/* Knobs */}
           <div className="flex items-center justify-around py-1">
             <RotaryKnob
-              label="Trim"
-              value={xover.sub.gainDb}
+              label="Sub Gain"
+              value={activeSubBand.gainDb}
               min={-12}
               max={12}
               step={0.5}
               defaultValue={0}
               unit="dB"
-              size={48}
+              size={50}
               accent="amber"
               onChange={(v) => updateBand('sub', { gainDb: v })}
             />
             <RotaryKnob
-              label="Sub Align"
-              value={xover.sub.delayMs}
+              label="Driver Delay"
+              value={activeSubBand.delayMs}
               min={0}
-              max={30}
+              max={45}
               step={0.1}
               defaultValue={4.5}
               unit="ms"
-              size={48}
+              size={50}
               accent="amber"
               onChange={(v) => updateBand('sub', { delayMs: v })}
             />
           </div>
 
-          <div className="space-y-1.5 font-mono text-[10px]">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3 text-fuchsia-400" /> Time Align:
+          {/* Output Patch Assignment Matrix */}
+          <div className="space-y-2 font-mono text-[10px] bg-[#070912] p-2 rounded-lg border border-slate-800">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 flex items-center gap-1">
+                <Volume2 className="w-3 h-3 text-fuchsia-400" /> Output Patch:
               </span>
-              <span className="text-white font-bold">{xover.sub.delayMs.toFixed(1)} ms</span>
+              <select
+                value={activeSubBand.outputAssignment || 'sub-out'}
+                onChange={(e) => handleAssignOutput('sub', e.target.value)}
+                className="rounded border border-fuchsia-500/40 bg-[#120F1C] px-2 py-0.5 text-[10px] text-fuchsia-200 font-mono cursor-pointer"
+              >
+                <option value="sub-out">Aux 1 / Subwoofer Out (Dedicated)</option>
+                <option value="main-lr">Main Sanctuary L/R (Internal Sum)</option>
+                <option value="mono-sub">Matrix Out 3 (Mono Sub Center)</option>
+              </select>
             </div>
-            <div className="grid grid-cols-3 gap-1">
-              <ConsolePushButton
-                label={xover.sub.mute ? 'MUTED' : 'MUTE'}
-                active={xover.sub.mute}
-                tone="red"
-                onClick={() => updateBand('sub', { mute: !xover.sub.mute })}
-              />
-              <ConsolePushButton
-                label={xover.sub.solo ? 'SOLO' : 'SOLO'}
-                active={xover.sub.solo}
-                tone="amber"
-                onClick={() => updateBand('sub', { solo: !xover.sub.solo })}
-              />
-              <ConsolePushButton
-                label={xover.sub.polarityInverted ? '180° Ø' : '0°'}
-                active={xover.sub.polarityInverted}
-                tone="amber"
-                onClick={() => updateBand('sub', { polarityInverted: !xover.sub.polarityInverted })}
-              />
+
+            {/* Solo / Isolate & Mute & Polarity */}
+            <div className="grid grid-cols-3 gap-1 pt-1">
+              <button
+                type="button"
+                onClick={() => handleToggleSolo('sub')}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer flex items-center justify-center gap-1 ${
+                  activeSubBand.solo
+                    ? 'bg-fuchsia-500 text-white border-fuchsia-400 shadow-[0_0_8px_rgba(217,70,239,0.8)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                <Headphones className="w-3 h-3" />
+                {activeSubBand.solo ? 'ISOLATED' : 'ISOLATE'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleMute('sub')}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer ${
+                  activeSubBand.mute
+                    ? 'bg-red-600 text-white border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {activeSubBand.mute ? 'MUTED' : 'MUTE'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => updateBand('sub', { polarityInverted: !activeSubBand.polarityInverted })}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer ${
+                  activeSubBand.polarityInverted
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {activeSubBand.polarityInverted ? '180° Ø' : '0° PHASE'}
+              </button>
             </div>
           </div>
         </div>
 
-        {/* BAND 2: MID / VOCALS */}
-        <div className="rounded-lg border border-emerald-500/40 bg-[#0B1514] p-3 flex flex-col justify-between gap-3">
+        {/* BAND 2: MID / VOCALS CHANNEL STRIP */}
+        <div
+          className={`rounded-xl border p-3 flex flex-col justify-between gap-3 transition-all ${
+            activeMidBand.solo
+              ? 'border-emerald-400 bg-[#0B1A16] shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+              : 'border-emerald-500/35 bg-[#091211]'
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
-            <span className="font-mono text-xs font-bold text-emerald-300 uppercase">
-              2. MIDS &amp; VOCALS
-            </span>
-            <span className="font-mono text-[10px] text-emerald-400/80">
-              {xover.subToMidHz} Hz – {(xover.midToHighHz / 1000).toFixed(1)}k
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
+              <span className="font-mono text-xs font-bold text-emerald-200 uppercase">
+                2. MID / VOCAL BAND
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-emerald-400">
+              {xover.subToMidHz} Hz — {(xover.midToHighHz / 1000).toFixed(1)}k
             </span>
           </div>
 
+          {/* Knobs */}
           <div className="flex items-center justify-around py-1">
             <RotaryKnob
-              label="Trim"
-              value={xover.mid.gainDb}
+              label="Mid Gain"
+              value={activeMidBand.gainDb}
               min={-12}
               max={12}
               step={0.5}
               defaultValue={0}
               unit="dB"
-              size={48}
+              size={50}
               accent="emerald"
               onChange={(v) => updateBand('mid', { gainDb: v })}
             />
-            <div className="flex flex-col items-center justify-center p-2 rounded border border-slate-800 bg-[#070D0C] w-20 text-center">
-              <span className="font-mono text-[9px] text-slate-400 uppercase">Acoustic</span>
-              <span className="font-mono text-xs font-bold text-emerald-400 mt-1">MAIN REF</span>
-              <span className="font-mono text-[9px] text-slate-500">0.0 ms</span>
-            </div>
+            <RotaryKnob
+              label="Mid Delay"
+              value={activeMidBand.delayMs}
+              min={0}
+              max={45}
+              step={0.1}
+              defaultValue={0}
+              unit="ms"
+              size={50}
+              accent="emerald"
+              onChange={(v) => updateBand('mid', { delayMs: v })}
+            />
           </div>
 
-          <div className="space-y-1.5 font-mono text-[10px]">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="flex items-center gap-1">
-                <Activity className="w-3 h-3 text-emerald-400" /> Vocal Core:
+          {/* Output Patch Assignment Matrix */}
+          <div className="space-y-2 font-mono text-[10px] bg-[#070912] p-2 rounded-lg border border-slate-800">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 flex items-center gap-1">
+                <Volume2 className="w-3 h-3 text-emerald-400" /> Output Patch:
               </span>
-              <span className="text-white font-bold">{xover.mid.gainDb > 0 ? `+${xover.mid.gainDb.toFixed(1)}` : xover.mid.gainDb.toFixed(1)} dB</span>
+              <select
+                value={activeMidBand.outputAssignment || 'main-lr'}
+                onChange={(e) => handleAssignOutput('mid', e.target.value)}
+                className="rounded border border-emerald-500/40 bg-[#0C1613] px-2 py-0.5 text-[10px] text-emerald-200 font-mono cursor-pointer"
+              >
+                <option value="main-lr">Main Sanctuary PA Array L/R</option>
+                <option value="aux-vocal">Aux 2 / Platform Vocal Cluster</option>
+                <option value="center-fill">Out 4 (Center Platform Fill)</option>
+              </select>
             </div>
-            <div className="grid grid-cols-3 gap-1">
-              <ConsolePushButton
-                label={xover.mid.mute ? 'MUTED' : 'MUTE'}
-                active={xover.mid.mute}
-                tone="red"
-                onClick={() => updateBand('mid', { mute: !xover.mid.mute })}
-              />
-              <ConsolePushButton
-                label={xover.mid.solo ? 'SOLO' : 'SOLO'}
-                active={xover.mid.solo}
-                tone="amber"
-                onClick={() => updateBand('mid', { solo: !xover.mid.solo })}
-              />
-              <ConsolePushButton
-                label={xover.mid.polarityInverted ? '180° Ø' : '0°'}
-                active={xover.mid.polarityInverted}
-                tone="emerald"
-                onClick={() => updateBand('mid', { polarityInverted: !xover.mid.polarityInverted })}
-              />
+
+            {/* Solo / Isolate & Mute & Polarity */}
+            <div className="grid grid-cols-3 gap-1 pt-1">
+              <button
+                type="button"
+                onClick={() => handleToggleSolo('mid')}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer flex items-center justify-center gap-1 ${
+                  activeMidBand.solo
+                    ? 'bg-emerald-500 text-white border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                <Headphones className="w-3 h-3" />
+                {activeMidBand.solo ? 'ISOLATED' : 'ISOLATE'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleMute('mid')}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer ${
+                  activeMidBand.mute
+                    ? 'bg-red-600 text-white border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {activeMidBand.mute ? 'MUTED' : 'MUTE'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => updateBand('mid', { polarityInverted: !activeMidBand.polarityInverted })}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer ${
+                  activeMidBand.polarityInverted
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {activeMidBand.polarityInverted ? '180° Ø' : '0° PHASE'}
+              </button>
             </div>
           </div>
         </div>
 
-        {/* BAND 3: HIGH HORNS */}
-        <div className="rounded-lg border border-sky-500/40 bg-[#0C131D] p-3 flex flex-col justify-between gap-3">
+        {/* BAND 3: HIGH HORNS CHANNEL STRIP */}
+        <div
+          className={`rounded-xl border p-3 flex flex-col justify-between gap-3 transition-all ${
+            activeHighBand.solo
+              ? 'border-sky-400 bg-[#0B1524] shadow-[0_0_15px_rgba(56,189,248,0.3)]'
+              : 'border-sky-500/35 bg-[#09101A]'
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-sky-500/20 pb-2">
-            <span className="font-mono text-xs font-bold text-sky-300 uppercase">
-              3. HIGH HORNS
-            </span>
-            <span className="font-mono text-[10px] text-sky-400/80">
-              High-Pass &gt; {(xover.midToHighHz / 1000).toFixed(1)}k
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]" />
+              <span className="font-mono text-xs font-bold text-sky-200 uppercase">
+                3. HIGH HORNS &amp; AIR
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-sky-400">
+              High-Pass &gt; {(xover.midToHighHz / 1000).toFixed(1)}k Hz
             </span>
           </div>
 
+          {/* Knobs */}
           <div className="flex items-center justify-around py-1">
             <RotaryKnob
-              label="Trim"
-              value={xover.high.gainDb}
+              label="High Gain"
+              value={activeHighBand.gainDb}
               min={-12}
               max={12}
               step={0.5}
               defaultValue={0}
               unit="dB"
-              size={48}
+              size={50}
               accent="sky"
               onChange={(v) => updateBand('high', { gainDb: v })}
             />
             <RotaryKnob
               label="Horn Align"
-              value={xover.high.delayMs}
+              value={activeHighBand.delayMs}
               min={0}
-              max={10}
+              max={30}
               step={0.1}
               defaultValue={0.8}
               unit="ms"
-              size={48}
+              size={50}
               accent="sky"
               onChange={(v) => updateBand('high', { delayMs: v })}
             />
           </div>
 
-          <div className="space-y-1.5 font-mono text-[10px]">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3 text-sky-400" /> Horn Delay:
+          {/* Output Patch Assignment Matrix */}
+          <div className="space-y-2 font-mono text-[10px] bg-[#070912] p-2 rounded-lg border border-slate-800">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 flex items-center gap-1">
+                <Volume2 className="w-3 h-3 text-sky-400" /> Output Patch:
               </span>
-              <span className="text-white font-bold">{xover.high.delayMs.toFixed(1)} ms</span>
+              <select
+                value={activeHighBand.outputAssignment || 'horn-out'}
+                onChange={(e) => handleAssignOutput('high', e.target.value)}
+                className="rounded border border-sky-500/40 bg-[#0C1522] px-2 py-0.5 text-[10px] text-sky-200 font-mono cursor-pointer"
+              >
+                <option value="horn-out">High Frequency Horns (Dedicated)</option>
+                <option value="main-lr">Main Sanctuary PA Array L/R</option>
+                <option value="delay-zone">Out 5-6 / Balcony Delay Horns</option>
+              </select>
             </div>
-            <div className="grid grid-cols-3 gap-1">
-              <ConsolePushButton
-                label={xover.high.mute ? 'MUTED' : 'MUTE'}
-                active={xover.high.mute}
-                tone="red"
-                onClick={() => updateBand('high', { mute: !xover.high.mute })}
-              />
-              <ConsolePushButton
-                label={xover.high.solo ? 'SOLO' : 'SOLO'}
-                active={xover.high.solo}
-                tone="amber"
-                onClick={() => updateBand('high', { solo: !xover.high.solo })}
-              />
-              <ConsolePushButton
-                label={xover.high.polarityInverted ? '180° Ø' : '0°'}
-                active={xover.high.polarityInverted}
-                tone="sky"
-                onClick={() => updateBand('high', { polarityInverted: !xover.high.polarityInverted })}
-              />
+
+            {/* Solo / Isolate & Mute & Polarity */}
+            <div className="grid grid-cols-3 gap-1 pt-1">
+              <button
+                type="button"
+                onClick={() => handleToggleSolo('high')}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer flex items-center justify-center gap-1 ${
+                  activeHighBand.solo
+                    ? 'bg-sky-500 text-white border-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                <Headphones className="w-3 h-3" />
+                {activeHighBand.solo ? 'ISOLATED' : 'ISOLATE'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleToggleMute('high')}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer ${
+                  activeHighBand.mute
+                    ? 'bg-red-600 text-white border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {activeHighBand.mute ? 'MUTED' : 'MUTE'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => updateBand('high', { polarityInverted: !activeHighBand.polarityInverted })}
+                className={`py-1 rounded font-bold text-[10px] border transition cursor-pointer ${
+                  activeHighBand.polarityInverted
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.6)]'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {activeHighBand.polarityInverted ? '180° Ø' : '0° PHASE'}
+              </button>
             </div>
           </div>
         </div>

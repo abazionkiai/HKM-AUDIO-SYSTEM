@@ -138,7 +138,11 @@ export interface GraphicEq31Band {
 export interface GraphicEq31Config {
   enabled: boolean;
   rangeDb: 6 | 12;
+  stereoLinked?: boolean;
+  activeChannel?: 'L' | 'R';
   bands: GraphicEq31Band[];
+  bandsRight?: GraphicEq31Band[];
+  outputAssignment?: string;
 }
 
 export interface CrossoverBandConfig {
@@ -149,10 +153,21 @@ export interface CrossoverBandConfig {
   solo: boolean;
   polarityInverted: boolean;
   delayMs: number;
+  outputAssignment?: string;
+}
+
+export interface SuperBassConfig {
+  enabled: boolean;
+  mode: 'deep-sub' | 'punch-808' | 'subharmonic';
+  boostDb: number;
+  subHarmonics: boolean;
+  subInfrasoundHpfHz: number;
 }
 
 export interface ActiveCrossoverConfig {
   enabled: boolean;
+  stereoLinked?: boolean;
+  activeChannel?: 'L' | 'R';
   subToMidHz: number;
   midToHighHz: number;
   slope: 'LR24' | 'LR48' | 'BW18';
@@ -160,6 +175,11 @@ export interface ActiveCrossoverConfig {
   sub: CrossoverBandConfig;
   mid: CrossoverBandConfig;
   high: CrossoverBandConfig;
+  subRight?: CrossoverBandConfig;
+  midRight?: CrossoverBandConfig;
+  highRight?: CrossoverBandConfig;
+  outputAssignment?: string;
+  superBass?: SuperBassConfig;
 }
 
 export interface CleanStandbyConfig {
