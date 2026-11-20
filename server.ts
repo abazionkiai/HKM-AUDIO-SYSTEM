@@ -925,9 +925,10 @@ Be concise, practical, and explicit about hardware boundaries (for instance, if 
     });
   }
 
-  const port = 3000;
-  httpServer.listen(port, '0.0.0.0', () => {
-    console.log(`Church Audio Intelligence running on http://0.0.0.0:${port}`);
+  const port = Number(process.env.PORT ?? 3000);
+  const host = process.env.HOST ?? '0.0.0.0';
+  httpServer.listen(port, host, () => {
+    console.log(`Church Audio Intelligence running on http://${host}:${port}`);
   });
 }
 

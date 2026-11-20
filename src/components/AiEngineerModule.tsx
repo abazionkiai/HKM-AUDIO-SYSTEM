@@ -8,6 +8,7 @@ import type {
   PlatformTarget,
   SignalTelemetry,
 } from '../types/audio.ts';
+import { appFetch } from '../utils/appApi.ts';
 import { ArcGauge, SegmentedLedMeter } from './StudioControls.tsx';
 
 interface AiEngineerModuleProps {
@@ -58,7 +59,7 @@ export const AiEngineerModule: React.FC<AiEngineerModuleProps> = ({
     setDiagnosing(true);
     setDiagError(null);
     try {
-      const resp = await fetch('/api/ai/diagnose', {
+      const resp = await appFetch('/api/ai/diagnose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -125,7 +126,7 @@ export const AiEngineerModule: React.FC<AiEngineerModuleProps> = ({
     setChatBusy(true);
 
     try {
-      const resp = await fetch('/api/ai/chat', {
+      const resp = await appFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

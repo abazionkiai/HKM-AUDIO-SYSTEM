@@ -83,6 +83,7 @@ import {
   isEditableEventTarget,
   normalizeKeyEvent,
 } from './utils/keyboardShortcuts.ts';
+import { appFetch } from './utils/appApi.ts';
 
 const INITIAL_TELEMETRY: SignalTelemetry = {
   source: 'live-mic',
@@ -322,8 +323,8 @@ export default function App() {
     let active = true;
 
     Promise.allSettled([
-      fetch('/api/state').then((r) => (r.ok ? r.json() : null)),
-      fetch('/api/remote/session').then((r) => (r.ok ? r.json() : null)),
+      appFetch('/api/state').then((r) => (r.ok ? r.json() : null)),
+      appFetch('/api/remote/session').then((r) => (r.ok ? r.json() : null)),
     ])
       .then(([stateRes, remoteRes]) => {
         if (!active) return;
@@ -583,7 +584,7 @@ export default function App() {
     } catch {
       // ignore storage errors
     }
-    fetch('/api/shortcuts', {
+    appFetch('/api/shortcuts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shortcuts: next }),
@@ -601,7 +602,7 @@ export default function App() {
         authority,
       };
       setAuditEvents((prev) => [evt, ...prev].slice(0, 80));
-      fetch('/api/audit', {
+      appFetch('/api/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(evt),
@@ -612,7 +613,7 @@ export default function App() {
 
   const updateAndPersistMidiMappings = useCallback((next: MidiMapping[]) => {
     setMidiMappings(next);
-    fetch('/api/midi-mappings', {
+    appFetch('/api/midi-mappings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mappings: next }),
@@ -654,7 +655,7 @@ export default function App() {
                 }
               : m
           );
-          fetch('/api/midi-mappings', {
+          appFetch('/api/midi-mappings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mappings: next }),
@@ -1387,7 +1388,7 @@ export default function App() {
       zones,
     };
     setVersions((prev) => [snapshot, ...prev]);
-    fetch('/api/versions', {
+    appFetch('/api/versions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(snapshot),
@@ -1449,7 +1450,7 @@ export default function App() {
         snapshot,
         ...prev.filter((s) => s.id !== snapshot.id),
       ].slice(0, 40));
-      fetch('/api/automations', {
+      appFetch('/api/automations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ snapshot }),
@@ -1468,7 +1469,7 @@ export default function App() {
       setAutomationSnapshots((prev) =>
         prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
       );
-      fetch(`/api/automations/${encodeURIComponent(id)}`, {
+      appFetch(`/api/automations/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
@@ -1480,7 +1481,7 @@ export default function App() {
   const handleDeleteAutomation = useCallback(
     (id: string) => {
       setAutomationSnapshots((prev) => prev.filter((s) => s.id !== id));
-      fetch(`/api/automations/${encodeURIComponent(id)}`, {
+      appFetch(`/api/automations/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       }).catch(() => {});
       logAudit('Deleted Automation Snapshot', `Removed snapshot ${id}`, 'operator');
