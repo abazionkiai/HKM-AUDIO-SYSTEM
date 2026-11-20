@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ModuleId } from './types/audio.ts';
 import { useConsoleSession } from './store/useConsoleSession.ts';
 import { useAudioEngine } from './store/useAudioEngine.ts';
@@ -70,11 +70,22 @@ export default function App() {
     };
   }, []);
 
+  const midiRef = useRef<any>(null);
+  const shortcutsRef = useRef<any>(null);
+
+  const handleMidiMappingsLoaded = useCallback((mappings: any[]) => {
+    midiRef.current?.updateAndPersistMidiMappings(mappings);
+  }, []);
+
+  const handleKeyboardShortcutsLoaded = useCallback((shortcutsList: any[]) => {
+    shortcutsRef.current?.updateAndPersistShortcuts(shortcutsList);
+  }, []);
+
   // 1. Console Session Store: holds mixer state, presets, configuration versions, and SQLite persistence
   const session = useConsoleSession({
     remoteCompanionToken,
-    onMidiMappingsLoaded: (mappings) => midi.updateAndPersistMidiMappings(mappings),
-    onKeyboardShortcutsLoaded: (shortcutsList) => shortcuts.updateAndPersistShortcuts(shortcutsList),
+    onMidiMappingsLoaded: handleMidiMappingsLoaded,
+    onKeyboardShortcutsLoaded: handleKeyboardShortcutsLoaded,
   });
 
   // 2. Physical & Loopback Hardware Discovery
@@ -115,6 +126,7 @@ export default function App() {
     onUpdateEmergencyMute: session.setEmergencyMuted,
     logAudit: session.logAudit,
   });
+  midiRef.current = midi;
 
   // 5. Global Keyboard Shortcuts & Tap Tempo Manager
   const shortcuts = useKeyboardShortcutsManager({
@@ -128,6 +140,7 @@ export default function App() {
     onSaveSnapshot: (label) => session.handleSaveVersion(label),
     onNavigateModule: (mod) => setActiveModule(mod as ModuleId),
   });
+  shortcutsRef.current = shortcuts;
 
   const handleExitRemoteCompanion = () => {
     setRemoteCompanionToken(null);

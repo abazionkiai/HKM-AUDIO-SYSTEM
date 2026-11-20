@@ -69,7 +69,10 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current || disabled) return;
+    if (!isDraggingRef.current || disabled || e.buttons !== 1) {
+      if (isDraggingRef.current && e.buttons !== 1) isDraggingRef.current = false;
+      return;
+    }
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect) return;
     updateFromY(e.clientY, rect);

@@ -376,7 +376,11 @@ pub fn run() {
         .manage(DesktopState::default())
         .setup(|app| {
             let window_config = &app.config().app.windows[0];
-            WebviewWindowBuilder::from_config(app.handle(), window_config)?
+            let mut builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
+            if let Some(icon) = app.default_window_icon() {
+                builder = builder.icon(icon.clone())?;
+            }
+            builder
                 .on_permission_request(|_, kind| match kind {
                     PermissionKind::Microphone | PermissionKind::Midi => PermissionResponse::Allow,
                     _ => PermissionResponse::Default,

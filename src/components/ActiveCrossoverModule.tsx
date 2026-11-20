@@ -190,14 +190,14 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
     });
   };
 
-  // Crossover visualization geometry
+  // Crossover visualization geometry with strict boundary clamping
   const curves = useMemo(() => {
     const width = 800;
     const height = 120;
     const minF = 20;
     const maxF = 20000;
-    const subF = xover.subToMidHz;
-    const highF = xover.midToHighHz;
+    const subF = xover.subToMidHz || 80;
+    const highF = xover.midToHighHz || 2500;
 
     const freqToX = (f: number, w: number) => {
       const minLog = Math.log10(minF);
@@ -215,23 +215,28 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
       const f = minF * Math.pow(maxF / minF, i / numPoints);
       const x = freqToX(f, width);
 
-      // LR-24 filter approximation: 24dB/octave slope
+      // LR-24 Sub response (4th order lowpass = (1 / (1 + (f/fc)^2))^2)
       const subRatio = f / subF;
-      const subDb = -10 * Math.log10(1 + Math.pow(subRatio, 8));
-      const subY = height * 0.45 - (subDb / 24) * (height * 0.4);
+      const subMag = 1 / (1 + Math.pow(subRatio, 4));
+      const subDb = Math.max(-48, Math.min(18, 10 * Math.log10(Math.max(1e-5, subMag)) + (activeSubBand.gainDb || 0)));
+      const subY = Math.max(6, Math.min(height - 4, height * 0.45 - (subDb / 24) * (height * 0.38)));
       subPoints.push(`${x.toFixed(1)},${subY.toFixed(1)}`);
 
-      const highRatio = highF / f;
-      const highDb = -10 * Math.log10(1 + Math.pow(highRatio, 8));
-      const highY = height * 0.45 - (highDb / 24) * (height * 0.4);
+      // LR-24 High response (4th order highpass = ( (f/fc)^2 / (1 + (f/fc)^2) )^2 )
+      const highRatio = f / highF;
+      const highMag = Math.pow(highRatio, 4) / (1 + Math.pow(highRatio, 4));
+      const highDb = Math.max(-48, Math.min(18, 10 * Math.log10(Math.max(1e-5, highMag)) + (activeHighBand.gainDb || 0)));
+      const highY = Math.max(6, Math.min(height - 4, height * 0.45 - (highDb / 24) * (height * 0.38)));
       highPoints.push(`${x.toFixed(1)},${highY.toFixed(1)}`);
 
-      const midHpRatio = subF / f;
+      // Mid response (Band-pass = Sub HP * High LP)
+      const midHpRatio = f / subF;
+      const midHpMag = Math.pow(midHpRatio, 4) / (1 + Math.pow(midHpRatio, 4));
       const midLpRatio = f / highF;
-      const midHpDb = -10 * Math.log10(1 + Math.pow(midHpRatio, 8));
-      const midLpDb = -10 * Math.log10(1 + Math.pow(midLpRatio, 8));
-      const midDb = midHpDb + midLpDb;
-      const midY = height * 0.45 - (midDb / 24) * (height * 0.4);
+      const midLpMag = 1 / (1 + Math.pow(midLpRatio, 4));
+      const midMag = midHpMag * midLpMag;
+      const midDb = Math.max(-48, Math.min(18, 10 * Math.log10(Math.max(1e-5, midMag)) + (activeMidBand.gainDb || 0)));
+      const midY = Math.max(6, Math.min(height - 4, height * 0.45 - (midDb / 24) * (height * 0.38)));
       midPoints.push(`${x.toFixed(1)},${midY.toFixed(1)}`);
     }
 
@@ -242,7 +247,7 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
       subSplitX: freqToX(subF, width),
       highSplitX: freqToX(highF, width),
     };
-  }, [xover.midToHighHz, xover.subToMidHz]);
+  }, [activeHighBand.gainDb, activeMidBand.gainDb, activeSubBand.gainDb, xover.midToHighHz, xover.subToMidHz]);
 
   return (
     <div className="space-y-4 rounded-xl border border-slate-800 bg-gradient-to-b from-[#0E121E] via-[#090D17] to-[#06080F] p-4 text-slate-200 shadow-2xl">
@@ -431,7 +436,7 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
           </div>
         </div>
 
-        <svg viewBox="0 0 800 120" className="w-full h-28 overflow-visible">
+        <svg viewBox="0 0 800 120" className="w-full h-28 overflow-hidden rounded bg-[#04060C]">
           {/* Grids */}
           <line x1={0} y1={25} x2={800} y2={25} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
           <line x1={0} y1={55} x2={800} y2={55} stroke="rgba(148,163,184,0.25)" />

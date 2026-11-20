@@ -200,9 +200,16 @@ export function useConsoleSession({
     []
   );
 
-  // Hydrate full console state from SQLite backend
+  const onEmergencyMuteChangedRef = useRef(onEmergencyMuteChanged);
+  onEmergencyMuteChangedRef.current = onEmergencyMuteChanged;
+  const onKeyboardShortcutsLoadedRef = useRef(onKeyboardShortcutsLoaded);
+  onKeyboardShortcutsLoadedRef.current = onKeyboardShortcutsLoaded;
+  const onMidiMappingsLoadedRef = useRef(onMidiMappingsLoaded);
+  onMidiMappingsLoadedRef.current = onMidiMappingsLoaded;
+
+  // Hydrate full console state from SQLite backend (ONCE on initial mount)
   useEffect(() => {
-    if (remoteCompanionToken) return;
+    if (remoteCompanionToken || hydratedRef.current) return;
     let active = true;
 
     Promise.allSettled([
@@ -248,7 +255,7 @@ export function useConsoleSession({
           if (typeof data.emergencyMuted === 'boolean') {
             setEmergencyMuted(data.emergencyMuted);
             liveAudioEngine.setEmergencyMute(data.emergencyMuted);
-            onEmergencyMuteChanged?.(data.emergencyMuted);
+            onEmergencyMuteChangedRef.current?.(data.emergencyMuted);
           }
           if (Array.isArray(data.findings)) setFindings(data.findings);
           if (data.remoteAccess && typeof data.remoteAccess === 'object') {
@@ -259,13 +266,13 @@ export function useConsoleSession({
             setAuditEvents(data.auditEvents);
           }
           if (Array.isArray(data.midiMappings) && data.midiMappings.length > 0) {
-            onMidiMappingsLoaded?.(data.midiMappings);
+            onMidiMappingsLoadedRef.current?.(data.midiMappings);
           }
           if (Array.isArray(data.automationSnapshots)) {
             setAutomationSnapshots(data.automationSnapshots);
           }
           if (Array.isArray(data.keyboardShortcuts) && data.keyboardShortcuts.length > 0) {
-            onKeyboardShortcutsLoaded?.(data.keyboardShortcuts);
+            onKeyboardShortcutsLoadedRef.current?.(data.keyboardShortcuts);
           }
         }
 
@@ -283,7 +290,7 @@ export function useConsoleSession({
     return () => {
       active = false;
     };
-  }, [onEmergencyMuteChanged, onKeyboardShortcutsLoaded, onMidiMappingsLoaded, remoteCompanionToken]);
+  }, [remoteCompanionToken]);
 
   // Persistent Desktop WebSocket link
   useEffect(() => {
