@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Runtime SQLite persistence
+.data/*.sqlite*
+.data/*.json
