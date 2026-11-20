@@ -372,6 +372,7 @@ fn desktop_api_request(
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopState::default())
         .setup(|app| {
             let window_config = &app.config().app.windows[0];

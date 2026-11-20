@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ModuleId } from './types/audio.ts';
 import { useConsoleSession } from './store/useConsoleSession.ts';
 import { useAudioEngine } from './store/useAudioEngine.ts';
@@ -6,6 +6,7 @@ import { useHardwareManager } from './store/useHardwareManager.ts';
 import { useMidiManager } from './store/useMidiManager.ts';
 import { useKeyboardShortcutsManager } from './store/useKeyboardShortcutsManager.ts';
 import { isDesktopApp } from './utils/appApi.ts';
+import { checkDesktopUpdate } from './utils/appUpdater.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { LiveConsoleModule } from './components/LiveConsoleModule.tsx';
@@ -24,6 +25,7 @@ import { HardwareDiagnosticsModule } from './components/HardwareDiagnosticsModul
 import { VirtualDiBassModule } from './components/VirtualDiBassModule.tsx';
 import { RemoteCompanionView } from './components/RemoteCompanionView.tsx';
 import { KeyboardShortcutManager } from './components/KeyboardShortcutManager.tsx';
+import { UpdateNotificationModal } from './components/UpdateNotificationModal.tsx';
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
@@ -41,6 +43,32 @@ export default function App() {
   });
 
   const [activeModule, setActiveModule] = useState<ModuleId>('console');
+  const [availableUpdate, setAvailableUpdate] = useState<{
+    version: string;
+    notes?: string;
+    onInstall: () => Promise<void>;
+  } | null>(null);
+
+  // Proactively check for verified desktop releases on launch
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      const res = await checkDesktopUpdate();
+      if (active && res.available && res.downloadAndInstall && res.version) {
+        setAvailableUpdate({
+          version: res.version,
+          notes: res.notes,
+          onInstall: res.downloadAndInstall,
+        });
+      }
+    }, 3500);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   // 1. Console Session Store: holds mixer state, presets, configuration versions, and SQLite persistence
   const session = useConsoleSession({
@@ -554,6 +582,16 @@ export default function App() {
             />
           </div>
         </div>
+      )}
+
+      {/* In-App Desktop Auto-Update Notification Modal */}
+      {availableUpdate && (
+        <UpdateNotificationModal
+          version={availableUpdate.version}
+          notes={availableUpdate.notes}
+          onInstall={availableUpdate.onInstall}
+          onDismiss={() => setAvailableUpdate(null)}
+        />
       )}
 
       {/* Non-intrusive Keydown Trigger Feedback Toast */}

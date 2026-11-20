@@ -12,3 +12,5 @@ coverage/
 .data/*.json
 src-tauri/target/
 src-tauri/gen/
+src-tauri/*.key
+src-tauri/*.key.pub
