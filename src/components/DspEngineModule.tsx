@@ -37,6 +37,7 @@ interface DspEngineModuleProps {
   zones: SpeakerZone[];
   activeDspPlugins: LoadedPluginRecord[];
   telemetry?: SignalTelemetry;
+  audioCpuPct?: number;
   channels?: InputChannel[];
   onUpdateChannel?: (id: string, patch: Partial<InputChannel>) => void;
   presets?: ServicePreset[];
@@ -57,6 +58,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
   zones,
   activeDspPlugins,
   telemetry,
+  audioCpuPct,
   channels = [],
   onUpdateChannel,
   presets = [],
@@ -131,11 +133,13 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
   };
 
   const cpuPct = telemetry?.isRunning
-    ? Math.min(84, Math.round(24 + 4096 / Math.max(64, bufferSize)))
-    : 18;
-  const headroomTempEq = telemetry?.isRunning
-    ? Math.round(48 + Math.max(0, 20 + telemetry.postPeakDb))
-    : 50;
+    ? typeof audioCpuPct === 'number'
+      ? audioCpuPct
+      : Math.min(84, Math.round(24 + 4096 / Math.max(64, bufferSize)))
+    : 0;
+  const outputDensityPct = telemetry?.isRunning
+    ? Math.min(100, Math.max(4, Math.round(((telemetry.postPeakDb + 56) / 56) * 100)))
+    : 0;
 
   return (
     <div className="space-y-3">
@@ -238,11 +242,10 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
             {inputRackChannels.map((ch) => {
               const isSel = ch.id === selectedChannelId;
               const isHot = ch.faderDb > 4 || ch.gainDb > 36;
-              const levelDb = ch.mute
-                ? -56
-                : telemetry?.isRunning
-                  ? Math.max(-50, Math.min(-1, telemetry.postRmsDb + ch.faderDb * 0.5))
-                  : Math.max(-44, -22 + ch.faderDb);
+              const levelDb =
+                ch.mute || !telemetry?.isRunning
+                  ? -56
+                  : Math.max(-50, Math.min(-1, telemetry.postRmsDb + ch.faderDb * 0.5));
 
               return (
                 <div
@@ -258,7 +261,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
                     <span className="font-mono text-[10px] text-slate-500 w-3">{ch.index}</span>
                     <SegmentedLedMeter
                       levelDb={levelDb}
-                      peakDb={levelDb + 4}
+                      peakDb={telemetry?.isRunning && !ch.mute ? levelDb + 4 : -56}
                       muted={ch.mute}
                       height={34}
                       segments={8}
@@ -673,7 +676,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
               {(['MAIN L', 'MAIN R'] as const).map((label, idx) => {
                 const lvl = telemetry?.isRunning
                   ? Math.min(100, Math.max(4, Math.round(((telemetry.postRmsDb + 56) / 56) * 100) - idx * 2))
-                  : 12;
+                  : 0;
                 const activeCount = Math.round((lvl / 100) * 20);
                 return (
                   <div key={label} className="flex items-center gap-2">
@@ -720,7 +723,9 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 space-y-1.5">
             <div className="flex justify-between font-mono text-[10px]">
               <span className="text-slate-400 uppercase">CPU / DSP Utilization</span>
-              <span className="text-emerald-400 font-semibold">{cpuPct}% · GOOD</span>
+              <span className={cpuPct >= 75 ? 'text-amber-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                {cpuPct}% · {telemetry?.isRunning ? 'ACTIVE' : 'STANDBY'}
+              </span>
             </div>
             <div className="h-2.5 rounded-xs bg-[#070A10] border border-slate-800 overflow-hidden p-px">
               <div className="h-full bg-emerald-400 rounded-[1px]" style={{ width: `${cpuPct}%` }} />
@@ -730,17 +735,19 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
           {/* SYSTEM HEADROOM & CLOCK */}
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 grid grid-cols-2 gap-2 items-center">
             <ArcGauge
-              label="Thermal / Load"
-              value={headroomTempEq}
+              label="Output Density"
+              value={outputDensityPct}
               max={100}
-              displayValue={`${headroomTempEq}°C`}
-              sublabel="DSP Core Nominal"
-              tone={headroomTempEq > 72 ? 'amber' : 'emerald'}
+              displayValue={telemetry?.isRunning ? `${outputDensityPct}%` : '--'}
+              sublabel={telemetry?.isRunning ? 'Post-DSP Peak' : 'Standby'}
+              tone={outputDensityPct > 86 ? 'amber' : 'emerald'}
             />
             <div className="space-y-2 font-mono text-[10px] bg-[#080C13] border border-slate-800 rounded p-2">
               <div>
                 <div className="text-slate-500">CLOCK STATUS</div>
-                <div className="text-emerald-400 font-semibold">LOCKED · 1.0 ppm</div>
+                <div className={telemetry?.isRunning ? 'text-emerald-400 font-semibold' : 'text-slate-400 font-semibold'}>
+                  {telemetry?.isRunning ? `LOCKED · ${(sampleRate / 1000).toFixed(1)}k` : 'STANDBY'}
+                </div>
               </div>
               <div>
                 <div className="text-slate-500">ENGINE</div>

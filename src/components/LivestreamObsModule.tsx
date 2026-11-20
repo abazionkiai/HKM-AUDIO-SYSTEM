@@ -30,15 +30,45 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   telemetry,
   device,
 }) => {
+  const [obsProbeError, setObsProbeError] = useState<string | null>(null);
   const [speechStemDb, setSpeechStemDb] = useState<number>(0);
   const [bandStemDb, setBandStemDb] = useState<number>(-2.5);
   const [roomAmbiencePct, setRoomAmbiencePct] = useState<number>(18);
 
-  const roomLufs = telemetry.isRunning ? telemetry.estimatedLufs : -24.0;
+  const roomLufs = telemetry.isRunning ? telemetry.estimatedLufs : -70;
   const broadcastLufs = telemetry.isRunning
-    ? Math.max(-24, Math.min(-11.5, roomLufs + 3.2))
-    : -14.2;
-  const lufsDelta = Number((broadcastLufs - broadcastDsp.targetLufs).toFixed(1));
+    ? Math.max(-36, Math.min(-11.5, roomLufs + (broadcastDsp.enabled ? 3.2 : 0)))
+    : -70;
+  const lufsDelta = telemetry.isRunning
+    ? Number((broadcastLufs - broadcastDsp.targetLufs).toFixed(1))
+    : 0;
+
+  const handleToggleObsConnection = () => {
+    setObsProbeError(null);
+    if (obsStatus.connected) {
+      onUpdateObs({ connected: false, streaming: false, bitrateKbps: 0, cpuUsagePct: 0 });
+      return;
+    }
+    try {
+      const ws = new WebSocket(obsStatus.websocketUrl);
+      const timeout = window.setTimeout(() => {
+        ws.close();
+        setObsProbeError(`No OBS WebSocket v5 server responded at ${obsStatus.websocketUrl}. Start OBS Studio with WebSocket Server enabled on port 4455.`);
+      }, 2200);
+      ws.onopen = () => {
+        window.clearTimeout(timeout);
+        onUpdateObs({ connected: true });
+        ws.close();
+      };
+      ws.onerror = () => {
+        window.clearTimeout(timeout);
+        onUpdateObs({ connected: false, streaming: false });
+        setObsProbeError(`Unable to reach OBS Studio at ${obsStatus.websocketUrl}. Verify OBS WebSocket v5 is running locally.`);
+      };
+    } catch {
+      setObsProbeError(`Invalid OBS WebSocket URL: ${obsStatus.websocketUrl}`);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -60,17 +90,19 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
               </h1>
             </div>
             <p className="text-[11px] font-mono text-slate-400">
-              Dedicated Stream Bus ({broadcastDsp.targetLufs} LUFS · Δ {lufsDelta > 0 ? `+${lufsDelta}` : lufsDelta}) · A/V Sync Offset · Loop Guard
+              {telemetry.isRunning
+                ? `Dedicated Stream Bus (${broadcastDsp.targetLufs} LUFS · Δ ${lufsDelta > 0 ? `+${lufsDelta}` : lufsDelta}) · A/V Sync Offset · Loop Guard`
+                : `Stream Bus Standby (Target ${broadcastDsp.targetLufs} LUFS) · A/V Sync Offset · Loop Guard`}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <ConsolePushButton
-            label={obsStatus.connected ? 'OBS WS CONNECTED' : 'OBS OFFLINE'}
+            label={obsStatus.connected ? 'OBS WS CONNECTED' : 'CONNECT OBS WS'}
             active={obsStatus.connected}
             tone="emerald"
-            onClick={() => onUpdateObs({ connected: !obsStatus.connected })}
+            onClick={handleToggleObsConnection}
           />
           <ConsolePushButton
             label={obsStatus.streaming ? 'ON AIR · STOP STREAM' : 'GO LIVE (OBS)'}
@@ -81,6 +113,13 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
           />
         </div>
       </div>
+
+      {obsProbeError && (
+        <div className="p-3 rounded-lg border border-amber-500/35 bg-amber-500/10 text-xs font-mono text-amber-200 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <span>{obsProbeError}</span>
+        </div>
+      )}
 
       {!device.capabilities.perChannelCapture && (
         <div className="p-3 rounded-lg border border-amber-500/35 bg-amber-500/10 text-xs text-amber-200 flex items-start gap-2.5">
@@ -120,9 +159,9 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
             <div className="sm:col-span-4">
               <ArcGauge
                 label="Sanctuary PA"
-                value={Math.max(0, 40 + roomLufs)}
+                value={telemetry.isRunning ? Math.max(0, 40 + roomLufs) : 0}
                 max={40}
-                displayValue={`${roomLufs.toFixed(1)}`}
+                displayValue={telemetry.isRunning ? `${roomLufs.toFixed(1)}` : '--'}
                 sublabel="LUFS Room"
                 tone="sky"
               />
@@ -130,8 +169,8 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
             <div className="sm:col-span-4 flex items-center justify-around py-2 bg-[#070A10] border border-slate-800 rounded">
               <div className="flex flex-col items-center gap-1">
                 <SegmentedLedMeter
-                  levelDb={telemetry.isRunning ? telemetry.postRmsDb : -52}
-                  peakDb={telemetry.isRunning ? telemetry.postPeakDb : -52}
+                  levelDb={telemetry.isRunning ? telemetry.postRmsDb : -96}
+                  peakDb={telemetry.isRunning ? telemetry.postPeakDb : -96}
                   height={98}
                   segments={14}
                 />
@@ -139,8 +178,8 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
               </div>
               <div className="flex flex-col items-center gap-1">
                 <SegmentedLedMeter
-                  levelDb={telemetry.isRunning ? Math.min(-1, telemetry.postRmsDb + 3.5) : -46}
-                  peakDb={broadcastDsp.limiterCeilingDb}
+                  levelDb={telemetry.isRunning ? Math.min(-1, telemetry.postRmsDb + 3.5) : -96}
+                  peakDb={telemetry.isRunning ? broadcastDsp.limiterCeilingDb : -96}
                   muted={!broadcastDsp.enabled}
                   height={98}
                   segments={14}
@@ -151,9 +190,9 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
             <div className="sm:col-span-4">
               <ArcGauge
                 label="Broadcast Bus"
-                value={Math.max(0, 40 + broadcastLufs)}
+                value={telemetry.isRunning ? Math.max(0, 40 + broadcastLufs) : 0}
                 max={40}
-                displayValue={`${broadcastLufs.toFixed(1)}`}
+                displayValue={telemetry.isRunning ? `${broadcastLufs.toFixed(1)}` : '--'}
                 sublabel={`Target ${broadcastDsp.targetLufs} LUFS`}
                 tone="emerald"
               />

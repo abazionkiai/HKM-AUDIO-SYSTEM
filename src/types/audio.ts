@@ -56,7 +56,9 @@ export interface HardwareDevice {
     | 'Digital Mixer'
     | 'Dedicated DSP'
     | 'Network Audio'
-    | 'Measurement Mic';
+    | 'Measurement Mic'
+    | 'Internal Sound Card'
+    | 'Virtual Audio Router';
   connectionType: string;
   sampleRates: number[];
   defaultSampleRate: number;
@@ -511,6 +513,84 @@ export interface TapTempoState {
   tapCount: number;
   lastTapAt: number;
 }
+
+export interface RemoteAccessConfig {
+  sessionToken: string;
+  pinEnabled: boolean;
+  pinCode: string;
+  allowGainAdjustment: boolean;
+  allowMuteControl: boolean;
+  allowMasterTrim: boolean;
+  lanHostOverride: string;
+  createdAt: string;
+}
+
+export interface RemoteClientSession {
+  clientId: string;
+  role: 'desktop' | 'mobile';
+  deviceName: string;
+  ip: string;
+  connectedAt: string;
+  lastSeenAt: string;
+}
+
+export interface NetworkInterfaceInfo {
+  name: string;
+  address: string;
+  url: string;
+}
+
+export interface SyncedConsoleState {
+  venue: {
+    organization: string;
+    venueName: string;
+    roomName: string;
+    targetPlatform: PlatformTarget;
+    driver: DriverBackend;
+    sampleRate: number;
+    bufferSize: number;
+    activeDeviceId: string;
+  };
+  channels: InputChannel[];
+  dsp: DspConfig;
+  activePresetId: string;
+  broadcastDsp: BroadcastDspConfig;
+  zones: SpeakerZone[];
+  obsStatus: ObsStatus;
+  measurement: AcousticMeasurement;
+  bassDi: BassDiConfig;
+  emergencyMuted: boolean;
+  findings: DiagnosticFinding[];
+  remoteAccess: RemoteAccessConfig;
+}
+
+export interface DetectedHardwareEndpoint {
+  id: string;
+  browserDeviceId?: string;
+  name: string;
+  direction: 'input' | 'output' | 'duplex';
+  kind: 'internal' | 'usb-audio' | 'thunderbolt' | 'bluetooth' | 'virtual' | 'network-console' | 'unknown';
+  source: 'browser-media' | 'os-probe' | 'lan-discovery';
+  vendorId?: string;
+  productId?: string;
+  manufacturer?: string;
+  estimatedInputChannels: number;
+  estimatedOutputChannels: number;
+  matchedDeviceId: string;
+  matchedLabel: string;
+  confidence: 'exact-usb-id' | 'model-match' | 'vendor-match' | 'auto-synthesized';
+  recommendedDriver: DriverBackend;
+  recommendedSampleRate: number;
+  asioDriverName?: string;
+  isDefault?: boolean;
+  hostAddress?: string;
+  detectedAt: string;
+  cachedFromIndexedDb?: boolean;
+  lastSeenAt?: string;
+  seenCount?: number;
+  synthesizedDevice?: HardwareDevice;
+}
+
 
 
 

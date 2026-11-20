@@ -52,7 +52,7 @@ export const AiEngineerModule: React.FC<AiEngineerModuleProps> = ({
   const [chatError, setChatError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const headroomDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 12.0;
+  const headroomDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 0;
 
   const handleRunAiDiagnosis = async () => {
     setDiagnosing(true);
@@ -203,15 +203,15 @@ export const AiEngineerModule: React.FC<AiEngineerModuleProps> = ({
             label="Peak Headroom"
             value={headroomDb}
             max={24}
-            displayValue={`${headroomDb.toFixed(1)}dB`}
-            sublabel={`${telemetry.clippingEvents} Clips`}
-            tone={headroomDb < 4 ? 'red' : 'sky'}
+            displayValue={telemetry.isRunning ? `${headroomDb.toFixed(1)}dB` : '--'}
+            sublabel={telemetry.isRunning ? `${telemetry.clippingEvents} Clips` : 'Standby'}
+            tone={!telemetry.isRunning ? 'sky' : headroomDb < 4 ? 'red' : 'sky'}
           />
           <div className="flex items-center justify-around py-2 bg-[#070A10] border border-slate-800 rounded">
             <div className="flex flex-col items-center gap-1">
               <SegmentedLedMeter
-                levelDb={telemetry.isRunning ? telemetry.preRmsDb : -56}
-                peakDb={telemetry.isRunning ? telemetry.prePeakDb : -56}
+                levelDb={telemetry.isRunning ? telemetry.preRmsDb : -96}
+                peakDb={telemetry.isRunning ? telemetry.prePeakDb : -96}
                 height={76}
                 segments={12}
               />
@@ -219,8 +219,8 @@ export const AiEngineerModule: React.FC<AiEngineerModuleProps> = ({
             </div>
             <div className="flex flex-col items-center gap-1">
               <SegmentedLedMeter
-                levelDb={telemetry.isRunning ? telemetry.postRmsDb : -56}
-                peakDb={telemetry.isRunning ? telemetry.postPeakDb : -56}
+                levelDb={telemetry.isRunning ? telemetry.postRmsDb : -96}
+                peakDb={telemetry.isRunning ? telemetry.postPeakDb : -96}
                 height={76}
                 segments={12}
               />

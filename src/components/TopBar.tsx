@@ -242,7 +242,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           <option value="worship-band">Test Signal: Full Worship Band</option>
           <option value="choir-rehearsal">Test Signal: Choir Rehearsal</option>
           <option value="pink-noise">Test Signal: Calibration Pink Noise</option>
-          <option value="live-mic">Hardware Input: Live USB / Mic</option>
+          <option value="live-mic">
+            Hardware Input: {activeDevice.model} (Live)
+          </option>
         </select>
       </div>
 

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   Cpu,
   Puzzle,
@@ -7,12 +8,27 @@ import {
   CheckCircle2,
   Plus,
   Trash2,
+  Smartphone,
+  QrCode,
+  Copy,
+  Check,
+  RefreshCw,
+  Lock,
+  ExternalLink,
+  Wifi,
+  UserX,
+  Usb,
+  Radar,
 } from 'lucide-react';
 import type {
   AuditEvent,
+  DetectedHardwareEndpoint,
   DriverBackend,
   HardwareDevice,
+  NetworkInterfaceInfo,
   PlatformTarget,
+  RemoteAccessConfig,
+  RemoteClientSession,
   SignalTelemetry,
 } from '../types/audio.ts';
 import type { LoadedPluginRecord } from '../plugins/pluginManager.ts';
@@ -41,7 +57,20 @@ interface HardwareDiagnosticsModuleProps {
   onLoadCustomPlugin: (jsonText: string) => { ok: boolean; error?: string };
   onUnloadPlugin: (id: string) => void;
   telemetry: SignalTelemetry;
+  audioCpuPct: number;
   auditEvents: AuditEvent[];
+  remoteAccess: RemoteAccessConfig;
+  remoteClients: RemoteClientSession[];
+  lanInterfaces: NetworkInterfaceInfo[];
+  onUpdateRemoteAccess: (patch: Partial<RemoteAccessConfig>) => void;
+  onRotateRemoteToken: () => void;
+  onDisconnectRemoteClient: (clientId: string) => void;
+  onOpenRemoteCompanion: (token: string) => void;
+  detectedEndpoints: DetectedHardwareEndpoint[];
+  scanningHardware: boolean;
+  onScanHardware: (requestBrowserPermission?: boolean) => void;
+  onBindDetectedEndpoint: (endpoint: DetectedHardwareEndpoint) => void;
+  onClearHardwareCache?: () => void;
 }
 
 const PLATFORM_SPECS: Record<
@@ -101,13 +130,30 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onLoadCustomPlugin,
   onUnloadPlugin,
   telemetry,
+  audioCpuPct,
   auditEvents,
+  remoteAccess,
+  remoteClients,
+  lanInterfaces,
+  onUpdateRemoteAccess,
+  onRotateRemoteToken,
+  onDisconnectRemoteClient,
+  onOpenRemoteCompanion,
+  detectedEndpoints,
+  scanningHardware,
+  onScanHardware,
+  onBindDetectedEndpoint,
+  onClearHardwareCache,
 }) => {
-  const [tab, setTab] = useState<'hardware' | 'plugins' | 'crossplatform' | 'watchdog'>('hardware');
+  const [tab, setTab] = useState<'hardware' | 'remote' | 'plugins' | 'crossplatform' | 'watchdog'>(
+    'hardware'
+  );
   const [tierFilter, setTierFilter] = useState<'all' | 1 | 2 | 3 | 4>('all');
   const [pluginDraft, setPluginDraft] = useState(SAMPLE_CUSTOM_HARDWARE_PLUGIN);
   const [pluginError, setPluginError] = useState<string | null>(null);
   const [pluginSuccess, setPluginSuccess] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   const filteredDevices = devices.filter(
     (d) => tierFilter === 'all' || d.tier === tierFilter
@@ -115,6 +161,49 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
 
   const latencyMs = calculateRoundTripLatencyMs(bufferSize, sampleRate, driver);
   const platformSpec = PLATFORM_SPECS[platform];
+
+  const baseHostUrl = useMemo(() => {
+    if (remoteAccess.lanHostOverride.trim()) {
+      return remoteAccess.lanHostOverride.trim().replace(/\/+$/, '');
+    }
+    const isLocalhost =
+      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost && lanInterfaces.length > 0) {
+      return lanInterfaces[0].url;
+    }
+    return window.location.origin;
+  }, [remoteAccess.lanHostOverride, lanInterfaces]);
+
+  const pairingUrl = useMemo(() => {
+    return `${baseHostUrl}/?mode=remote&token=${encodeURIComponent(remoteAccess.sessionToken)}`;
+  }, [baseHostUrl, remoteAccess.sessionToken]);
+
+  useEffect(() => {
+    let active = true;
+    QRCode.toDataURL(pairingUrl, {
+      width: 240,
+      margin: 2,
+      color: {
+        dark: '#0B101B',
+        light: '#FFFFFF',
+      },
+    })
+      .then((url) => {
+        if (active) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (active) setQrDataUrl('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [pairingUrl]);
+
+  const handleCopyPairingUrl = () => {
+    navigator.clipboard.writeText(pairingUrl);
+    setCopiedUrl(true);
+    window.setTimeout(() => setCopiedUrl(false), 1800);
+  };
 
   const handleInstallPlugin = () => {
     setPluginError(null);
@@ -134,14 +223,11 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
         <div className="flex items-center gap-3">
           <div className="w-2.5 h-8 rounded-xs bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]" />
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] font-bold text-sky-400">12</span>
-              <h1 className="font-display text-lg font-semibold text-white tracking-tight">
-                SYSTEM DIAGNOSTICS, HARDWARE ADAPTERS &amp; RELIABILITY
-              </h1>
-            </div>
+            <h1 className="font-display text-lg font-semibold text-white tracking-tight">
+              System Diagnostics, Hardware Adapters &amp; Remote Access
+            </h1>
             <p className="text-[11px] font-mono text-slate-400">
-              Tier 1–4 Mixers &amp; Interfaces · Hot-Loadable Driver/DSP Plugins · Windows / macOS / Linux
+              Tier 1–4 Mixers &amp; Interfaces · QR Mobile FOH Control · Hot-Loadable Plugins · Windows / macOS / Linux
             </p>
           </div>
         </div>
@@ -149,6 +235,11 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
         <div className="flex flex-wrap items-center p-0.5 rounded bg-[#090D14] border border-slate-800">
           {[
             { id: 'hardware', label: 'HARDWARE', icon: Cpu },
+            {
+              id: 'remote',
+              label: remoteClients.length > 0 ? `REMOTE ACCESS (${remoteClients.length})` : 'REMOTE ACCESS',
+              icon: Smartphone,
+            },
             { id: 'plugins', label: `PLUGINS (${plugins.length})`, icon: Puzzle },
             { id: 'crossplatform', label: 'OS & DRIVERS', icon: Layers },
             { id: 'watchdog', label: 'WATCHDOG', icon: ShieldAlert },
@@ -259,8 +350,399 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
         </div>
       </div>
 
+      {tab === 'remote' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Left: QR Pairing Card */}
+          <div className="lg:col-span-5 rounded-lg border border-slate-800 bg-[#0D1119] p-4 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-4 h-4 text-sky-400" />
+                <span className="font-mono text-xs font-semibold text-white uppercase">
+                  FOH Mobile Companion QR Pairing
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onRotateRemoteToken}
+                className="px-2.5 py-1 rounded border border-slate-700 bg-[#121824] hover:border-sky-500/50 text-[11px] font-mono text-slate-200 flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3 text-sky-400" />
+                <span>ROTATE TOKEN</span>
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="p-3 rounded-lg bg-white border border-slate-300 shrink-0">
+                {qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt="Scan to pair mobile FOH companion"
+                    className="w-44 h-44 block"
+                  />
+                ) : (
+                  <div className="w-44 h-44 flex items-center justify-center text-xs font-mono text-slate-600">
+                    Generating QR...
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2.5 text-xs min-w-0 flex-1">
+                <div className="font-semibold text-white">
+                  Walk the sanctuary with live fader &amp; gain control
+                </div>
+                <p className="text-slate-400 leading-relaxed">
+                  Scan this QR code on a phone or tablet on the same sanctuary Wi-Fi network (or
+                  current session URL) to adjust channel faders, preamp gain, mutes, and master
+                  trim in real time over WebSocket.
+                </p>
+                <div className="font-mono text-[11px] text-sky-400 break-all bg-[#070A10] border border-slate-800 rounded p-2">
+                  {pairingUrl}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyPairingUrl}
+                    className="px-3 py-1.5 rounded border border-slate-700 bg-[#121824] hover:border-sky-500/50 text-[11px] font-mono text-slate-200 flex items-center gap-1.5"
+                  >
+                    {copiedUrl ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 text-sky-400" />
+                    )}
+                    <span>{copiedUrl ? 'COPIED LINK' : 'COPY LINK'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenRemoteCompanion(remoteAccess.sessionToken)}
+                    className="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-mono font-semibold flex items-center gap-1.5"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>OPEN MOBILE VIEW</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* LAN Host Selection for Offline Windows Wi-Fi */}
+            <div className="pt-2 border-t border-slate-800 space-y-2">
+              <label className="block font-mono text-[10px] text-slate-400 uppercase">
+                Sanctuary LAN Host / URL Override (Offline Windows Wi-Fi)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onUpdateRemoteAccess({ lanHostOverride: '' })}
+                  className={`px-2.5 py-1 rounded border text-[10px] font-mono ${
+                    !remoteAccess.lanHostOverride
+                      ? 'border-sky-400 bg-sky-500/20 text-sky-200'
+                      : 'border-slate-800 bg-[#070A10] text-slate-400'
+                  }`}
+                >
+                  Auto ({window.location.host})
+                </button>
+                {lanInterfaces.map((iface) => (
+                  <button
+                    key={`${iface.name}-${iface.address}`}
+                    type="button"
+                    onClick={() => onUpdateRemoteAccess({ lanHostOverride: iface.url })}
+                    className={`px-2.5 py-1 rounded border text-[10px] font-mono ${
+                      remoteAccess.lanHostOverride === iface.url
+                        ? 'border-sky-400 bg-sky-500/20 text-sky-200'
+                        : 'border-slate-800 bg-[#070A10] text-slate-400'
+                    }`}
+                  >
+                    {iface.name}: {iface.address}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={remoteAccess.lanHostOverride}
+                onChange={(e) => onUpdateRemoteAccess({ lanHostOverride: e.target.value })}
+                placeholder="Optional custom host e.g. http://192.168.1.50:3000"
+                className="w-full h-9 px-2.5 rounded border border-slate-700 bg-[#070A10] text-xs font-mono text-slate-200 focus:outline-none focus:border-sky-400"
+              />
+            </div>
+          </div>
+
+          {/* Right: Security Permissions + Connected Mobile Clients */}
+          <div className="lg:col-span-7 space-y-4">
+            <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-mono text-xs font-semibold text-white uppercase flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-sky-400" />
+                  <span>FOH Companion Permissions &amp; PIN Guard</span>
+                </span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  {activeDevice.capabilities.perChannelFaderControl
+                    ? `Hardware Link: ${activeDevice.model}`
+                    : `Software DSP Return: ${activeDevice.model}`}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded border border-slate-800 bg-[#070A10] flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Require 4-Digit PIN</div>
+                    <div className="text-[11px] text-slate-400">
+                      Prompts mobile devices before unlocking faders
+                    </div>
+                  </div>
+                  <ConsolePushButton
+                    label={remoteAccess.pinEnabled ? 'PIN ON' : 'PIN OFF'}
+                    active={remoteAccess.pinEnabled}
+                    tone="amber"
+                    onClick={() => onUpdateRemoteAccess({ pinEnabled: !remoteAccess.pinEnabled })}
+                  />
+                </div>
+
+                <div className="p-3 rounded border border-slate-800 bg-[#070A10] flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Session Security PIN</div>
+                    <div className="text-[11px] text-slate-400">4–8 digit FOH passcode</div>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={8}
+                    value={remoteAccess.pinCode}
+                    onChange={(e) => onUpdateRemoteAccess({ pinCode: e.target.value })}
+                    className="w-24 h-8 px-2 rounded border border-slate-700 bg-[#0E1524] font-mono text-center text-xs text-white"
+                  />
+                </div>
+
+                <div className="p-3 rounded border border-slate-800 bg-[#070A10] flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Preamp Gain Adjustment</div>
+                    <div className="text-[11px] text-slate-400">
+                      Allow mobile gain &amp; +48V trim control
+                    </div>
+                  </div>
+                  <ConsolePushButton
+                    label={remoteAccess.allowGainAdjustment ? 'ALLOWED' : 'LOCKED'}
+                    active={remoteAccess.allowGainAdjustment}
+                    tone="emerald"
+                    onClick={() =>
+                      onUpdateRemoteAccess({
+                        allowGainAdjustment: !remoteAccess.allowGainAdjustment,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="p-3 rounded border border-slate-800 bg-[#070A10] flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-100">Mute / Solo &amp; Master</div>
+                    <div className="text-[11px] text-slate-400">
+                      Allow channel mutes &amp; master trim
+                    </div>
+                  </div>
+                  <ConsolePushButton
+                    label={remoteAccess.allowMuteControl ? 'ALLOWED' : 'LOCKED'}
+                    active={remoteAccess.allowMuteControl}
+                    tone="emerald"
+                    onClick={() =>
+                      onUpdateRemoteAccess({
+                        allowMuteControl: !remoteAccess.allowMuteControl,
+                        allowMasterTrim: !remoteAccess.allowMuteControl,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Active Connected Mobile Companions */}
+            <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-4 space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-mono text-xs font-semibold text-white uppercase flex items-center gap-2">
+                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Linked Companion Devices ({remoteClients.length})</span>
+                </span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  Real-Time WebSocket Sync (/ws)
+                </span>
+              </div>
+
+              {remoteClients.length === 0 ? (
+                <div className="p-5 rounded border border-slate-800 bg-[#070A10] text-center space-y-1.5">
+                  <div className="text-xs font-semibold text-slate-200">
+                    No companion devices currently linked
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-400">
+                    Scan the QR code on a phone/tablet or click Open Mobile View to verify live
+                    fader and gain synchronization.
+                  </div>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-800">
+                  {remoteClients.map((cli) => (
+                    <div
+                      key={cli.clientId}
+                      className="py-2.5 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white flex items-center gap-2">
+                          <span>{cli.deviceName}</span>
+                          <span className="font-mono text-[10px] text-emerald-400">LIVE</span>
+                        </div>
+                        <div className="font-mono text-[11px] text-slate-400 tabular-nums">
+                          IP: {cli.ip} · Connected {new Date(cli.connectedAt).toLocaleTimeString()}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onDisconnectRemoteClient(cli.clientId)}
+                        className="px-2.5 py-1 rounded border border-red-500/40 bg-red-950/30 hover:bg-red-950/60 text-red-300 font-mono text-[11px] flex items-center gap-1 shrink-0"
+                      >
+                        <UserX className="w-3.5 h-3.5" />
+                        <span>REVOKE</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === 'hardware' && (
         <div className="space-y-4">
+          {/* Auto-Recognized Connected Hardware Panel */}
+          <div className="rounded-lg border border-sky-500/35 bg-[#0D131F] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Radar className="w-4 h-4 text-sky-400" />
+                <div>
+                  <div className="font-mono text-xs font-semibold text-white uppercase">
+                    Auto-Recognized Connected Hardware (Internal &amp; External)
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Automatic USB VID:PID fingerprinting, internal sound card profiling, LAN OSC console discovery &amp; hot-plug listener
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {detectedEndpoints.length > 0 && onClearHardwareCache && (
+                  <button
+                    type="button"
+                    onClick={onClearHardwareCache}
+                    className="px-2.5 py-1.5 rounded border border-slate-700 bg-[#090D14] hover:border-slate-500 text-slate-300 font-mono text-[11px]"
+                  >
+                    CLEAR CACHE
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onScanHardware(true)}
+                  disabled={scanningHardware}
+                  className="px-3 py-1.5 rounded border border-sky-400/50 bg-sky-500/15 hover:bg-sky-500/25 text-sky-200 font-mono text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${scanningHardware ? 'animate-spin' : ''}`} />
+                  <span>{scanningHardware ? 'SCANNING BUS...' : 'RE-SCAN HARDWARE'}</span>
+                </button>
+              </div>
+            </div>
+
+            {detectedEndpoints.length === 0 ? (
+              <div className="p-4 rounded border border-slate-800 bg-[#070A10] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="space-y-1">
+                  <div className="font-semibold text-slate-200">
+                    No OS audio endpoints enumerated in sandbox yet
+                  </div>
+                  <div className="text-slate-400">
+                    Plug in any USB mixer or audio interface on Windows/macOS/Linux, or click Re-Scan Hardware to unlock browser MediaDevices labels and probe local cards. Remembered devices persist in IndexedDB for instant offline recall.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onScanHardware(true)}
+                  className="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-mono text-[11px] font-semibold shrink-0"
+                >
+                  GRANT &amp; SCAN INTERFACES
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {detectedEndpoints.map((ep) => {
+                  const isBound = activeDevice.id === ep.matchedDeviceId;
+                  const kindLabel =
+                    ep.kind === 'internal'
+                      ? 'INTERNAL CARD'
+                      : ep.kind === 'usb-audio'
+                        ? 'USB INTERFACE'
+                        : ep.kind === 'network-console'
+                          ? 'LAN CONSOLE'
+                          : ep.kind === 'virtual'
+                            ? 'VIRTUAL BUS'
+                            : ep.kind.toUpperCase();
+
+                  return (
+                    <div
+                      key={ep.id}
+                      className={`p-3 rounded border flex flex-col justify-between gap-2.5 ${
+                        isBound
+                          ? 'border-emerald-400/70 bg-emerald-950/20'
+                          : 'border-slate-800 bg-[#070A10]'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-[10px] font-bold text-sky-300 uppercase flex items-center gap-1">
+                            <Usb className="w-3 h-3" />
+                            {kindLabel}
+                            {ep.isDefault ? ' · DEFAULT' : ''}
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-400 tabular-nums">
+                            {ep.cachedFromIndexedDb ? 'IndexedDB Cached' : 'Live on Bus'}
+                          </span>
+                        </div>
+
+                        <div className="text-xs font-semibold text-white truncate" title={ep.name}>
+                          {ep.name}
+                        </div>
+
+                        <div className="font-mono text-[11px] text-slate-400 space-y-0.5 tabular-nums">
+                          <div>
+                            Profile: {ep.matchedLabel} ·{' '}
+                            {ep.confidence === 'auto-synthesized'
+                              ? 'Universal Auto-Profile'
+                              : ep.confidence}
+                          </div>
+                          <div>
+                            {ep.estimatedInputChannels}×{ep.estimatedOutputChannels} ch · {ep.recommendedDriver} · {(ep.recommendedSampleRate / 1000).toFixed(1)} kHz
+                          </div>
+                          {(ep.vendorId || ep.hostAddress || ep.lastSeenAt) && (
+                            <div className="text-slate-500">
+                              {ep.vendorId
+                                ? `USB VID:${ep.vendorId.toUpperCase()} PID:${(ep.productId || '----').toUpperCase()}`
+                                : ep.hostAddress
+                                  ? `Host IP: ${ep.hostAddress}`
+                                  : 'System Audio'}
+                              {ep.seenCount ? ` · Seen ${ep.seenCount}×` : ''}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => onBindDetectedEndpoint(ep)}
+                        className={`w-full py-1.5 px-2.5 rounded font-mono text-[11px] font-semibold transition-colors ${
+                          isBound
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-sky-600 hover:bg-sky-500 text-white'
+                        }`}
+                      >
+                        {isBound ? 'BOUND & PROFILE RECALLED' : 'AUTO-BIND & RECALL MIX'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-center gap-1.5">
             {[
               { id: 'all', label: `ALL HARDWARE (${devices.length})` },
@@ -306,7 +788,7 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                           {dev.manufacturer} {dev.model}
                         </div>
                       </div>
-                      <span className="font-mono text-[11px] text-slate-400 shrink-0">
+                      <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
                         {dev.capabilities.maxInputChannels}×{dev.capabilities.maxOutputChannels}
                       </span>
                     </div>
@@ -507,25 +989,29 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5">
             <ArcGauge
               label="DSP Engine Load"
-              value={telemetry.isRunning ? Math.min(82, Math.round(14 + 4096 / Math.max(64, bufferSize))) : 6}
+              value={audioCpuPct}
               max={100}
-              displayValue={`${telemetry.isRunning ? Math.min(82, Math.round(14 + 4096 / Math.max(64, bufferSize))) : 6}%`}
-              sublabel="Real-Time Audio Thread"
-              tone="sky"
+              displayValue={`${audioCpuPct}%`}
+              sublabel={telemetry.isRunning ? 'Real-Time Audio Thread' : 'Engine Standby'}
+              tone={audioCpuPct >= 80 ? 'red' : audioCpuPct >= 60 ? 'amber' : 'sky'}
             />
             <ArcGauge
-              label="Clock Lock Stability"
-              value={99.8}
+              label="Sample Clock State"
+              value={telemetry.isRunning ? 100 : 0}
               max={100}
-              displayValue="99.8%"
-              sublabel={`${(sampleRate / 1000).toFixed(1)} kHz Synced`}
-              tone="emerald"
+              displayValue={telemetry.isRunning ? 'LOCKED' : 'IDLE'}
+              sublabel={
+                telemetry.isRunning
+                  ? `${(telemetry.sampleRate / 1000).toFixed(1)} kHz Active`
+                  : `${(sampleRate / 1000).toFixed(1)} kHz Configured`
+              }
+              tone={telemetry.isRunning ? 'emerald' : 'sky'}
             />
             <ArcGauge
-              label="Buffer XRun Safety"
-              value={Math.max(15, 100 - telemetry.clippingEvents * 10)}
+              label="Clip / Headroom Guard"
+              value={Math.max(10, 100 - telemetry.clippingEvents * 10)}
               max={100}
-              displayValue="0 XRun"
+              displayValue={`${telemetry.clippingEvents} Clips`}
               sublabel={`${bufferSize} smp · ${driver}`}
               tone={telemetry.clippingEvents > 0 ? 'amber' : 'emerald'}
             />
@@ -539,10 +1025,15 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
               <div className="divide-y divide-slate-800 text-xs">
                 {[
                   { label: 'Supervision Architecture', val: 'Decoupled Audio Core + UI' },
-                  { label: 'Engine Sample Rate', val: `${sampleRate} Hz (Synced)` },
-                  { label: 'Buffer / Underrun Watch', val: `${bufferSize} samples · 0 XRuns` },
+                  {
+                    label: 'Engine Sample Rate',
+                    val: telemetry.isRunning
+                      ? `${telemetry.sampleRate} Hz (Running)`
+                      : `${sampleRate} Hz (Standby)`,
+                  },
+                  { label: 'Buffer Quantum', val: `${bufferSize} samples (${latencyMs} ms)` },
                   { label: 'Clipping Incidents', val: `${telemetry.clippingEvents} events` },
-                  { label: 'Offline Operation', val: 'Full local-first DSP & Presets' },
+                  { label: 'Local Persistence', val: 'SQLite WAL + JSON Backup + WS Sync' },
                 ].map((row) => (
                   <div key={row.label} className="py-2.5 flex items-center justify-between">
                     <span className="text-slate-400">{row.label}</span>
@@ -555,25 +1046,25 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
               </div>
             </div>
 
-          <div className="lg:col-span-7 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5 space-y-3">
-            <div className="font-mono text-xs font-semibold text-white uppercase border-b border-slate-800 pb-2">
-              Configuration &amp; System Audit Trail
-            </div>
-            <div className="divide-y divide-slate-800 max-h-72 overflow-y-auto">
-              {auditEvents.map((evt) => (
-                <div key={evt.id} className="py-2.5 flex items-start justify-between gap-4 text-xs">
-                  <div className="space-y-0.5">
-                    <div className="font-semibold text-white">{evt.action}</div>
-                    <div className="text-slate-400">{evt.detail}</div>
+            <div className="lg:col-span-7 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5 space-y-3">
+              <div className="font-mono text-xs font-semibold text-white uppercase border-b border-slate-800 pb-2">
+                Configuration &amp; System Audit Trail
+              </div>
+              <div className="divide-y divide-slate-800 max-h-72 overflow-y-auto">
+                {auditEvents.map((evt) => (
+                  <div key={evt.id} className="py-2.5 flex items-start justify-between gap-4 text-xs">
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-white">{evt.action}</div>
+                      <div className="text-slate-400">{evt.detail}</div>
+                    </div>
+                    <div className="text-right font-mono text-[10px] text-slate-500 shrink-0">
+                      <div>{evt.actor}</div>
+                      <div>{new Date(evt.timestamp).toLocaleTimeString()}</div>
+                    </div>
                   </div>
-                  <div className="text-right font-mono text-[10px] text-slate-500 shrink-0">
-                    <div>{evt.actor}</div>
-                    <div>{new Date(evt.timestamp).toLocaleTimeString()}</div>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
           </div>
         </div>
       )}

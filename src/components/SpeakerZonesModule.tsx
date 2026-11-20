@@ -698,11 +698,9 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
                 </div>
                 <SegmentedLedMeter
                   levelDb={
-                    selectedZone.mute || emergencyMuted
-                      ? -56
-                      : telemetry?.isRunning
-                        ? Math.max(-50, telemetry.postRmsDb + selectedZone.levelDb)
-                        : -26 + selectedZone.levelDb
+                    selectedZone.mute || emergencyMuted || !telemetry?.isRunning
+                      ? -96
+                      : Math.max(-56, telemetry.postRmsDb + selectedZone.levelDb)
                   }
                   peakDb={selectedZone.limiterDb}
                   muted={selectedZone.mute || emergencyMuted}

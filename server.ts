@@ -1,87 +1,33 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
+import crypto from 'crypto';
+import dgram from 'dgram';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
+import { promisify } from 'util';
+import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Type } from '@google/genai';
+import {
+  audioDb,
+  generateToken,
+  type PersistedState,
+  type RemoteAccessState,
+} from './server/db.ts';
+import { recognizeAudioEndpoint } from './src/utils/hardwareRecognition.ts';
+import type { DetectedHardwareEndpoint, PlatformTarget } from './src/types/audio.ts';
+
+const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.resolve(__dirname, '.data');
-const DB_FILE = path.join(DATA_DIR, 'church-audio-db.json');
-
-interface PersistedState {
-  venue: {
-    organization: string;
-    venueName: string;
-    roomName: string;
-    targetPlatform: 'windows' | 'macos' | 'linux';
-    activeDeviceId: string;
-  };
-  versions: Array<Record<string, unknown>>;
-  diagnostics: Array<Record<string, unknown>>;
-  auditEvents: Array<Record<string, unknown>>;
-  midiMappings?: Array<Record<string, unknown>>;
-  automationSnapshots?: Array<Record<string, unknown>>;
-  keyboardShortcuts?: Array<Record<string, unknown>>;
-}
-
-function ensureStore(): PersistedState {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_FILE)) {
-    const initial: PersistedState = {
-      venue: {
-        organization: 'Grace Community Fellowship',
-        venueName: 'Main Campus',
-        roomName: 'Primary Sanctuary (650 Seats)',
-        targetPlatform: 'windows',
-        activeDeviceId: 'yamaha-mg16xu',
-      },
-      versions: [],
-      diagnostics: [],
-      auditEvents: [
-        {
-          id: 'evt-init-1',
-          timestamp: new Date().toISOString(),
-          actor: 'System Watchdog',
-          action: 'Local Configuration Store Initialized',
-          detail: 'Windows WASAPI/ASIO hardware abstraction and CamillaDSP v2 schema ready.',
-          authority: 'system',
-        },
-      ],
-      automationSnapshots: [],
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf8');
-    return initial;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) as PersistedState;
-  } catch {
-    return {
-      venue: {
-        organization: 'Grace Community Fellowship',
-        venueName: 'Main Campus',
-        roomName: 'Primary Sanctuary (650 Seats)',
-        targetPlatform: 'windows',
-        activeDeviceId: 'yamaha-mg16xu',
-      },
-      versions: [],
-      diagnostics: [],
-      auditEvents: [],
-      automationSnapshots: [],
-    };
-  }
-}
-
-function saveStore(state: PersistedState): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), 'utf8');
-}
+const ensureStore = () => audioDb.ensureStore();
+const saveStore = (state: PersistedState, immediate = false) =>
+  audioDb.saveStore(state, immediate);
 
 function createGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -98,16 +44,473 @@ function createGeminiClient(): GoogleGenAI {
   });
 }
 
+function listLanInterfaces(port: number) {
+  const nets = os.networkInterfaces();
+  const result: Array<{ name: string; address: string; url: string }> = [];
+  for (const [name, addrs] of Object.entries(nets)) {
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        result.push({
+          name,
+          address: addr.address,
+          url: `http://${addr.address}:${port}`,
+        });
+      }
+    }
+  }
+  return result;
+}
+
+function resolveCurrentHostPlatform(): PlatformTarget {
+  if (process.platform === 'win32') return 'windows';
+  if (process.platform === 'darwin') return 'macos';
+  return 'linux';
+}
+
+async function discoverLanOscMixers(): Promise<DetectedHardwareEndpoint[]> {
+  const discovered: DetectedHardwareEndpoint[] = [];
+  const xinfoMsg = Buffer.from([
+    0x2f, 0x78, 0x69, 0x6e, 0x66, 0x6f, 0x00, 0x00,
+    0x2c, 0x00, 0x00, 0x00,
+  ]);
+  const ports = [10023, 10024]; // X32 (10023) & XR18 / MR18 (10024)
+
+  await Promise.all(
+    ports.map(
+      (port) =>
+        new Promise<void>((resolve) => {
+          const sock = dgram.createSocket('udp4');
+          const seenIps = new Set<string>();
+          const finish = () => {
+            try {
+              sock.close();
+            } catch {
+              // ignore already closed socket
+            }
+            resolve();
+          };
+          const timer = setTimeout(finish, 320);
+
+          sock.on('error', () => {
+            clearTimeout(timer);
+            finish();
+          });
+
+          sock.on('message', (msg, rinfo) => {
+            if (seenIps.has(rinfo.address)) return;
+            seenIps.add(rinfo.address);
+            const ascii = msg.toString('utf8').replace(/[^\x20-\x7e]+/g, ' ').trim();
+            const defaultModel = port === 10024 ? 'Behringer XR18 (LAN OSC)' : 'Behringer X32 (LAN OSC)';
+            const label = ascii.length > 5 ? `${defaultModel} · ${ascii}` : defaultModel;
+            discovered.push(
+              recognizeAudioEndpoint({
+                id: `lan-${rinfo.address}-${port}`,
+                name: label,
+                direction: 'duplex',
+                source: 'lan-discovery',
+                estimatedInputChannels: port === 10024 ? 18 : 32,
+                estimatedOutputChannels: port === 10024 ? 18 : 16,
+                hostAddress: rinfo.address,
+                platform: resolveCurrentHostPlatform(),
+              })
+            );
+          });
+
+          try {
+            sock.bind(0, () => {
+              try {
+                sock.setBroadcast(true);
+                sock.send(xinfoMsg, 0, xinfoMsg.length, port, '255.255.255.255');
+              } catch {
+                clearTimeout(timer);
+                finish();
+              }
+            });
+          } catch {
+            clearTimeout(timer);
+            finish();
+          }
+        })
+    )
+  );
+
+  return discovered;
+}
+
+async function scanHostAudioHardware(): Promise<{
+  hostPlatform: PlatformTarget;
+  endpoints: DetectedHardwareEndpoint[];
+}> {
+  const hostPlatform = resolveCurrentHostPlatform();
+  const endpoints: DetectedHardwareEndpoint[] = [];
+
+  if (process.platform === 'linux') {
+    try {
+      const cardsPath = '/proc/asound/cards';
+      if (fs.existsSync(cardsPath)) {
+        const rawCards = fs.readFileSync(cardsPath, 'utf8');
+        const lines = rawCards.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const match = lines[i].match(/^\s*(\d+)\s+\[[^\]]+\]:\s+(.+)$/);
+          if (!match) continue;
+          const cardIdx = match[1];
+          const cardHeader = match[2].trim();
+          const detailLine = lines[i + 1]?.trim() || cardHeader;
+
+          let usbIdText = '';
+          const usbidPath = `/proc/asound/card${cardIdx}/usbid`;
+          if (fs.existsSync(usbidPath)) {
+            usbIdText = fs.readFileSync(usbidPath, 'utf8').trim();
+          }
+
+          let streamText = '';
+          const streamPath = `/proc/asound/card${cardIdx}/stream0`;
+          if (fs.existsSync(streamPath)) {
+            streamText = fs.readFileSync(streamPath, 'utf8');
+          }
+
+          const inMatch = streamText.match(/Capture:[\s\S]*?Channels:\s*(\d+)/i);
+          const outMatch = streamText.match(/Playback:[\s\S]*?Channels:\s*(\d+)/i);
+          const [vid, pid] = usbIdText.includes(':') ? usbIdText.split(':') : [undefined, undefined];
+
+          endpoints.push(
+            recognizeAudioEndpoint({
+              id: `alsa-card-${cardIdx}`,
+              name: detailLine || cardHeader,
+              direction: 'duplex',
+              source: 'os-probe',
+              vendorId: vid,
+              productId: pid,
+              estimatedInputChannels: inMatch ? Number(inMatch[1]) : undefined,
+              estimatedOutputChannels: outMatch ? Number(outMatch[1]) : undefined,
+              isDefault: cardIdx === '0',
+              platform: hostPlatform,
+            })
+          );
+        }
+      }
+    } catch {
+      // ignore ALSA probe errors in headless containers
+    }
+  } else if (process.platform === 'win32') {
+    try {
+      const psScript = [
+        '$devs = Get-CimInstance Win32_SoundDevice | Select-Object Name, Manufacturer, PNPDeviceID, Status;',
+        '$asio = @(); if (Test-Path "HKLM:\\SOFTWARE\\ASIO") { $asio = Get-ChildItem "HKLM:\\SOFTWARE\\ASIO" | ForEach-Object { $_.PSChildName } };',
+        '@{ devices = @($devs); asioDrivers = @($asio) } | ConvertTo-Json -Depth 3 -Compress',
+      ].join(' ');
+      const { stdout } = await execFileAsync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', psScript],
+        { timeout: 2500 }
+      );
+      if (stdout.trim()) {
+        const parsed = JSON.parse(stdout) as {
+          devices?: Array<{ Name?: string; Manufacturer?: string; PNPDeviceID?: string; Status?: string }>;
+          asioDrivers?: string[];
+        };
+        const asioDrivers = parsed.asioDrivers ?? [];
+        (parsed.devices ?? []).forEach((dev, idx) => {
+          if (!dev.Name) return;
+          const pnp = dev.PNPDeviceID || '';
+          const vidMatch = pnp.match(/VID_([0-9A-F]{4})/i) || pnp.match(/VEN_([0-9A-F]{4})/i);
+          const pidMatch = pnp.match(/PID_([0-9A-F]{4})/i) || pnp.match(/DEV_([0-9A-F]{4})/i);
+          const matchedAsio = asioDrivers.find((a) =>
+            dev.Name!.toLowerCase().includes(a.toLowerCase().split(' ')[0])
+          );
+          endpoints.push(
+            recognizeAudioEndpoint({
+              id: `win-snd-${idx}`,
+              name: dev.Name,
+              direction: 'duplex',
+              source: 'os-probe',
+              vendorId: vidMatch?.[1]?.toLowerCase(),
+              productId: pidMatch?.[1]?.toLowerCase(),
+              asioDriverName: matchedAsio,
+              isDefault: idx === 0,
+              platform: 'windows',
+            })
+          );
+        });
+      }
+    } catch {
+      // ignore powershell errors
+    }
+  } else if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync(
+        'system_profiler',
+        ['SPAudioDataType', '-json'],
+        { timeout: 2500 }
+      );
+      const parsed = JSON.parse(stdout) as {
+        SPAudioDataType?: Array<{ _items?: Array<Record<string, unknown>> }>;
+      };
+      const items = parsed.SPAudioDataType?.[0]?._items ?? [];
+      items.forEach((item, idx) => {
+        const name = String(item._name ?? 'macOS Audio Device');
+        const inCh = Number(item.coreaudio_device_input ?? 0) || undefined;
+        const outCh = Number(item.coreaudio_device_output ?? 0) || undefined;
+        endpoints.push(
+          recognizeAudioEndpoint({
+            id: `mac-coreaudio-${idx}`,
+            name,
+            direction: inCh && outCh ? 'duplex' : inCh ? 'input' : 'output',
+            source: 'os-probe',
+            estimatedInputChannels: inCh,
+            estimatedOutputChannels: outCh,
+            isDefault: Boolean(item.coreaudio_default_audio_input_device),
+            platform: 'macos',
+          })
+        );
+      });
+    } catch {
+      // ignore macOS probe errors
+    }
+  }
+
+  const lanMixers = await discoverLanOscMixers();
+  endpoints.push(...lanMixers);
+
+  return { hostPlatform, endpoints };
+}
+
+interface WsClientRecord {
+  clientId: string;
+  ws: WebSocket;
+  role: 'desktop' | 'mobile';
+  deviceName: string;
+  ip: string;
+  connectedAt: string;
+  lastSeenAt: string;
+  pinVerified: boolean;
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '4mb' }));
+
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const clients = new Map<string, WsClientRecord>();
+
+  const getPublicClientList = () =>
+    Array.from(clients.values())
+      .filter((c) => c.role === 'mobile')
+      .map(({ clientId, role, deviceName, ip, connectedAt, lastSeenAt }) => ({
+        clientId,
+        role,
+        deviceName,
+        ip,
+        connectedAt,
+        lastSeenAt,
+      }));
+
+  const broadcast = (payload: Record<string, unknown>, excludeClientId?: string) => {
+    const serialized = JSON.stringify(payload);
+    for (const [id, client] of clients.entries()) {
+      if (excludeClientId && id === excludeClientId) continue;
+      if (client.ws.readyState === WebSocket.OPEN) {
+        if (client.role === 'mobile' && !client.pinVerified) continue;
+        client.ws.send(serialized);
+      }
+    }
+  };
+
+  const broadcastClientList = () => {
+    const list = getPublicClientList();
+    const msg = JSON.stringify({ type: 'remote:clients', clients: list });
+    for (const client of clients.values()) {
+      if (client.role === 'desktop' && client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(msg);
+      }
+    }
+  };
+
+  wss.on('connection', (ws, req) => {
+    const url = new URL(req.url || '/ws', 'http://localhost');
+    const roleParam = url.searchParams.get('role') === 'mobile' ? 'mobile' : 'desktop';
+    const tokenParam = url.searchParams.get('token') || '';
+    const deviceName =
+      url.searchParams.get('device') ||
+      (roleParam === 'mobile' ? 'FOH Mobile Companion' : 'FOH Desktop Console');
+    const state = ensureStore();
+
+    if (roleParam === 'mobile' && tokenParam !== state.remoteAccess.sessionToken) {
+      ws.send(JSON.stringify({ type: 'auth:error', error: 'Invalid or expired pairing token.' }));
+      ws.close(4001, 'Invalid pairing token');
+      return;
+    }
+
+    const clientId = `cli-${crypto.randomBytes(6).toString('hex')}`;
+    const rawIp =
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ||
+      req.socket.remoteAddress ||
+      'local';
+    const ip = rawIp.replace(/^::ffff:/, '');
+    const nowIso = new Date().toISOString();
+
+    const record: WsClientRecord = {
+      clientId,
+      ws,
+      role: roleParam,
+      deviceName,
+      ip,
+      connectedAt: nowIso,
+      lastSeenAt: nowIso,
+      pinVerified: roleParam === 'desktop' || !state.remoteAccess.pinEnabled,
+    };
+    clients.set(clientId, record);
+
+    if (record.pinVerified) {
+      ws.send(
+        JSON.stringify({
+          type: 'state:full',
+          state: ensureStore(),
+          clientId,
+        })
+      );
+    } else {
+      ws.send(JSON.stringify({ type: 'auth:pin-required', clientId }));
+    }
+
+    if (roleParam === 'mobile') {
+      state.auditEvents = [
+        {
+          id: `evt-${Date.now()}`,
+          timestamp: nowIso,
+          actor: deviceName,
+          action: 'Mobile Companion Linked',
+          detail: `Remote FOH companion connected from ${ip}`,
+          authority: 'system',
+        },
+        ...state.auditEvents,
+      ].slice(0, 100);
+      saveStore(state);
+      broadcastClientList();
+    }
+
+    ws.on('message', (rawData) => {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(String(rawData)) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+
+      record.lastSeenAt = new Date().toISOString();
+      const current = ensureStore();
+
+      if (msg.type === 'auth:verify-pin') {
+        if (String(msg.pin ?? '') === current.remoteAccess.pinCode) {
+          record.pinVerified = true;
+          ws.send(JSON.stringify({ type: 'auth:ok' }));
+          ws.send(JSON.stringify({ type: 'state:full', state: current, clientId }));
+          broadcastClientList();
+        } else {
+          ws.send(JSON.stringify({ type: 'auth:error', error: 'Incorrect PIN code.' }));
+        }
+        return;
+      }
+
+      if (!record.pinVerified) {
+        ws.send(JSON.stringify({ type: 'auth:pin-required' }));
+        return;
+      }
+
+      if (msg.type === 'channel:patch') {
+        const channelId = String(msg.channelId ?? '');
+        const rawPatch = (msg.patch && typeof msg.patch === 'object' ? msg.patch : {}) as Record<
+          string,
+          unknown
+        >;
+        if (!channelId) return;
+
+        // Enforce remote companion permissions
+        const sanitizedPatch: Record<string, unknown> = { ...rawPatch };
+        if (record.role === 'mobile') {
+          if (!current.remoteAccess.allowGainAdjustment) {
+            delete sanitizedPatch.gainDb;
+            delete sanitizedPatch.phantom48v;
+            delete sanitizedPatch.padDb;
+          }
+          if (!current.remoteAccess.allowMuteControl) {
+            delete sanitizedPatch.mute;
+            delete sanitizedPatch.solo;
+          }
+        }
+        if (Object.keys(sanitizedPatch).length === 0) return;
+
+        audioDb.patchChannel(channelId, sanitizedPatch);
+        broadcast(
+          {
+            type: 'channel:patch',
+            channelId,
+            patch: sanitizedPatch,
+            sourceRole: record.role,
+          },
+          clientId
+        );
+        return;
+      }
+
+      if (msg.type === 'master:patch') {
+        if (record.role === 'mobile' && !current.remoteAccess.allowMasterTrim) {
+          return;
+        }
+        const updatedMaster = audioDb.patchMaster({
+          inputTrimDb: typeof msg.inputTrimDb === 'number' ? msg.inputTrimDb : undefined,
+          emergencyMuted:
+            typeof msg.emergencyMuted === 'boolean' ? msg.emergencyMuted : undefined,
+        });
+        broadcast(
+          {
+            type: 'master:patch',
+            inputTrimDb: (updatedMaster.dsp as { inputTrimDb?: number }).inputTrimDb,
+            emergencyMuted: updatedMaster.emergencyMuted,
+            sourceRole: record.role,
+          },
+          clientId
+        );
+        return;
+      }
+
+      if (msg.type === 'telemetry:frame' && record.role === 'desktop') {
+        const serialized = JSON.stringify({
+          type: 'telemetry:frame',
+          telemetry: msg.telemetry,
+        });
+        for (const client of clients.values()) {
+          if (
+            client.role === 'mobile' &&
+            client.pinVerified &&
+            client.ws.readyState === WebSocket.OPEN
+          ) {
+            client.ws.send(serialized);
+          }
+        }
+      }
+    });
+
+    ws.on('close', () => {
+      const wasMobile = record.role === 'mobile';
+      clients.delete(clientId);
+      if (wasMobile) {
+        broadcastClientList();
+      }
+    });
+  });
 
   app.get('/api/health', (_req, res) => {
+    const dbStats = audioDb.getStats();
     res.json({
       status: 'ok',
       engine: 'Church Audio Intelligence Control Plane',
       aiConfigured: Boolean(process.env.GEMINI_API_KEY),
-      storage: 'local-first-json',
+      storage: dbStats.engine,
+      dbStats,
+      wsClients: clients.size,
     });
   });
 
@@ -116,13 +519,160 @@ async function startServer() {
     res.json(state);
   });
 
+  app.put('/api/state/sync', (req, res) => {
+    const state = ensureStore();
+    const body = (req.body ?? {}) as Partial<PersistedState>;
+
+    if (body.venue && typeof body.venue === 'object') {
+      state.venue = { ...state.venue, ...body.venue };
+    }
+    if (Array.isArray(body.channels)) state.channels = body.channels;
+    if (body.dsp && typeof body.dsp === 'object') state.dsp = body.dsp;
+    if (typeof body.activePresetId === 'string') state.activePresetId = body.activePresetId;
+    if (body.broadcastDsp && typeof body.broadcastDsp === 'object') {
+      state.broadcastDsp = body.broadcastDsp;
+    }
+    if (Array.isArray(body.zones)) state.zones = body.zones;
+    if (body.obsStatus && typeof body.obsStatus === 'object') state.obsStatus = body.obsStatus;
+    if (body.measurement && typeof body.measurement === 'object') {
+      state.measurement = body.measurement;
+    }
+    if (body.bassDi && typeof body.bassDi === 'object') state.bassDi = body.bassDi;
+    if (typeof body.emergencyMuted === 'boolean') state.emergencyMuted = body.emergencyMuted;
+    if (Array.isArray(body.findings)) state.findings = body.findings;
+
+    saveStore(state);
+    broadcast({
+      type: 'state:sync',
+      channels: state.channels,
+      dsp: state.dsp,
+      venue: state.venue,
+      emergencyMuted: state.emergencyMuted,
+    });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/network/interfaces', (_req, res) => {
+    res.json({ interfaces: listLanInterfaces(3000) });
+  });
+
+  app.get('/api/hardware/scan', async (_req, res) => {
+    const result = await scanHostAudioHardware();
+    res.json({
+      ok: true,
+      scannedAt: new Date().toISOString(),
+      hostPlatform: result.hostPlatform,
+      endpoints: result.endpoints,
+    });
+  });
+
+  app.get('/api/hardware/profiles/:deviceId', (req, res) => {
+    const profile = audioDb.getDeviceProfile(req.params.deviceId);
+    res.json({ ok: true, profile });
+  });
+
+  app.post('/api/hardware/profiles/:deviceId', (req, res) => {
+    const payload = (req.body ?? {}) as Record<string, unknown>;
+    const saved = audioDb.saveDeviceProfile(req.params.deviceId, payload);
+    res.json({ ...saved, deviceId: req.params.deviceId });
+  });
+
+  app.get('/api/remote/session', (_req, res) => {
+    const state = ensureStore();
+    res.json({
+      remoteAccess: state.remoteAccess,
+      clients: getPublicClientList(),
+      interfaces: listLanInterfaces(3000),
+    });
+  });
+
+  app.patch('/api/remote/session', (req, res) => {
+    const state = ensureStore();
+    const patch = (req.body ?? {}) as Partial<RemoteAccessState>;
+    state.remoteAccess = {
+      ...state.remoteAccess,
+      ...patch,
+      sessionToken: state.remoteAccess.sessionToken,
+    };
+    saveStore(state, true);
+    broadcast({ type: 'remote:config', remoteAccess: state.remoteAccess });
+    res.json({ ok: true, remoteAccess: state.remoteAccess });
+  });
+
+  app.post('/api/remote/rotate-token', (_req, res) => {
+    const state = ensureStore();
+    state.remoteAccess = {
+      ...state.remoteAccess,
+      sessionToken: generateToken(),
+      createdAt: new Date().toISOString(),
+    };
+    for (const [id, client] of clients.entries()) {
+      if (client.role === 'mobile') {
+        client.ws.close(4002, 'Pairing token rotated by FOH engineer');
+        clients.delete(id);
+      }
+    }
+    state.auditEvents = [
+      {
+        id: `evt-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actor: 'Sound Engineer',
+        action: 'Rotated Remote Access QR Token',
+        detail: 'Previous mobile companion sessions revoked; new pairing token issued.',
+        authority: 'operator',
+      },
+      ...state.auditEvents,
+    ].slice(0, 100);
+    saveStore(state, true);
+    broadcastClientList();
+    res.json({ ok: true, remoteAccess: state.remoteAccess });
+  });
+
+  app.delete('/api/remote/clients/:clientId', (req, res) => {
+    const { clientId } = req.params;
+    const target = clients.get(clientId);
+    if (target) {
+      target.ws.close(4003, 'Session revoked by FOH console');
+      clients.delete(clientId);
+      broadcastClientList();
+    }
+    res.json({ ok: true, clients: getPublicClientList() });
+  });
+
+  app.get('/api/remote/bootstrap', (req, res) => {
+    const token = String(req.query.token ?? '');
+    const state = ensureStore();
+    if (!token || token !== state.remoteAccess.sessionToken) {
+      res.status(401).json({ ok: false, error: 'Invalid or expired QR pairing token.' });
+      return;
+    }
+    res.json({
+      ok: true,
+      pinRequired: state.remoteAccess.pinEnabled,
+      remoteAccess: {
+        pinEnabled: state.remoteAccess.pinEnabled,
+        allowGainAdjustment: state.remoteAccess.allowGainAdjustment,
+        allowMuteControl: state.remoteAccess.allowMuteControl,
+        allowMasterTrim: state.remoteAccess.allowMasterTrim,
+      },
+      state: state.remoteAccess.pinEnabled
+        ? null
+        : {
+            venue: state.venue,
+            channels: state.channels,
+            dsp: state.dsp,
+            emergencyMuted: state.emergencyMuted,
+          },
+    });
+  });
+
   app.post('/api/venue', (req, res) => {
     const state = ensureStore();
     state.venue = {
       ...state.venue,
       ...req.body,
     };
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, venue: state.venue });
   });
 
@@ -145,7 +695,7 @@ async function startServer() {
       },
       ...state.auditEvents,
     ].slice(0, 100);
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, versions: state.versions, auditEvents: state.auditEvents });
   });
 
@@ -176,7 +726,7 @@ async function startServer() {
       return;
     }
     state.midiMappings = mappings;
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, midiMappings: state.midiMappings });
   });
 
@@ -188,7 +738,7 @@ async function startServer() {
       return;
     }
     state.keyboardShortcuts = shortcuts;
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, keyboardShortcuts: state.keyboardShortcuts });
   });
 
@@ -204,7 +754,7 @@ async function startServer() {
       snapshot,
       ...existing.filter((s) => s.id !== snapshot.id),
     ].slice(0, 40);
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, automationSnapshots: state.automationSnapshots });
   });
 
@@ -214,7 +764,7 @@ async function startServer() {
     const patch = req.body ?? {};
     const existing = Array.isArray(state.automationSnapshots) ? state.automationSnapshots : [];
     state.automationSnapshots = existing.map((s) => (s.id === id ? { ...s, ...patch } : s));
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, automationSnapshots: state.automationSnapshots });
   });
 
@@ -223,7 +773,7 @@ async function startServer() {
     const { id } = req.params;
     const existing = Array.isArray(state.automationSnapshots) ? state.automationSnapshots : [];
     state.automationSnapshots = existing.filter((s) => s.id !== id);
-    saveStore(state);
+    saveStore(state, true);
     res.json({ ok: true, automationSnapshots: state.automationSnapshots });
   });
 
@@ -376,7 +926,7 @@ Be concise, practical, and explicit about hardware boundaries (for instance, if 
   }
 
   const port = 3000;
-  app.listen(port, '0.0.0.0', () => {
+  httpServer.listen(port, '0.0.0.0', () => {
     console.log(`Church Audio Intelligence running on http://0.0.0.0:${port}`);
   });
 }

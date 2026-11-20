@@ -17,6 +17,7 @@ import type {
   BroadcastDspConfig,
   ConfigurationVersion,
   ConsoleThemeId,
+  DetectedHardwareEndpoint,
   DiagnosticFinding,
   DriverBackend,
   DspConfig,
@@ -28,8 +29,11 @@ import type {
   MidiPacket,
   ModuleId,
   NavDockPosition,
+  NetworkInterfaceInfo,
   ObsStatus,
   PlatformTarget,
+  RemoteAccessConfig,
+  RemoteClientSession,
   ServicePreset,
   ShortcutActionId,
   SignalTelemetry,
@@ -42,7 +46,19 @@ import {
   validatePluginManifest,
   type LoadedPluginRecord,
 } from './plugins/pluginManager.ts';
-import { liveAudioEngine, type SpectrumSnapshot } from './audio/liveAudioEngine.ts';
+import {
+  liveAudioEngine,
+  subscribeHardwareChanges,
+  type SpectrumSnapshot,
+} from './audio/liveAudioEngine.ts';
+import { scanBrowserMediaDevices } from './utils/hardwareRecognition.ts';
+import {
+  buildEndpointSignature,
+  clearCachedHardwareEndpoints,
+  loadCachedHardwareEndpoints,
+  saveDetectedHardwareEndpoints,
+  saveLastActiveHardwareId,
+} from './utils/hardwareCacheDb.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { LiveConsoleModule } from './components/LiveConsoleModule.tsx';
@@ -59,6 +75,7 @@ import { AiEngineerModule } from './components/AiEngineerModule.tsx';
 import { MidiMappingModule } from './components/MidiMappingModule.tsx';
 import { HardwareDiagnosticsModule } from './components/HardwareDiagnosticsModule.tsx';
 import { VirtualDiBassModule } from './components/VirtualDiBassModule.tsx';
+import { RemoteCompanionView } from './components/RemoteCompanionView.tsx';
 import { KeyboardShortcutManager } from './components/KeyboardShortcutManager.tsx';
 import { DEFAULT_MIDI_MAPPINGS, midiEngine, scaleMidiValue } from './midi/midiEngine.ts';
 import {
@@ -91,11 +108,24 @@ const INITIAL_SPECTRUM: SpectrumSnapshot = {
 };
 
 export default function App() {
+  const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'remote') {
+        const tok = params.get('token');
+        if (tok) return tok;
+      }
+    } catch {
+      // ignore URL parse error
+    }
+    return null;
+  });
+
   const [activeModule, setActiveModule] = useState<ModuleId>('console');
 
   // Venue & Platform State (Windows-first + macOS/Linux)
-  const [venueName] = useState('Grace Community Fellowship');
-  const [roomName] = useState('Main Sanctuary');
+  const [venueName, setVenueName] = useState('Grace Community Fellowship');
+  const [roomName, setRoomName] = useState('Main Sanctuary');
   const [platform, setPlatform] = useState<PlatformTarget>('windows');
   const [driver, setDriver] = useState<DriverBackend>('ASIO');
 
@@ -132,7 +162,7 @@ export default function App() {
 
   // OBS & Versions & Audit
   const [obsStatus, setObsStatus] = useState<ObsStatus>({
-    connected: true,
+    connected: false,
     websocketUrl: 'ws://127.0.0.1:4455',
     activeScene: 'Sanctuary Wide + Preacher',
     scenes: [
@@ -143,23 +173,14 @@ export default function App() {
     ],
     streaming: false,
     recording: false,
-    bitrateKbps: 6000,
+    bitrateKbps: 0,
     droppedFrames: 0,
-    cpuUsagePct: 11,
+    cpuUsagePct: 0,
     audioMonitorMode: 'Monitor Off',
     syncWarning: false,
   });
   const [versions, setVersions] = useState<ConfigurationVersion[]>([]);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([
-    {
-      id: 'evt-boot',
-      timestamp: new Date().toISOString(),
-      actor: 'System Watchdog',
-      action: 'Audio Platform Ready',
-      detail: 'Windows ASIO/WASAPI, CamillaDSP schema, and dynamic plugin host initialized.',
-      authority: 'system',
-    },
-  ]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
 
   // Live Audio Engine State
   const [audioSource, setAudioSource] = useState<AudioSourceSimulation>('preacher-mud');
@@ -170,38 +191,35 @@ export default function App() {
   const [telemetry, setTelemetry] = useState<SignalTelemetry>(INITIAL_TELEMETRY);
   const [spectrum, setSpectrum] = useState<SpectrumSnapshot>(INITIAL_SPECTRUM);
 
-  // Diagnostics Findings Queue
-  const [findings, setFindings] = useState<DiagnosticFinding[]>([
-    {
-      id: 'init-mud-advisory',
-      timestamp: new Date().toISOString(),
-      severity: 'advisory',
-      category: 'acoustics',
-      title: 'Sanctuary 63–80 Hz Low-Frequency Mode & 220 Hz Speech Mud',
-      evidence: 'REW Sweep +6.4 dB @ 63 Hz · RT60 1.29s @ 1 kHz',
-      confidence: 88,
-      explanation:
-        'Measured sanctuary sweep indicates axial low-frequency buildup around 63–80 Hz and vocal chest resonance near 220 Hz. Engage a 110 Hz high-pass filter for speech and verify subwoofer polarity before applying deeper EQ.',
-      physicalChecks: [
-        'Confirm preacher microphone is within 10–15 cm of speaker mouth.',
-        'Check subwoofer crossover alignment (90 Hz LR24) and polarity.',
-      ],
-      proposedPatch: {
-        description: 'Set Preacher HPF 110 Hz & -4.0 dB cut @ 220 Hz',
-        hpfEnabled: true,
-        hpfHz: 110,
-        eqBandUpdate: {
-          index: 1,
-          enabled: true,
-          label: 'Mud Cut',
-          frequency: 220,
-          gainDb: -4.0,
-          q: 2.2,
-        },
-      },
-      status: 'pending',
-    },
-  ]);
+  // Diagnostics Findings Queue (populated only by live analysis or explicit AI diagnostic runs)
+  const [findings, setFindings] = useState<DiagnosticFinding[]>([]);
+
+  // Remote FOH Companion & LAN Sync State
+  const [remoteAccess, setRemoteAccess] = useState<RemoteAccessConfig>({
+    sessionToken: '',
+    pinEnabled: false,
+    pinCode: '2026',
+    allowGainAdjustment: true,
+    allowMuteControl: true,
+    allowMasterTrim: true,
+    lanHostOverride: '',
+    createdAt: '',
+  });
+  const [remoteClients, setRemoteClients] = useState<RemoteClientSession[]>([]);
+  const [lanInterfaces, setLanInterfaces] = useState<NetworkInterfaceInfo[]>([]);
+
+  const desktopWsRef = useRef<WebSocket | null>(null);
+  const hydratedRef = useRef<boolean>(false);
+  const suppressSyncCountRef = useRef<number>(0);
+  const lastTelemetryWsSentRef = useRef<number>(0);
+
+  // Auto-Detected Hardware & Hot-Plug State (backed by IndexedDB cache)
+  const [detectedEndpoints, setDetectedEndpoints] = useState<DetectedHardwareEndpoint[]>([]);
+  const [scanningHardware, setScanningHardware] = useState(false);
+  const [hotPlugEndpoint, setHotPlugEndpoint] = useState<DetectedHardwareEndpoint | null>(null);
+  const [preferredBrowserInputId, setPreferredBrowserInputId] = useState<string | undefined>(undefined);
+  const activeOnBusSignaturesRef = useRef<Set<string>>(new Set());
+  const cachedSynthDevicesRef = useRef<HardwareDevice[]>([]);
 
   const seenAutoIssuesRef = useRef<Set<string>>(new Set());
 
@@ -290,29 +308,231 @@ export default function App() {
     }
   }, [consoleTheme]);
 
-  // Load persisted state from Express backend on boot
+  // Hydrate full console state from backend SQLite store on boot
   useEffect(() => {
-    fetch('/api/state')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data) return;
-        if (Array.isArray(data.versions)) setVersions(data.versions);
-        if (Array.isArray(data.auditEvents) && data.auditEvents.length > 0) {
-          setAuditEvents(data.auditEvents);
+    if (remoteCompanionToken) return;
+    let active = true;
+
+    Promise.allSettled([
+      fetch('/api/state').then((r) => (r.ok ? r.json() : null)),
+      fetch('/api/remote/session').then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([stateRes, remoteRes]) => {
+        if (!active) return;
+        const data = stateRes.status === 'fulfilled' ? stateRes.value : null;
+        if (data) {
+          suppressSyncCountRef.current += 1;
+          if (data.venue && typeof data.venue === 'object') {
+            if (typeof data.venue.venueName === 'string') setVenueName(data.venue.venueName);
+            if (typeof data.venue.roomName === 'string') setRoomName(data.venue.roomName);
+            if (data.venue.targetPlatform) setPlatform(data.venue.targetPlatform);
+            if (data.venue.driver) setDriver(data.venue.driver);
+            if (typeof data.venue.sampleRate === 'number') setSampleRate(data.venue.sampleRate);
+            if (typeof data.venue.bufferSize === 'number') setBufferSize(data.venue.bufferSize);
+            if (typeof data.venue.activeDeviceId === 'string') {
+              const foundDev =
+                HARDWARE_CATALOG.find((d) => d.id === data.venue.activeDeviceId) ??
+                cachedSynthDevicesRef.current.find((d) => d.id === data.venue.activeDeviceId);
+              if (foundDev) setActiveDevice(foundDev);
+            }
+          }
+          if (Array.isArray(data.channels) && data.channels.length > 0) setChannels(data.channels);
+          if (data.dsp && typeof data.dsp === 'object') setDsp(data.dsp);
+          if (typeof data.activePresetId === 'string') {
+            const matchedPreset = SERVICE_PRESETS.find((p) => p.id === data.activePresetId);
+            if (matchedPreset) setActivePreset(matchedPreset);
+          }
+          if (data.broadcastDsp && typeof data.broadcastDsp === 'object') {
+            setBroadcastDsp(data.broadcastDsp);
+          }
+          if (Array.isArray(data.zones) && data.zones.length > 0) setZones(data.zones);
+          if (data.obsStatus && typeof data.obsStatus === 'object') setObsStatus(data.obsStatus);
+          if (data.measurement && typeof data.measurement === 'object') {
+            setMeasurement(data.measurement);
+          }
+          if (data.bassDi && typeof data.bassDi === 'object') setBassDi(data.bassDi);
+          if (typeof data.emergencyMuted === 'boolean') {
+            setEmergencyMuted(data.emergencyMuted);
+            liveAudioEngine.setEmergencyMute(data.emergencyMuted);
+          }
+          if (Array.isArray(data.findings)) setFindings(data.findings);
+          if (data.remoteAccess && typeof data.remoteAccess === 'object') {
+            setRemoteAccess(data.remoteAccess);
+          }
+          if (Array.isArray(data.versions)) setVersions(data.versions);
+          if (Array.isArray(data.auditEvents) && data.auditEvents.length > 0) {
+            setAuditEvents(data.auditEvents);
+          }
+          if (Array.isArray(data.midiMappings) && data.midiMappings.length > 0) {
+            setMidiMappings(data.midiMappings);
+          }
+          if (Array.isArray(data.automationSnapshots)) {
+            setAutomationSnapshots(data.automationSnapshots);
+          }
+          if (Array.isArray(data.keyboardShortcuts) && data.keyboardShortcuts.length > 0) {
+            setKeyboardShortcuts(data.keyboardShortcuts);
+          }
         }
-        if (Array.isArray(data.midiMappings) && data.midiMappings.length > 0) {
-          setMidiMappings(data.midiMappings);
-        }
-        if (Array.isArray(data.automationSnapshots)) {
-          setAutomationSnapshots(data.automationSnapshots);
-        }
-        if (Array.isArray(data.keyboardShortcuts) && data.keyboardShortcuts.length > 0) {
-          setKeyboardShortcuts(data.keyboardShortcuts);
+
+        const remoteData = remoteRes.status === 'fulfilled' ? remoteRes.value : null;
+        if (remoteData) {
+          if (remoteData.remoteAccess) setRemoteAccess(remoteData.remoteAccess);
+          if (Array.isArray(remoteData.clients)) setRemoteClients(remoteData.clients);
+          if (Array.isArray(remoteData.interfaces)) setLanInterfaces(remoteData.interfaces);
         }
       })
-      .catch(() => {
-        // Offline / local-first fallback already active
+      .finally(() => {
+        if (active) hydratedRef.current = true;
       });
+
+    return () => {
+      active = false;
+    };
+  }, [remoteCompanionToken]);
+
+  // Persistent Desktop WebSocket Link for Real-Time Sync with Linked Mobile Companions
+  useEffect(() => {
+    if (remoteCompanionToken) return;
+    let closedByEffect = false;
+    let reconnectTimer: number | null = null;
+
+    const connectWs = () => {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${proto}//${window.location.host}/ws?role=desktop`);
+      desktopWsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data));
+          if (msg.type === 'state:full' && msg.state) {
+            if (msg.state.remoteAccess) setRemoteAccess(msg.state.remoteAccess);
+            return;
+          }
+          if (msg.type === 'remote:clients' && Array.isArray(msg.clients)) {
+            setRemoteClients(msg.clients);
+            return;
+          }
+          if (msg.type === 'remote:config' && msg.remoteAccess) {
+            setRemoteAccess(msg.remoteAccess);
+            return;
+          }
+          if (
+            msg.type === 'channel:patch' &&
+            msg.sourceRole !== 'desktop' &&
+            msg.channelId &&
+            msg.patch
+          ) {
+            suppressSyncCountRef.current += 1;
+            setChannels((prev) =>
+              prev.map((ch) => (ch.id === msg.channelId ? { ...ch, ...msg.patch } : ch))
+            );
+            return;
+          }
+          if (msg.type === 'master:patch' && msg.sourceRole !== 'desktop') {
+            suppressSyncCountRef.current += 1;
+            if (typeof msg.inputTrimDb === 'number') {
+              setDsp((prev) =>
+                prev.inputTrimDb === msg.inputTrimDb
+                  ? prev
+                  : { ...prev, inputTrimDb: msg.inputTrimDb }
+              );
+            }
+            if (typeof msg.emergencyMuted === 'boolean') {
+              setEmergencyMuted(msg.emergencyMuted);
+              liveAudioEngine.setEmergencyMute(msg.emergencyMuted);
+            }
+          }
+        } catch {
+          // ignore malformed ws message
+        }
+      };
+
+      ws.onclose = () => {
+        if (desktopWsRef.current === ws) desktopWsRef.current = null;
+        if (!closedByEffect) {
+          reconnectTimer = window.setTimeout(connectWs, 2000);
+        }
+      };
+    };
+
+    connectWs();
+
+    return () => {
+      closedByEffect = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (desktopWsRef.current) {
+        desktopWsRef.current.close();
+        desktopWsRef.current = null;
+      }
+    };
+  }, [remoteCompanionToken]);
+
+  // Debounced full-state synchronization to SQLite backend (PUT /api/state/sync)
+  useEffect(() => {
+    if (remoteCompanionToken || !hydratedRef.current) return;
+    if (suppressSyncCountRef.current > 0) {
+      suppressSyncCountRef.current -= 1;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      fetch('/api/state/sync', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          venue: {
+            organization: venueName,
+            venueName,
+            roomName,
+            targetPlatform: platform,
+            driver,
+            sampleRate,
+            bufferSize,
+            activeDeviceId: activeDevice.id,
+          },
+          channels,
+          dsp,
+          activePresetId: activePreset.id,
+          broadcastDsp,
+          zones,
+          obsStatus,
+          measurement,
+          bassDi,
+          emergencyMuted,
+          findings,
+        }),
+      }).catch(() => {});
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    remoteCompanionToken,
+    venueName,
+    roomName,
+    platform,
+    driver,
+    sampleRate,
+    bufferSize,
+    activeDevice.id,
+    channels,
+    dsp,
+    activePreset.id,
+    broadcastDsp,
+    zones,
+    obsStatus,
+    measurement,
+    bassDi,
+    emergencyMuted,
+    findings,
+  ]);
+
+  const handleUpdateChannel = useCallback((id: string, patch: Partial<InputChannel>) => {
+    setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    if (desktopWsRef.current?.readyState === WebSocket.OPEN) {
+      desktopWsRef.current.send(
+        JSON.stringify({ type: 'channel:patch', channelId: id, patch })
+      );
+    }
   }, []);
 
   const updateAndPersistShortcuts = useCallback((next: KeyboardShortcutBinding[]) => {
@@ -502,6 +722,17 @@ export default function App() {
       setTelemetry(snap.telemetry);
       setSpectrum(snap.spectrum);
 
+      const nowTs = performance.now();
+      if (
+        desktopWsRef.current?.readyState === WebSocket.OPEN &&
+        nowTs - lastTelemetryWsSentRef.current >= 160
+      ) {
+        lastTelemetryWsSentRef.current = nowTs;
+        desktopWsRef.current.send(
+          JSON.stringify({ type: 'telemetry:frame', telemetry: snap.telemetry })
+        );
+      }
+
       // Compute realistic audio processing load % from buffer quantum deadline,
       // active DSP nodes, event-loop scheduling jitter, and sampling execution cost.
       const quantumMs = (bufferSize / Math.max(8000, sampleRate)) * 1000;
@@ -615,11 +846,17 @@ export default function App() {
     if (engineRunning) {
       liveAudioEngine.stop();
       setEngineRunning(false);
-      setTelemetry((t) => ({ ...t, isRunning: false }));
+      const stoppedTelemetry = { ...telemetry, isRunning: false };
+      setTelemetry(stoppedTelemetry);
+      if (desktopWsRef.current?.readyState === WebSocket.OPEN) {
+        desktopWsRef.current.send(
+          JSON.stringify({ type: 'telemetry:frame', telemetry: stoppedTelemetry })
+        );
+      }
       logAudit('Stopped Audio Engine', 'Audio DSP processing placed into standby.', 'operator');
     } else {
       try {
-        await liveAudioEngine.start(audioSource, dsp);
+        await liveAudioEngine.start(audioSource, dsp, preferredBrowserInputId);
         setEngineRunning(true);
         logAudit('Started Audio Engine', `Source: ${audioSource} · Device: ${activeDevice.model}`, 'operator');
       } catch (err) {
@@ -638,7 +875,7 @@ export default function App() {
     setAudioError(null);
     if (engineRunning) {
       try {
-        await liveAudioEngine.start(nextSrc, dsp);
+        await liveAudioEngine.start(nextSrc, dsp, preferredBrowserInputId);
         logAudit('Switched Audio Source', `Input switched to ${nextSrc}`, 'operator');
       } catch (err) {
         setAudioError(err instanceof Error ? err.message : 'Failed to switch audio source.');
@@ -656,6 +893,11 @@ export default function App() {
     const next = !emergencyMuted;
     setEmergencyMuted(next);
     liveAudioEngine.setEmergencyMute(next);
+    if (desktopWsRef.current?.readyState === WebSocket.OPEN) {
+      desktopWsRef.current.send(
+        JSON.stringify({ type: 'master:patch', emergencyMuted: next })
+      );
+    }
     logAudit(
       next ? 'Engaged Global Emergency Mute' : 'Released Global Emergency Mute',
       next ? 'All live PA & monitor outputs muted immediately.' : 'Master PA & monitor outputs restored.',
@@ -683,6 +925,63 @@ export default function App() {
       setUndoStack((u) => [prev, ...u].slice(0, 15));
       return { ...prev, ...patch };
     });
+    if (
+      typeof patch.inputTrimDb === 'number' &&
+      desktopWsRef.current?.readyState === WebSocket.OPEN
+    ) {
+      desktopWsRef.current.send(
+        JSON.stringify({ type: 'master:patch', inputTrimDb: patch.inputTrimDb })
+      );
+    }
+  }, []);
+
+  const handleUpdateRemoteAccess = useCallback((patch: Partial<RemoteAccessConfig>) => {
+    setRemoteAccess((prev) => ({ ...prev, ...patch }));
+    fetch('/api/remote/session', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.remoteAccess) setRemoteAccess(data.remoteAccess);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRotateRemoteToken = useCallback(() => {
+    fetch('/api/remote/rotate-token', { method: 'POST' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.remoteAccess) {
+          setRemoteAccess(data.remoteAccess);
+          setRemoteClients([]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleDisconnectRemoteClient = useCallback((clientId: string) => {
+    fetch(`/api/remote/clients/${encodeURIComponent(clientId)}`, { method: 'DELETE' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data?.clients)) setRemoteClients(data.clients);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleExitRemoteCompanion = useCallback(() => {
+    setRemoteCompanionToken(null);
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('mode') || url.searchParams.has('token')) {
+        url.searchParams.delete('mode');
+        url.searchParams.delete('token');
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {
+      // ignore URL mutation errors
+    }
   }, []);
 
   const handleUndoLastDsp = () => {
@@ -701,16 +1000,250 @@ export default function App() {
     logAudit('Loaded Service Preset', `${preset.name} (v${preset.version})`, 'operator');
   };
 
-  const handleSelectDevice = (dev: HardwareDevice) => {
-    setActiveDevice(dev);
-    setSampleRate(dev.defaultSampleRate);
-    setBufferSize(dev.defaultBufferSize);
-    setChannels(buildChannelsForDevice(dev));
-    if (dev.capabilities.supportedDrivers.length > 0 && !dev.capabilities.supportedDrivers.includes(driver)) {
-      setDriver(dev.capabilities.supportedDrivers[0]);
-    }
-    logAudit('Switched Hardware Adapter', `${dev.manufacturer} ${dev.model} (${dev.tierLabel})`, 'operator');
-  };
+  const handleSelectDevice = useCallback(
+    async (dev: HardwareDevice, overrideDriver?: DriverBackend) => {
+      // 1. Persist the current device's mix profile before switching away
+      if (activeDevice.id !== dev.id) {
+        fetch(`/api/hardware/profiles/${encodeURIComponent(activeDevice.id)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channels,
+            sampleRate,
+            bufferSize,
+            driver,
+          }),
+        }).catch(() => {});
+      }
+
+      setActiveDevice(dev);
+      let nextSr = dev.defaultSampleRate;
+      let nextBs = dev.defaultBufferSize;
+      let nextDriver = overrideDriver ?? driver;
+      if (
+        dev.capabilities.supportedDrivers.length > 0 &&
+        !dev.capabilities.supportedDrivers.includes(nextDriver)
+      ) {
+        nextDriver = dev.capabilities.supportedDrivers[0];
+      }
+
+      // 2. Recall per-device mix profile from SQLite if previously used
+      try {
+        const res = await fetch(`/api/hardware/profiles/${encodeURIComponent(dev.id)}`);
+        const data = res.ok ? await res.json() : null;
+        if (data?.profile && Array.isArray(data.profile.channels) && data.profile.channels.length > 0) {
+          setChannels(data.profile.channels);
+          if (typeof data.profile.sampleRate === 'number') nextSr = data.profile.sampleRate;
+          if (typeof data.profile.bufferSize === 'number') nextBs = data.profile.bufferSize;
+          if (typeof data.profile.driver === 'string') nextDriver = data.profile.driver as DriverBackend;
+        } else {
+          setChannels(buildChannelsForDevice(dev));
+        }
+      } catch {
+        setChannels(buildChannelsForDevice(dev));
+      }
+
+      setSampleRate(nextSr);
+      setBufferSize(nextBs);
+      setDriver(nextDriver);
+      void saveLastActiveHardwareId(dev.id);
+      logAudit('Switched Hardware Adapter', `${dev.manufacturer} ${dev.model} (${dev.tierLabel})`, 'operator');
+    },
+    [activeDevice.id, bufferSize, channels, driver, logAudit, sampleRate]
+  );
+
+  const runHardwareScan = useCallback(
+    async (requestBrowserPermission = false, announceHotPlug = false) => {
+      setScanningHardware(true);
+      try {
+        // Hydrate any previously remembered profiles from IndexedDB before full bus/network scan completes
+        const cachedBeforeScan = await loadCachedHardwareEndpoints();
+        if (cachedBeforeScan.endpoints.length > 0) {
+          cachedSynthDevicesRef.current = cachedBeforeScan.synthesizedDevices;
+          if (cachedBeforeScan.synthesizedDevices.length > 0) {
+            setDevices((prev) => {
+              const existingIds = new Set(prev.map((d) => d.id));
+              const additions = cachedBeforeScan.synthesizedDevices.filter(
+                (d) => !existingIds.has(d.id)
+              );
+              return additions.length > 0 ? [...prev, ...additions] : prev;
+            });
+          }
+          setDetectedEndpoints((prev) =>
+            prev.length === 0 ? cachedBeforeScan.endpoints : prev
+          );
+        }
+
+        if (requestBrowserPermission && navigator.mediaDevices?.getUserMedia) {
+          try {
+            const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            tempStream.getTracks().forEach((t) => t.stop());
+          } catch {
+            // Proceed even if browser mic permission is denied; OS probe still works
+          }
+        }
+
+        const [serverRes, browserEndpoints] = await Promise.all([
+          fetch('/api/hardware/scan')
+            .then((r) => (r.ok ? r.json() : { endpoints: [] }))
+            .catch(() => ({ endpoints: [] })),
+          scanBrowserMediaDevices(platform),
+        ]);
+
+        const serverEndpoints: DetectedHardwareEndpoint[] = Array.isArray(serverRes?.endpoints)
+          ? serverRes.endpoints
+          : [];
+
+        const mergedMap = new Map<string, DetectedHardwareEndpoint>();
+        for (const ep of [...serverEndpoints, ...browserEndpoints]) {
+          const dedupKey = `${ep.matchedDeviceId}::${ep.name.toLowerCase()}`;
+          const existing = mergedMap.get(dedupKey);
+          if (!existing) {
+            mergedMap.set(dedupKey, ep);
+          } else {
+            mergedMap.set(dedupKey, {
+              ...existing,
+              browserDeviceId: existing.browserDeviceId || ep.browserDeviceId,
+              vendorId: existing.vendorId || ep.vendorId,
+              productId: existing.productId || ep.productId,
+              synthesizedDevice: existing.synthesizedDevice || ep.synthesizedDevice,
+            });
+          }
+        }
+
+        const liveEndpoints = Array.from(mergedMap.values());
+        const persistedMerged = await saveDetectedHardwareEndpoints(
+          liveEndpoints,
+          activeDevice.id
+        );
+        setDetectedEndpoints(persistedMerged);
+
+        // Register any newly synthesized Universal Profiles (live + remembered) in device catalog
+        const allSynthDevices = persistedMerged
+          .map((ep) => ep.synthesizedDevice)
+          .filter((d): d is HardwareDevice => Boolean(d));
+        if (allSynthDevices.length > 0) {
+          cachedSynthDevicesRef.current = allSynthDevices;
+          setDevices((prev) => {
+            const existingIds = new Set(prev.map((d) => d.id));
+            const additions = allSynthDevices.filter((d) => !existingIds.has(d.id));
+            return additions.length > 0 ? [...prev, ...additions] : prev;
+          });
+        }
+
+        if (announceHotPlug) {
+          const newlyAdded = liveEndpoints.find((ep) => {
+            const sig = buildEndpointSignature(ep);
+            return (
+              !activeOnBusSignaturesRef.current.has(sig) &&
+              ep.matchedDeviceId !== activeDevice.id &&
+              (ep.kind === 'usb-audio' ||
+                ep.kind === 'network-console' ||
+                ep.kind === 'thunderbolt')
+            );
+          });
+          if (newlyAdded) {
+            const wasCached = cachedBeforeScan.endpoints.some(
+              (c) => buildEndpointSignature(c) === buildEndpointSignature(newlyAdded)
+            );
+            setHotPlugEndpoint(newlyAdded);
+            logAudit(
+              wasCached
+                ? 'Recognized Remembered Hardware Plug-In'
+                : 'Hardware Hot-Plug Detected',
+              `${newlyAdded.name} → ${newlyAdded.matchedLabel} (${wasCached ? 'IndexedDB Instant Match' : newlyAdded.confidence})`,
+              'system'
+            );
+          }
+        }
+
+        activeOnBusSignaturesRef.current = new Set(
+          liveEndpoints.map((ep) => buildEndpointSignature(ep))
+        );
+      } finally {
+        setScanningHardware(false);
+      }
+    },
+    [activeDevice.id, logAudit, platform]
+  );
+
+  const handleClearHardwareCache = useCallback(async () => {
+    await clearCachedHardwareEndpoints();
+    activeOnBusSignaturesRef.current.clear();
+    await runHardwareScan(false, false);
+    logAudit(
+      'Cleared IndexedDB Hardware Cache',
+      'Reset locally remembered hardware signatures and re-scanned active endpoints.',
+      'operator'
+    );
+  }, [logAudit, runHardwareScan]);
+
+  const handleBindDetectedEndpoint = useCallback(
+    async (ep: DetectedHardwareEndpoint) => {
+      let targetDevice = devices.find((d) => d.id === ep.matchedDeviceId);
+      if (!targetDevice && ep.synthesizedDevice) {
+        targetDevice = ep.synthesizedDevice;
+        setDevices((prev) =>
+          prev.some((d) => d.id === targetDevice!.id) ? prev : [...prev, targetDevice!]
+        );
+      }
+      if (!targetDevice) return;
+
+      if (ep.browserDeviceId) {
+        setPreferredBrowserInputId(ep.browserDeviceId);
+      }
+      setHotPlugEndpoint(null);
+      await handleSelectDevice(targetDevice, ep.recommendedDriver);
+
+      if (engineRunning && audioSource === 'live-mic' && ep.browserDeviceId) {
+        try {
+          await liveAudioEngine.start('live-mic', dsp, ep.browserDeviceId);
+        } catch {
+          // ignore if live mic permission not yet granted
+        }
+      }
+    },
+    [audioSource, devices, dsp, engineRunning, handleSelectDevice]
+  );
+
+  // Instant IndexedDB cache hydration on boot followed by live USB/LAN scan & devicechange hot-plug watcher
+  useEffect(() => {
+    if (remoteCompanionToken) return;
+    let mounted = true;
+
+    void loadCachedHardwareEndpoints().then((cached) => {
+      if (!mounted) return;
+      if (cached.synthesizedDevices.length > 0) {
+        cachedSynthDevicesRef.current = cached.synthesizedDevices;
+        setDevices((prev) => {
+          const existingIds = new Set(prev.map((d) => d.id));
+          const additions = cached.synthesizedDevices.filter((d) => !existingIds.has(d.id));
+          return additions.length > 0 ? [...prev, ...additions] : prev;
+        });
+      }
+      if (cached.endpoints.length > 0) {
+        setDetectedEndpoints(cached.endpoints);
+      }
+      if (cached.lastActiveDeviceId) {
+        const cachedDev = cached.synthesizedDevices.find(
+          (d) => d.id === cached.lastActiveDeviceId
+        );
+        if (cachedDev) {
+          setActiveDevice((curr) => (curr.id === HARDWARE_CATALOG[0].id ? cachedDev : curr));
+        }
+      }
+    });
+
+    void runHardwareScan(false, false);
+    const unsub = subscribeHardwareChanges(() => {
+      void runHardwareScan(false, true);
+    });
+    return () => {
+      mounted = false;
+      unsub();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteCompanionToken]);
 
   const handleApproveFinding = (id: string) => {
     const target = findings.find((f) => f.id === id);
@@ -1117,6 +1650,15 @@ export default function App() {
     [plugins]
   );
 
+  if (remoteCompanionToken) {
+    return (
+      <RemoteCompanionView
+        token={remoteCompanionToken}
+        onExitRemote={handleExitRemoteCompanion}
+      />
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col bg-[#080B10] text-slate-100 overflow-hidden">
       <TopBar
@@ -1187,6 +1729,32 @@ export default function App() {
         </div>
       )}
 
+      {hotPlugEndpoint && (
+        <div className="shrink-0 px-4 py-1.5 border-b border-sky-500/50 bg-sky-950/75 text-sky-100 font-mono text-xs flex flex-wrap items-center justify-between gap-2">
+          <span>
+            NEW AUDIO HARDWARE DETECTED: <strong>{hotPlugEndpoint.name}</strong> → Auto-matched{' '}
+            <strong>{hotPlugEndpoint.matchedLabel}</strong> ({hotPlugEndpoint.recommendedDriver} ·{' '}
+            {hotPlugEndpoint.estimatedInputChannels}×{hotPlugEndpoint.estimatedOutputChannels})
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBindDetectedEndpoint(hotPlugEndpoint)}
+              className="px-2.5 py-0.5 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-[11px]"
+            >
+              AUTO-BIND &amp; RECALL
+            </button>
+            <button
+              type="button"
+              onClick={() => setHotPlugEndpoint(null)}
+              className="px-2 py-0.5 rounded border border-sky-400/40 text-sky-200 hover:bg-sky-500/20 text-[11px]"
+            >
+              DISMISS
+            </button>
+          </div>
+        </div>
+      )}
+
       <div
         className={`flex-1 flex min-h-0 ${
           navDockPosition === 'top' || navDockPosition === 'bottom' ? 'flex-col' : 'flex-row'
@@ -1222,9 +1790,7 @@ export default function App() {
             <LiveConsoleModule
               device={activeDevice}
               channels={channels}
-              onUpdateChannel={(id, patch) =>
-                setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-              }
+              onUpdateChannel={handleUpdateChannel}
               dsp={dsp}
               onUpdateDsp={handleUpdateDsp}
               telemetry={telemetry}
@@ -1255,10 +1821,9 @@ export default function App() {
               zones={zones}
               activeDspPlugins={activeDspPlugins}
               telemetry={telemetry}
+              audioCpuPct={audioCpuPct}
               channels={channels}
-              onUpdateChannel={(id, patch) =>
-                setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-              }
+              onUpdateChannel={handleUpdateChannel}
               presets={presets}
               activePresetId={activePreset.id}
               onSelectPreset={handleSelectPreset}
@@ -1307,9 +1872,7 @@ export default function App() {
               dsp={dsp}
               onUpdateDsp={handleUpdateDsp}
               channels={channels}
-              onUpdateChannel={(id, patch) =>
-                setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-              }
+              onUpdateChannel={handleUpdateChannel}
               telemetry={telemetry}
               onLogAction={(detail) => logAudit('Microphone Intelligence', detail, 'operator')}
             />
@@ -1319,9 +1882,7 @@ export default function App() {
               dsp={dsp}
               onUpdateDsp={handleUpdateDsp}
               channels={channels}
-              onUpdateChannel={(id, patch) =>
-                setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-              }
+              onUpdateChannel={handleUpdateChannel}
               telemetry={telemetry}
               onLogAction={(detail) => logAudit('Instrument & Music Intelligence', detail, 'operator')}
             />
@@ -1340,9 +1901,7 @@ export default function App() {
             <AutomatedSoundCheckModule
               device={activeDevice}
               channels={channels}
-              onUpdateChannel={(id, patch) =>
-                setChannels((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-              }
+              onUpdateChannel={handleUpdateChannel}
               dsp={dsp}
               onUpdateDsp={handleUpdateDsp}
               broadcastDsp={broadcastDsp}
@@ -1439,7 +1998,20 @@ export default function App() {
               onLoadCustomPlugin={handleLoadCustomPlugin}
               onUnloadPlugin={handleUnloadPlugin}
               telemetry={telemetry}
+              audioCpuPct={audioCpuPct}
               auditEvents={auditEvents}
+              remoteAccess={remoteAccess}
+              remoteClients={remoteClients}
+              lanInterfaces={lanInterfaces}
+              onUpdateRemoteAccess={handleUpdateRemoteAccess}
+              onRotateRemoteToken={handleRotateRemoteToken}
+              onDisconnectRemoteClient={handleDisconnectRemoteClient}
+              onOpenRemoteCompanion={(tok) => setRemoteCompanionToken(tok)}
+              detectedEndpoints={detectedEndpoints}
+              scanningHardware={scanningHardware}
+              onScanHardware={(reqPerm) => void runHardwareScan(Boolean(reqPerm), false)}
+              onBindDetectedEndpoint={(ep) => void handleBindDetectedEndpoint(ep)}
+              onClearHardwareCache={() => void handleClearHardwareCache()}
             />
           )}
         </main>

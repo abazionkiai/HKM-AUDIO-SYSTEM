@@ -191,10 +191,10 @@ export const VirtualDiBassModule: React.FC<VirtualDiBassModuleProps> = ({
     );
   };
 
-  const preLevel = telemetry.isRunning ? telemetry.preRmsDb : -46;
+  const preLevel = telemetry.isRunning ? telemetry.preRmsDb : -96;
   const postLevel = telemetry.isRunning
     ? Math.max(-56, Math.min(-0.5, telemetry.postRmsDb + bassDi.outputLevelDb * 0.4))
-    : -44;
+    : -96;
 
   return (
     <div className="space-y-4">

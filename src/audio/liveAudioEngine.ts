@@ -48,10 +48,18 @@ class LiveAudioEngine {
   private clippingCount = 0;
   private emergencyMuted = false;
   private lastDsp: DspConfig | null = null;
+  private preferredInputDeviceId: string | undefined = undefined;
 
-  public async start(source: AudioSourceSimulation, dsp: DspConfig): Promise<void> {
+  public async start(
+    source: AudioSourceSimulation,
+    dsp: DspConfig,
+    preferredInputDeviceId?: string
+  ): Promise<void> {
     this.sourceMode = source;
     this.lastDsp = dsp;
+    if (preferredInputDeviceId !== undefined) {
+      this.preferredInputDeviceId = preferredInputDeviceId || undefined;
+    }
 
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -64,9 +72,13 @@ class LiveAudioEngine {
     }
 
     this.teardownSource();
-    await this.setupSource(source);
+    await this.setupSource(source, this.preferredInputDeviceId);
     this.applyDsp(dsp);
     this.isRunning = true;
+  }
+
+  public getActiveInputDeviceId(): string | undefined {
+    return this.preferredInputDeviceId;
   }
 
   public stop(): void {
@@ -279,18 +291,31 @@ class LiveAudioEngine {
     this.persistentPeakFrames = 0;
   }
 
-  private async setupSource(mode: AudioSourceSimulation): Promise<void> {
+  private async setupSource(
+    mode: AudioSourceSimulation,
+    preferredDeviceId?: string
+  ): Promise<void> {
     if (!this.ctx || !this.inputGain) return;
     const ctx = this.ctx;
 
     if (mode === 'live-mic') {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+      const baseAudioConstraints: MediaTrackConstraints = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      };
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio:
+            preferredDeviceId && preferredDeviceId !== 'default'
+              ? { ...baseAudioConstraints, deviceId: { exact: preferredDeviceId } }
+              : baseAudioConstraints,
+        });
+      } catch {
+        // Fallback to default capture device if exact ID changed or was unplugged
+        stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudioConstraints });
+      }
       this.micStream = stream;
       const micNode = ctx.createMediaStreamSource(stream);
       micNode.connect(this.inputGain);
@@ -646,3 +671,13 @@ class LiveAudioEngine {
 }
 
 export const liveAudioEngine = new LiveAudioEngine();
+
+export function subscribeHardwareChanges(cb: () => void): () => void {
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.addEventListener) {
+    return () => {};
+  }
+  navigator.mediaDevices.addEventListener('devicechange', cb);
+  return () => {
+    navigator.mediaDevices.removeEventListener('devicechange', cb);
+  };
+}

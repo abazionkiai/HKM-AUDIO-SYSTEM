@@ -417,27 +417,20 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
       const basePostPeak = fast.isRunning ? fast.postPeakDb : curTel.postPeakDb;
 
       const anySolo = curChannels.some((c) => c.solo);
-      const tSec = nowMs / 1000;
       const b = ballisticsRef.current;
 
-      curChannels.forEach((ch, idx) => {
+      curChannels.forEach((ch) => {
         const refs = channelRefs.current[ch.id];
         const isSuppressed = ch.mute || (anySolo && !ch.solo);
-        let targetRms = -58;
+        let targetRms = -96;
 
         if (isLive && !isSuppressed) {
           const sourceDrive = ch.solo ? basePre : basePost;
           const trimOffset = (ch.gainDb - 24) * 0.25 + ch.faderDb * 0.65;
-          const harmonicMod =
-            Math.sin(tSec * (6.2 + idx * 1.1) + idx * 1.7) * 1.8 +
-            Math.cos(tSec * (11.4 + idx * 0.7)) * 0.9;
-          targetRms = Math.max(
-            -56,
-            Math.min(-0.4, sourceDrive + trimOffset + (ch.levelDb + 20) * 0.3 + harmonicMod)
-          );
+          targetRms = Math.max(-56, Math.min(-0.4, sourceDrive + trimOffset));
         }
 
-        const prevRms = b.rms[ch.id] ?? -56;
+        const prevRms = b.rms[ch.id] ?? -96;
         // Fast attack (0.45), smooth VU release (0.14)
         const coeff = targetRms > prevRms ? 0.45 : 0.14;
         const smoothedRms = prevRms + (targetRms - prevRms) * coeff;
@@ -475,7 +468,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
           : -56;
       const postRVal =
         isLive && !curMute
-          ? Math.max(-56, Math.min(-0.2, postLVal + Math.sin(tSec * 9.5) * 0.5 - 0.2))
+          ? Math.max(-56, Math.min(-0.2, postLVal))
           : -56;
 
       b.masterPrePeak =

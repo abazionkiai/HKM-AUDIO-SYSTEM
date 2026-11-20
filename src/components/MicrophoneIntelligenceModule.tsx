@@ -437,10 +437,10 @@ export const MicrophoneIntelligenceModule: React.FC<MicrophoneIntelligenceModule
             </span>
           </div>
           <div className="flex gap-2.5 min-w-max">
-            {vocalChannels.map((ch, idx) => {
+            {vocalChannels.map((ch) => {
               const lvl = telemetry.isRunning
-                ? Math.max(-56, Math.min(-1, ch.levelDb + (telemetry.postRmsDb + 20) * 0.4 + Math.sin(idx) * 2))
-                : -48;
+                ? Math.max(-56, Math.min(-1, telemetry.postRmsDb + (ch.gainDb - 24) * 0.25 + ch.faderDb * 0.65))
+                : -96;
               return (
                 <div
                   key={ch.id}

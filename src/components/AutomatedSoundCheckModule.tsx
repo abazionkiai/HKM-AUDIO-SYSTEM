@@ -143,7 +143,7 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
     onLogAction(`Auto-trimmed console faders toward ${targetNominalDbfs} dBFS nominal`);
   };
 
-  const headroomDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 12.0;
+  const headroomDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 0;
 
   return (
     <div className="space-y-4">
@@ -256,15 +256,15 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
               label="Peak Headroom"
               value={headroomDb}
               max={24}
-              displayValue={`${headroomDb.toFixed(1)}dB`}
+              displayValue={telemetry.isRunning ? `${headroomDb.toFixed(1)}dB` : '--'}
               sublabel={`${telemetry.clippingEvents} Clips`}
-              tone={headroomDb < 4 ? 'red' : 'emerald'}
+              tone={!telemetry.isRunning ? 'sky' : headroomDb < 4 ? 'red' : 'emerald'}
             />
             <div className="flex items-center justify-around py-2 bg-[#070A10] border border-slate-800 rounded">
               <div className="flex flex-col items-center gap-1">
                 <SegmentedLedMeter
-                  levelDb={telemetry.isRunning ? telemetry.preRmsDb : -56}
-                  peakDb={telemetry.isRunning ? telemetry.prePeakDb : -56}
+                  levelDb={telemetry.isRunning ? telemetry.preRmsDb : -96}
+                  peakDb={telemetry.isRunning ? telemetry.prePeakDb : -96}
                   height={88}
                   segments={12}
                 />
@@ -272,8 +272,8 @@ export const AutomatedSoundCheckModule: React.FC<AutomatedSoundCheckModuleProps>
               </div>
               <div className="flex flex-col items-center gap-1">
                 <SegmentedLedMeter
-                  levelDb={telemetry.isRunning ? telemetry.postRmsDb : -56}
-                  peakDb={telemetry.isRunning ? telemetry.postPeakDb : -56}
+                  levelDb={telemetry.isRunning ? telemetry.postRmsDb : -96}
+                  peakDb={telemetry.isRunning ? telemetry.postPeakDb : -96}
                   height={88}
                   segments={12}
                 />

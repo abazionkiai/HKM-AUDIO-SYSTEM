@@ -70,7 +70,7 @@ export const FeedbackAnalyzerModule: React.FC<FeedbackAnalyzerModuleProps> = ({
 
   const notchBand = dsp.eqBands[3] ?? dsp.eqBands[0];
   const mudBand = dsp.eqBands[1] ?? dsp.eqBands[0];
-  const headroomMarginDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 12.0;
+  const headroomMarginDb = telemetry.isRunning ? Math.max(0, -telemetry.postPeakDb) : 0;
 
   const updateBandByIndex = (idx: number, patch: Partial<EqBand>) => {
     onUpdateDsp({
@@ -479,9 +479,9 @@ export const FeedbackAnalyzerModule: React.FC<FeedbackAnalyzerModuleProps> = ({
             label="Gain Margin"
             value={headroomMarginDb}
             max={24}
-            displayValue={`${headroomMarginDb.toFixed(1)}dB`}
-            sublabel="Peak Headroom"
-            tone={headroomMarginDb < 4 ? 'red' : headroomMarginDb < 8 ? 'amber' : 'emerald'}
+            displayValue={telemetry.isRunning ? `${headroomMarginDb.toFixed(1)}dB` : '--'}
+            sublabel={telemetry.isRunning ? 'Peak Headroom' : 'Standby'}
+            tone={!telemetry.isRunning ? 'emerald' : headroomMarginDb < 4 ? 'red' : headroomMarginDb < 8 ? 'amber' : 'emerald'}
           />
         </div>
 
