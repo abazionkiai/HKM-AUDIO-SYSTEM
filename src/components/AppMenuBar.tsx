@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { RefreshCw, CheckCircle2, AlertCircle, Download, Info } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertCircle, Download, Info, Search } from 'lucide-react';
 import type { ModuleId } from '../types/audio.ts';
 
 declare const __APP_VERSION__: string;
@@ -35,6 +35,9 @@ interface AppMenuBarProps {
   onCheckForUpdates: () => void;
   onOpenUpdateModal: () => void;
   onOpenAbout: () => void;
+  onOpenGlobalSearch: () => void;
+  onOpenGainStaging: () => void;
+  onOpenSignalJourney: () => void;
 }
 
 type MenuKey = 'file' | 'edit' | 'view' | 'audio' | 'help';
@@ -65,6 +68,9 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
   onCheckForUpdates,
   onOpenUpdateModal,
   onOpenAbout,
+  onOpenGlobalSearch,
+  onOpenGainStaging,
+  onOpenSignalJourney,
 }) => {
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -161,6 +167,9 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
         { label: 'Room Acoustics', onClick: () => runAction(() => onNavigateModule('acoustics')) },
         { label: 'Hardware & Diagnostics', onClick: () => runAction(() => onNavigateModule('hardware')) },
         { divider: true },
+        { label: 'Quick Patch & Search…', shortcut: 'Ctrl+K', onClick: () => runAction(onOpenGlobalSearch) },
+        { label: 'Signal Journey Trace…', onClick: () => runAction(onOpenSignalJourney) },
+        { divider: true },
         {
           label: 'Dock Nav: Top',
           checked: navDockPosition === 'top',
@@ -202,6 +211,7 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
           checked: totalBypassed,
           onClick: () => runAction(onToggleTotalBypass),
         },
+        { label: 'Gain Staging Assistant…', onClick: () => runAction(onOpenGainStaging) },
         { divider: true },
         {
           label: emergencyMuted ? 'Release Emergency Mute' : 'Emergency Safe Mute',
@@ -301,8 +311,18 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
         })}
       </div>
 
-      {/* Right: Update Status Pill + App Version Badge */}
+      {/* Right: Quick Search + Update Status Pill + App Version Badge */}
       <div className="flex items-center gap-2 font-mono text-[10px]">
+        <button
+          type="button"
+          onClick={onOpenGlobalSearch}
+          title="Quick Command & Channel Search (Ctrl+K)"
+          className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-sky-500/50 transition cursor-pointer"
+        >
+          <Search className="w-2.5 h-2.5 text-sky-400" />
+          <span className="hidden sm:inline">Search</span>
+          <span className="text-[9px] text-slate-500 hidden md:inline">Ctrl+K</span>
+        </button>
         {updateState.status === 'checking' && (
           <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-sky-300">
             <RefreshCw className="w-3 h-3 animate-spin" />

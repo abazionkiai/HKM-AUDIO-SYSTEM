@@ -28,6 +28,9 @@ import { RemoteCompanionView } from './components/RemoteCompanionView.tsx';
 import { KeyboardShortcutManager } from './components/KeyboardShortcutManager.tsx';
 import { UpdateNotificationModal } from './components/UpdateNotificationModal.tsx';
 import { AppMenuBar, APP_VERSION, type UpdateCheckBannerState } from './components/AppMenuBar.tsx';
+import { GainStagingAssistantModal } from './components/GainStagingAssistantModal.tsx';
+import { GlobalSearchModal } from './components/GlobalSearchModal.tsx';
+import { SignalJourneyModal } from './components/SignalJourneyModal.tsx';
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
@@ -48,6 +51,20 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showGainStaging, setShowGainStaging] = useState(false);
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [signalJourneyChannelId, setSignalJourneyChannelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowGlobalSearch((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
   const [updateCheckState, setUpdateCheckState] = useState<UpdateCheckBannerState>({ status: 'idle' });
   const [availableUpdate, setAvailableUpdate] = useState<{
     version: string;
@@ -266,6 +283,9 @@ export default function App() {
         onCheckForUpdates={() => void runUpdateCheck(true)}
         onOpenUpdateModal={() => setShowUpdateModal(true)}
         onOpenAbout={() => setShowAboutModal(true)}
+        onOpenGlobalSearch={() => setShowGlobalSearch(true)}
+        onOpenGainStaging={() => setShowGainStaging(true)}
+        onOpenSignalJourney={() => setSignalJourneyChannelId(session.channels[0]?.id ?? 'ch-1')}
       />
       <TopBar
         venueName={session.venueName}
@@ -660,6 +680,37 @@ export default function App() {
           onDismiss={() => setShowUpdateModal(false)}
         />
       )}
+
+      {/* Pro Gain Staging Assistant Modal */}
+      <GainStagingAssistantModal
+        open={showGainStaging}
+        onClose={() => setShowGainStaging(false)}
+        channels={session.channels}
+        device={session.activeDevice}
+        onUpdateChannel={session.handleUpdateChannel}
+        onSelectChannel={() => setActiveModule('console')}
+      />
+
+      {/* Global Command & Patch Search Modal (Ctrl+K) */}
+      <GlobalSearchModal
+        open={showGlobalSearch}
+        onClose={() => setShowGlobalSearch(false)}
+        channels={session.channels}
+        zones={session.zones}
+        onNavigateModule={setActiveModule}
+        onOpenSignalJourney={(chId) => setSignalJourneyChannelId(chId)}
+      />
+
+      {/* End-to-End Signal Journey Trace Modal */}
+      <SignalJourneyModal
+        open={Boolean(signalJourneyChannelId)}
+        onClose={() => setSignalJourneyChannelId(null)}
+        channel={session.channels.find((c) => c.id === signalJourneyChannelId) ?? null}
+        device={session.activeDevice}
+        dsp={session.dsp}
+        zones={session.zones}
+        onNavigateModule={setActiveModule}
+      />
 
       {/* About Church Audio Intelligence Dialog */}
       {showAboutModal && (

@@ -386,6 +386,9 @@ pub fn run() {
                     _ => PermissionResponse::Default,
                 })
                 .build()?;
+            if let Some(icon) = app.default_window_icon() {
+                let _ = window.set_icon(icon.clone());
+            }
             if let Ok(Some(monitor)) = window.primary_monitor() {
                 let work = monitor.work_area();
                 let scale = monitor.scale_factor();
