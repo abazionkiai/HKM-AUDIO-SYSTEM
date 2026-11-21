@@ -26,6 +26,8 @@ const WORKSPACE_LIST: { id: ModuleId; label: string; group: string }[] = [
   { id: 'ai-engineer', label: 'AI Sound Engineer', group: 'Intelligence' },
   { id: 'midi', label: 'MIDI & Keyboard Mapping', group: 'Hardware' },
   { id: 'hardware', label: 'Hardware & Audio Diagnostics', group: 'Hardware' },
+  { id: 'routing', label: 'Universal Bus Matrix & Patchbay', group: 'Output Routing' },
+  { id: 'recorder', label: 'Multitrack Live Service Recorder', group: 'Recording' },
 ];
 
 export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({

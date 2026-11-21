@@ -89,6 +89,8 @@ class LiveAudioEngine {
 
   // Master DSP Chain nodes
   private inputGain: GainNode | null = null;
+  private agcGainNode: GainNode | null = null;
+  private currentAgcGainDb = 0;
   private gateGainNode: GainNode | null = null;
   private gateIsClosed = false;
   private deEsserNode: BiquadFilterNode | null = null;
@@ -99,6 +101,8 @@ class LiveAudioEngine {
   private makeupGain: GainNode | null = null;
   private limiterNode: DynamicsCompressorNode | null = null;
   private delayNode: DelayNode | null = null;
+  private masterOutputGainNode: GainNode | null = null;
+  private outputSafetyLimiter: DynamicsCompressorNode | null = null;
 
   // Zero-Hum Standby & Sub-sonic Clean Filters
   private subSonicNode: BiquadFilterNode | null = null;
@@ -359,6 +363,20 @@ class LiveAudioEngine {
     this.gateGainNode = ctx.createGain();
     this.gateGainNode.gain.value = 1;
 
+    this.agcGainNode = ctx.createGain();
+    this.agcGainNode.gain.value = 1;
+    this.currentAgcGainDb = 0;
+
+    this.masterOutputGainNode = ctx.createGain();
+    this.masterOutputGainNode.gain.value = 1;
+
+    this.outputSafetyLimiter = ctx.createDynamicsCompressor();
+    this.outputSafetyLimiter.threshold.value = -0.5;
+    this.outputSafetyLimiter.knee.value = 0;
+    this.outputSafetyLimiter.ratio.value = 20;
+    this.outputSafetyLimiter.attack.value = 0.001;
+    this.outputSafetyLimiter.release.value = 0.05;
+
     // Zero-Hum Clean Standby & Sub-sonic Filter Nodes
     this.subSonicNode = ctx.createBiquadFilter();
     this.subSonicNode.type = 'highpass';
@@ -521,7 +539,8 @@ class LiveAudioEngine {
     this.subSonicNode.connect(this.humNotchFundamental);
     this.humNotchFundamental.connect(this.humNotchHarmonic1);
     this.humNotchHarmonic1.connect(this.humNotchHarmonic2);
-    this.humNotchHarmonic2.connect(this.gateGainNode);
+    this.humNotchHarmonic2.connect(this.agcGainNode!);
+    this.agcGainNode!.connect(this.gateGainNode);
     this.gateGainNode.connect(this.standbyGateGainNode);
     this.standbyGateGainNode.connect(this.deEsserNode);
     this.deEsserNode.connect(this.hpfNode);
@@ -580,7 +599,9 @@ class LiveAudioEngine {
     this.xoverHighDelay.connect(this.xoverHighGain);
     this.xoverHighGain.connect(this.xoverSumNode);
 
-    this.xoverSumNode.connect(this.postAnalyser);
+    this.xoverSumNode.connect(this.masterOutputGainNode!);
+    this.masterOutputGainNode!.connect(this.outputSafetyLimiter!);
+    this.outputSafetyLimiter!.connect(this.postAnalyser);
     this.postAnalyser.connect(this.postSplitter);
     this.postSplitter.connect(this.postLAnalyser, 0);
     this.postSplitter.connect(this.postRAnalyser, 1);
@@ -745,6 +766,20 @@ class LiveAudioEngine {
       this.limiterNode.release.setTargetAtTime(dsp.limiter.releaseMs / 1000, now, 0.01);
     } else {
       this.limiterNode.threshold.setTargetAtTime(0, now, 0.01);
+    }
+
+    if (this.masterOutputGainNode) {
+      const masterDb = dsp.bypassed ? 0 : (dsp.masterOutputGainDb ?? 0);
+      this.masterOutputGainNode.gain.setTargetAtTime(
+        dbToLinear(Math.max(-36, Math.min(6, masterDb))),
+        now,
+        0.015
+      );
+    }
+
+    if (this.outputSafetyLimiter) {
+      const safetyCeiling = dsp.limiter.enabled ? Math.min(-0.3, dsp.limiter.ceilingDb) : -0.3;
+      this.outputSafetyLimiter.threshold.setTargetAtTime(safetyCeiling, now, 0.01);
     }
 
     this.delayNode.delayTime.setTargetAtTime(
@@ -1264,6 +1299,38 @@ class LiveAudioEngine {
       this.standbyGateGainNode.gain.setTargetAtTime(1.0, now, 0.015);
     }
 
+    // Intelligent Adaptive Input Gain Control (Smart AGC) with Gate-Hold Protection
+    if (this.agcGainNode) {
+      const agc = this.lastDsp?.smartAgc;
+      const agcActive = Boolean(agc?.enabled && this.lastDsp && !this.lastDsp.bypassed);
+      if (agcActive && agc) {
+        const targetRms = agc.targetRmsDb ?? -18;
+        const maxBoost = Math.max(0, Math.min(18, agc.maxBoostDb ?? 14));
+        const maxCut = Math.max(0, Math.min(24, agc.maxCutDb ?? 18));
+        const gateFloor = agc.gateFloorDb ?? -52;
+
+        if (preStats.peakDb > -3.0) {
+          // Fast protective attenuation if transient approaches digital clip
+          const neededCut = Math.max(-maxCut, -3.0 - preStats.peakDb);
+          this.currentAgcGainDb += (neededCut - this.currentAgcGainDb) * 0.45;
+          this.agcGainNode.gain.setTargetAtTime(dbToLinear(this.currentAgcGainDb), now, 0.025);
+        } else if (preStats.rmsDb > gateFloor) {
+          // Active voice/instrument: smoothly ride toward target RMS
+          const desiredDelta = Math.max(-maxCut, Math.min(maxBoost, targetRms - preStats.rmsDb));
+          const coeff = desiredDelta < this.currentAgcGainDb ? 0.18 : 0.06; // faster cut, gentle natural lift
+          this.currentAgcGainDb += (desiredDelta - this.currentAgcGainDb) * coeff;
+          this.agcGainNode.gain.setTargetAtTime(dbToLinear(this.currentAgcGainDb), now, 0.08);
+        } else {
+          // Silence / room noise below gate floor: freeze & gently return toward 0 dB (never pump room hiss)
+          this.currentAgcGainDb *= 0.96;
+          this.agcGainNode.gain.setTargetAtTime(dbToLinear(this.currentAgcGainDb), now, 0.25);
+        }
+      } else {
+        this.currentAgcGainDb = 0;
+        this.agcGainNode.gain.setTargetAtTime(1.0, now, 0.04);
+      }
+    }
+
     // Dynamic De-Esser detector & gain cut tracking sibilant band energy
     let deEssCutDb = 0;
     if (this.deEsserNode && this.lastDsp && !this.lastDsp.bypassed && this.lastDsp.deEsser.enabled) {
@@ -1422,6 +1489,7 @@ class LiveAudioEngine {
         postRPeakDb: Number(postRStats.peakDb.toFixed(1)),
         estimatedLufs: Number(Math.max(-70, postStats.rmsDb - 0.6).toFixed(1)),
         gainReductionDb: grDb,
+        agcGainDb: Number(this.currentAgcGainDb.toFixed(1)),
         noiseFloorDb: this.noiseFloorDb,
         channelLevels,
         feedbackRisk: {

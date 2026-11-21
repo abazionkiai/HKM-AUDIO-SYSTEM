@@ -55,6 +55,8 @@ const NAV_TABS: NavTab[] = [
   { id: 'ai-engineer', label: 'AI Eng', fullTitle: 'AI Sound Engineer', icon: Sparkles },
   { id: 'hardware', label: 'Hardware', fullTitle: 'Diagnostics, Hardware & Remote Access', icon: Cpu },
   { id: 'midi', label: 'MIDI & Keys', fullTitle: 'MIDI & Key Shortcuts', icon: Cable },
+  { id: 'routing', label: 'Matrix', fullTitle: 'Universal Routing & Virtual Patchbay', icon: Cable },
+  { id: 'recorder', label: 'Recorder', fullTitle: 'Multitrack Live Service Recorder', icon: Radio },
 ];
 
 const DOCK_OPTIONS: {

@@ -12,11 +12,14 @@ import {
   AlertTriangle,
   Keyboard,
   Activity,
+  Sliders,
+  ShieldCheck,
 } from 'lucide-react';
 import type {
   AudioSourceSimulation,
   ConsoleThemeId,
   DriverBackend,
+  DspConfig,
   HardwareDevice,
   PlatformTarget,
   ServicePreset,
@@ -54,6 +57,9 @@ interface TopBarProps {
   outputDevices?: MediaDeviceInfo[];
   activeOutputDeviceId?: string;
   onSelectOutputDevice?: (deviceId: string) => void;
+  dsp?: DspConfig;
+  onUpdateDsp?: (patch: Partial<DspConfig>) => void;
+  agcGainDb?: number;
 }
 
 const THEME_OPTIONS: { id: ConsoleThemeId; label: string }[] = [
@@ -96,7 +102,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   outputDevices = [],
   activeOutputDeviceId = '',
   onSelectOutputDevice,
+  dsp,
+  onUpdateDsp,
+  agcGainDb = 0,
 }) => {
+  const [showMasterOutput, setShowMasterOutput] = useState(false);
   const platformLabel =
     platform === 'windows' ? 'Windows' : platform === 'macos' ? 'macOS' : 'Linux';
   const quantumMs = ((bufferSize / Math.max(8000, sampleRate)) * 1000).toFixed(1);
@@ -321,37 +331,191 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="hidden 2xl:inline">MONITOR</span>
         </button>
 
-        {/* Total Signal Bypass Toggle (Fixed Width) */}
+        {/* Smart Auto-Level Guard (AGC) 1-Click Toggle */}
+        {dsp && onUpdateDsp && (
+          <button
+            type="button"
+            onClick={() =>
+              onUpdateDsp({
+                smartAgc: {
+                  enabled: !(dsp.smartAgc?.enabled ?? true),
+                  targetRmsDb: dsp.smartAgc?.targetRmsDb ?? -18,
+                  maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
+                  maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
+                  gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
+                },
+              })
+            }
+            title="Smart Auto-Level Guard (AGC): lifts quiet sources & tames loud inputs automatically"
+            className={`h-8 px-2.5 rounded text-xs font-mono font-bold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              dsp.smartAgc?.enabled
+                ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                : 'border-slate-700 bg-[#121824] text-slate-400 hover:text-white'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              AGC {dsp.smartAgc?.enabled ? (agcGainDb !== 0 ? `${agcGainDb > 0 ? '+' : ''}${agcGainDb.toFixed(1)}dB` : 'ON') : 'OFF'}
+            </span>
+          </button>
+        )}
+
+        {/* Direct Always-Accessible Final Output Control */}
+        {dsp && onUpdateDsp && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowMasterOutput((v) => !v)}
+              title="Direct Final Output Level, Limiter Ceiling & Master Delay"
+              className={`h-8 px-2.5 rounded text-xs font-mono font-bold flex items-center gap-1.5 border transition-colors whitespace-nowrap cursor-pointer ${
+                showMasterOutput
+                  ? 'bg-sky-500/25 border-sky-400 text-sky-200'
+                  : 'border-sky-500/40 bg-[#101827] text-sky-300 hover:bg-sky-500/15'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5 shrink-0" />
+              <span>OUT {(dsp.masterOutputGainDb ?? 0) >= 0 ? '+' : ''}{(dsp.masterOutputGainDb ?? 0).toFixed(1)}dB</span>
+            </button>
+
+            {showMasterOutput && (
+              <div className="fixed right-4 top-22 z-50 w-80 rounded-xl border border-sky-500/50 bg-[#0A0F18] p-4 shadow-2xl space-y-3 font-mono text-xs text-slate-200">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="font-bold text-white uppercase tracking-wider">
+                    Final Output &amp; Safety Guard
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMasterOutput(false)}
+                    className="text-slate-400 hover:text-white text-[11px] cursor-pointer"
+                  >
+                    CLOSE
+                  </button>
+                </div>
+
+                {/* Master Output Gain */}
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Master Output Gain</span>
+                    <span className="text-sky-300 font-bold">
+                      {(dsp.masterOutputGainDb ?? 0) >= 0 ? '+' : ''}
+                      {(dsp.masterOutputGainDb ?? 0).toFixed(1)} dB
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-36}
+                    max={6}
+                    step={0.5}
+                    value={dsp.masterOutputGainDb ?? 0}
+                    onChange={(e) => onUpdateDsp({ masterOutputGainDb: parseFloat(e.target.value) })}
+                    className="w-full accent-sky-400 cursor-pointer"
+                  />
+                </div>
+
+                {/* Brickwall Limiter Ceiling */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Safety Limiter Ceiling</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateDsp({ limiter: { ...dsp.limiter, enabled: !dsp.limiter.enabled } })
+                      }
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
+                        dsp.limiter.enabled
+                          ? 'bg-amber-500 text-slate-950 border-amber-300'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {dsp.limiter.enabled ? `${dsp.limiter.ceilingDb.toFixed(1)} dBFS` : 'OPEN'}
+                    </button>
+                  </div>
+                  <input
+                    type="range"
+                    min={-12}
+                    max={0}
+                    step={0.5}
+                    value={dsp.limiter.ceilingDb}
+                    onChange={(e) =>
+                      onUpdateDsp({
+                        limiter: { ...dsp.limiter, ceilingDb: parseFloat(e.target.value), enabled: true },
+                      })
+                    }
+                    className="w-full accent-amber-400 cursor-pointer"
+                  />
+                </div>
+
+                {/* Smart AGC Target */}
+                <div className="space-y-1.5 pt-1 border-t border-slate-800">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Smart AGC Target RMS</span>
+                    <span className="text-emerald-300 font-bold">
+                      {dsp.smartAgc?.targetRmsDb ?? -18} dBFS ({agcGainDb >= 0 ? '+' : ''}{agcGainDb.toFixed(1)} dB)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[-20, -18, -14].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() =>
+                          onUpdateDsp({
+                            smartAgc: {
+                              enabled: true,
+                              targetRmsDb: t,
+                              maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
+                              maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
+                              gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
+                            },
+                          })
+                        }
+                        className={`py-1 rounded border text-[10px] font-bold cursor-pointer ${
+                          (dsp.smartAgc?.targetRmsDb ?? -18) === t
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                            : 'bg-slate-900 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        {t} dBFS
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Total Signal Bypass Toggle */}
         <button
           type="button"
           role="switch"
           aria-checked={totalBypassed}
           onClick={onToggleTotalBypass}
           title="Bypass all software EQ, HPF, compression, and limiting immediately (passes dry signal)"
-          className={`h-8 w-[160px] px-2.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 px-2.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             totalBypassed
               ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]'
               : 'border-amber-500/40 bg-[#121824] text-amber-300 hover:bg-amber-500/10'
           }`}
         >
           <GitBranch className="w-3.5 h-3.5 shrink-0" />
-          <span>{totalBypassed ? 'TOTAL BYPASS: ON' : 'TOTAL SIGNAL BYPASS'}</span>
+          <span>{totalBypassed ? 'BYPASS: ON' : 'BYPASS'}</span>
         </button>
 
-        {/* Dedicated Global Emergency Mute (Fixed Width) */}
+        {/* Dedicated Global Emergency Mute */}
         <button
           type="button"
           aria-pressed={emergencyMuted}
           onClick={onToggleEmergencyMute}
           title="Immediate global emergency mute for all live PA & monitor outputs"
-          className={`h-8 w-[178px] px-3 rounded text-xs font-mono font-bold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 px-2.5 rounded text-xs font-mono font-bold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             emergencyMuted
               ? 'bg-red-600 border-red-300 text-white shadow-[0_0_16px_rgba(239,68,68,0.65)]'
               : 'border-red-500/60 bg-red-950/40 text-red-300 hover:bg-red-600/25'
           }`}
         >
           <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-          <span>{emergencyMuted ? 'EMERGENCY MUTE ACTIVE' : 'GLOBAL EMERGENCY MUTE'}</span>
+          <span>{emergencyMuted ? 'MUTED' : 'SAFE MUTE'}</span>
         </button>
       </div>
     </header>

@@ -31,6 +31,8 @@ import { AppMenuBar, APP_VERSION, type UpdateCheckBannerState } from './componen
 import { GainStagingAssistantModal } from './components/GainStagingAssistantModal.tsx';
 import { GlobalSearchModal } from './components/GlobalSearchModal.tsx';
 import { SignalJourneyModal } from './components/SignalJourneyModal.tsx';
+import { MultitrackRecorderModule } from './components/MultitrackRecorderModule.tsx';
+import { UniversalRoutingModule } from './components/UniversalRoutingModule.tsx';
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
@@ -318,6 +320,9 @@ export default function App() {
         outputDevices={hardware.outputDevices}
         activeOutputDeviceId={hardware.preferredOutputDeviceId}
         onSelectOutputDevice={hardware.handleSelectOutputDevice}
+        dsp={session.dsp}
+        onUpdateDsp={session.handleUpdateDsp}
+        agcGainDb={audio.telemetry.agcGainDb ?? 0}
       />
 
       {(session.emergencyMuted || session.dsp.bypassed) && (
@@ -600,6 +605,20 @@ export default function App() {
               lastTriggeredShortcut={shortcuts.lastTriggeredShortcut}
               shortcutConflictNotice={shortcuts.shortcutConflictNotice}
               tapTempo={shortcuts.tapTempo}
+            />
+          ) : activeModule === 'routing' ? (
+            <UniversalRoutingModule
+              channels={session.channels}
+              onUpdateChannel={session.handleUpdateChannel}
+              zones={session.zones}
+              dsp={session.dsp}
+              onOpenSignalJourney={(chId) => setSignalJourneyChannelId(chId)}
+            />
+          ) : activeModule === 'recorder' ? (
+            <MultitrackRecorderModule
+              channels={session.channels}
+              telemetry={audio.telemetry}
+              engineRunning={audio.engineRunning}
             />
           ) : (
             <HardwareDiagnosticsModule

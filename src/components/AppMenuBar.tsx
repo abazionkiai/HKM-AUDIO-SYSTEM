@@ -166,6 +166,8 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
         { label: 'Feedback Analyzer', onClick: () => runAction(() => onNavigateModule('feedback')) },
         { label: 'Room Acoustics', onClick: () => runAction(() => onNavigateModule('acoustics')) },
         { label: 'Hardware & Diagnostics', onClick: () => runAction(() => onNavigateModule('hardware')) },
+        { label: 'Universal Bus Matrix…', onClick: () => runAction(() => onNavigateModule('routing')) },
+        { label: 'Multitrack Recorder…', onClick: () => runAction(() => onNavigateModule('recorder')) },
         { divider: true },
         { label: 'Quick Patch & Search…', shortcut: 'Ctrl+K', onClick: () => runAction(onOpenGlobalSearch) },
         { label: 'Signal Journey Trace…', onClick: () => runAction(onOpenSignalJourney) },

@@ -24,7 +24,9 @@ export type ModuleId =
   | 'ai-engineer'
   | 'hardware'
   | 'virtual-di'
-  | 'midi';
+  | 'midi'
+  | 'routing'
+  | 'recorder';
 
 export type HardwareTier = 1 | 2 | 3 | 4;
 
@@ -192,6 +194,14 @@ export interface CleanStandbyConfig {
   standbyGateHoldMs?: number;
 }
 
+export interface SmartAgcConfig {
+  enabled: boolean;
+  targetRmsDb: number;
+  maxBoostDb: number;
+  maxCutDb: number;
+  gateFloorDb: number;
+}
+
 export interface DspConfig {
   bypassed: boolean;
   inputTrimDb: number;
@@ -226,6 +236,8 @@ export interface DspConfig {
   polarityInverted: boolean;
   stereoWidth: number; // 0 to 1.5 (1 = normal)
   masterDelayMs: number;
+  masterOutputGainDb?: number;
+  smartAgc?: SmartAgcConfig;
   graphicEq31?: GraphicEq31Config;
   crossover?: ActiveCrossoverConfig;
   cleanStandby?: CleanStandbyConfig;
@@ -339,6 +351,7 @@ export interface SignalTelemetry {
   postRPeakDb: number;
   estimatedLufs: number;
   gainReductionDb: number;
+  agcGainDb?: number;
   noiseFloorDb: number;
   channelLevels: ChannelSignalTelemetry[];
   feedbackRisk: {
