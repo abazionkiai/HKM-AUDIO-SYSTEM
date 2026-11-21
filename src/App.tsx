@@ -9,6 +9,7 @@ import { isDesktopApp } from './utils/appApi.ts';
 import { checkDesktopUpdate } from './utils/appUpdater.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { ConsoleInstrumentDeck } from './components/ConsoleInstrumentDeck.tsx';
 import { LiveConsoleModule } from './components/LiveConsoleModule.tsx';
 import { DspEngineModule } from './components/DspEngineModule.tsx';
 import { FeedbackAnalyzerModule } from './components/FeedbackAnalyzerModule.tsx';
@@ -323,7 +324,11 @@ export default function App() {
         </div>
 
         <main
-          className={`flex-1 min-h-0 min-w-0 overflow-y-auto p-4 lg:p-5 bg-[#080B10] ${
+          className={`flex-1 min-h-0 min-w-0 ${
+            activeModule === 'console' || activeModule === 'dsp'
+              ? 'overflow-hidden p-2'
+              : 'overflow-y-auto p-4 lg:p-5'
+          } bg-[#080B10] flex flex-col ${
             session.navDockPosition === 'right' || session.navDockPosition === 'bottom' ? 'order-1' : 'order-2'
           }`}
         >
@@ -334,7 +339,7 @@ export default function App() {
           )}
 
           {activeModule === 'console' ? (
-            <LiveConsoleModule
+            <ConsoleInstrumentDeck
               device={session.activeDevice}
               channels={session.channels}
               onUpdateChannel={session.handleUpdateChannel}
@@ -346,36 +351,24 @@ export default function App() {
               onSelectPreset={session.handleSelectPreset}
               emergencyMuted={session.emergencyMuted}
               onToggleEmergencyMute={session.handleToggleEmergencyMute}
-              onUndo={session.handleUndoLastDsp}
-              canUndo={session.undoStack.length > 0}
-              onSaveVersion={session.handleSaveVersion}
-              automationSnapshots={session.automationSnapshots}
-              onSaveAutomation={session.handleSaveAutomation}
-              onUpdateAutomation={session.handleUpdateAutomation}
-              onDeleteAutomation={session.handleDeleteAutomation}
-              onApplyAutomationFrame={session.handleApplyAutomationFrame}
-              onLogAutomationEvent={(action, detail) => session.logAudit(action, detail, 'operator')}
+              zones={session.zones}
+              initialPhase="phase-1-stage"
             />
           ) : activeModule === 'dsp' ? (
-            <DspEngineModule
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
+            <ConsoleInstrumentDeck
               device={session.activeDevice}
-              platform={session.platform}
-              driver={session.driver}
-              sampleRate={session.sampleRate}
-              bufferSize={session.bufferSize}
-              zones={session.zones}
-              activeDspPlugins={activeDspPlugins}
-              telemetry={audio.telemetry}
-              audioCpuPct={audio.audioCpuPct}
               channels={session.channels}
               onUpdateChannel={session.handleUpdateChannel}
+              dsp={session.dsp}
+              onUpdateDsp={session.handleUpdateDsp}
+              telemetry={audio.telemetry}
               presets={session.presets}
-              activePresetId={session.activePreset.id}
+              activePreset={session.activePreset}
               onSelectPreset={session.handleSelectPreset}
               emergencyMuted={session.emergencyMuted}
               onToggleEmergencyMute={session.handleToggleEmergencyMute}
+              zones={session.zones}
+              initialPhase="phase-5-geq"
             />
           ) : activeModule === 'feedback' ? (
             <FeedbackAnalyzerModule
