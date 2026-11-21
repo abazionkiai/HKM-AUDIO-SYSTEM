@@ -1118,7 +1118,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       {/* =========================================================================
           BOTTOM TIER: MOTORIZED 8-CHANNEL HARDWARE FADER BAY (100% VISIBLE DOCK)
           ========================================================================= */}
-      <div className="h-[168px] shrink-0 bg-gradient-to-b from-[#111726] to-[#080B13] border-t-2 border-slate-700/80 flex flex-col px-2.5 py-1 shadow-2xl">
+      <div className="h-[176px] shrink-0 bg-gradient-to-b from-[#111726] to-[#080B13] border-t-2 border-slate-700/80 flex flex-col px-2.5 py-1 shadow-2xl">
         {/* Bank Switcher Header */}
         <div className="h-6 shrink-0 flex items-center justify-between pb-1 border-b border-slate-800 font-mono text-[10px]">
           <div className="flex items-center gap-1.5">

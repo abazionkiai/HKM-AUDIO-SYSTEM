@@ -380,12 +380,21 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 builder = builder.icon(icon.clone())?;
             }
-            builder
+            let window = builder
                 .on_permission_request(|_, kind| match kind {
                     PermissionKind::Microphone | PermissionKind::Midi => PermissionResponse::Allow,
                     _ => PermissionResponse::Default,
                 })
                 .build()?;
+            if let Ok(Some(monitor)) = window.primary_monitor() {
+                let work = monitor.work_area();
+                let scale = monitor.scale_factor();
+                let max_w = (work.size.width as f64 / scale).floor() as u32;
+                let max_h = (work.size.height as f64 / scale).floor() as u32;
+                if max_w <= 1440 || max_h <= 800 {
+                    let _ = window.maximize();
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![desktop_api_request])
