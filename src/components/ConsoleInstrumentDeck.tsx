@@ -289,7 +289,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       {/* =========================================================================
           TOP DECK ROW 1: MASTER CONSOLE STATUS, METER BRIDGE & SCENE RECALL
           ========================================================================= */}
-      <div className="h-9 shrink-0 bg-gradient-to-b from-[#141B28] to-[#0D121C] border-b border-slate-700/70 px-3 flex items-center justify-between gap-3">
+      <div className="h-8 shrink-0 bg-gradient-to-b from-[#141B28] to-[#0D121C] border-b border-slate-700/70 px-3 flex items-center justify-between gap-3">
         {/* Left: Console Identity & Hardware Lock */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="w-2 h-5 rounded-xs bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.75)] shrink-0" />
@@ -374,7 +374,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       {/* =========================================================================
           TOP DECK ROW 2: REAL-WORLD SIGNAL-FLOW PHASE TABS (ZERO OVERLAP GRID)
           ========================================================================= */}
-      <div className="shrink-0 bg-[#0A0E17] border-b border-slate-700/80 px-2.5 py-1.5 grid grid-cols-7 gap-1.5">
+      <div className="shrink-0 bg-[#0A0E17] border-b border-slate-700/80 px-2 py-1 grid grid-cols-7 gap-1">
         {phaseTabs.map((tab, idx) => {
           const active = selectedPhase === tab.id;
           return (
@@ -413,7 +413,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       {/* =========================================================================
           MIDDLE DECK: FOCUSED HARDWARE PROCESSING INSTRUMENT (ZERO SCROLL)
           ========================================================================= */}
-      <div className="flex-1 min-h-0 overflow-hidden p-2 bg-[#06080E] flex flex-col">
+      <div className="flex-1 min-h-0 overflow-hidden p-1.5 bg-[#06080E] flex flex-col">
         {/* PHASE 1: STAGE PREAMP & GROUND HUM TRAPS */}
         {selectedPhase === 'phase-1-stage' && (
           <div className="h-full min-h-0 flex flex-col justify-between p-3 rounded-lg border border-amber-500/40 bg-gradient-to-b from-[#16110A] via-[#0D0B07] to-[#080705] shadow-inner">
@@ -710,7 +710,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
             </div>
 
             {/* Adaptive OLED RTA & EQ Transfer Curve Screen */}
-            <div className="relative flex-1 min-h-[90px] w-full bg-[#030509] rounded border border-slate-800 overflow-hidden shadow-[inset_0_2px_12px_rgba(0,0,0,0.9)]">
+            <div className="relative flex-1 min-h-[56px] w-full bg-[#030509] rounded border border-slate-800 overflow-hidden shadow-[inset_0_2px_12px_rgba(0,0,0,0.9)]">
               <div className="absolute inset-0 flex flex-col justify-between px-2.5 py-1.5 pointer-events-none opacity-30 font-mono text-[9px] text-slate-400">
                 <div className="flex justify-between">
                   <span>+18 dB</span>
@@ -776,7 +776,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                 return (
                   <div
                     key={band.id}
-                    className={`rounded-lg border px-2.5 py-2 flex flex-col justify-between gap-1.5 ${style.card}`}
+                    className={`rounded-lg border px-2 py-1.5 flex flex-col justify-between gap-1 ${style.card}`}
                   >
                     <div className="flex items-center justify-between gap-1 font-mono text-[10px]">
                       <span className={`px-1.5 py-0.5 rounded border font-bold truncate ${style.badge}`}>
@@ -809,7 +809,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                         step={0.5}
                         defaultValue={0}
                         unit="dB"
-                        size={42}
+                        size={36}
                         accent={style.accent}
                         onChange={(v) => {
                           const updated = dsp.eqBands.map((b) =>
@@ -826,7 +826,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                         step={10}
                         defaultValue={band.frequency}
                         unit="Hz"
-                        size={42}
+                        size={36}
                         accent={style.accent}
                         onChange={(v) => {
                           const updated = dsp.eqBands.map((b) =>
@@ -842,7 +842,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                         max={8}
                         step={0.1}
                         defaultValue={1.4}
-                        size={42}
+                        size={36}
                         accent={style.accent}
                         onChange={(v) => {
                           const updated = dsp.eqBands.map((b) =>
@@ -1118,9 +1118,9 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       {/* =========================================================================
           BOTTOM TIER: MOTORIZED 8-CHANNEL HARDWARE FADER BAY (100% VISIBLE DOCK)
           ========================================================================= */}
-      <div className="h-[196px] shrink-0 bg-gradient-to-b from-[#111726] to-[#080B13] border-t-2 border-slate-700/80 flex flex-col px-2.5 py-1.5 shadow-2xl">
+      <div className="h-[168px] shrink-0 bg-gradient-to-b from-[#111726] to-[#080B13] border-t-2 border-slate-700/80 flex flex-col px-2.5 py-1 shadow-2xl">
         {/* Bank Switcher Header */}
-        <div className="h-7 shrink-0 flex items-center justify-between pb-1 border-b border-slate-800 font-mono text-[10px]">
+        <div className="h-6 shrink-0 flex items-center justify-between pb-1 border-b border-slate-800 font-mono text-[10px]">
           <div className="flex items-center gap-1.5">
             <span className="text-slate-400 font-bold uppercase tracking-wider mr-1">
               FADER BANK:
@@ -1195,12 +1195,12 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                     max={10}
                     step={0.5}
                     compact
-                    trackHeightClass="h-20"
+                    trackHeightClass="h-16"
                     accent={ch.mute ? 'amber' : isSelected ? 'sky' : 'cyan'}
                     onChange={(next) => onUpdateChannel(ch.id, { faderDb: next })}
                   />
                   {/* Channel Level LED Bar */}
-                  <div className="h-20 w-1.5 rounded-full bg-[#04060A] border border-slate-800 overflow-hidden flex flex-col justify-end">
+                  <div className="h-16 w-1.5 rounded-full bg-[#04060A] border border-slate-800 overflow-hidden flex flex-col justify-end">
                     <div
                       className={`w-full transition-all duration-100 ${
                         ch.mute

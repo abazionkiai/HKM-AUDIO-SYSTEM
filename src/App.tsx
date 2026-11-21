@@ -387,7 +387,7 @@ export default function App() {
         <main
           className={`flex-1 min-h-0 min-w-0 ${
             activeModule === 'console' || activeModule === 'dsp'
-              ? 'overflow-hidden p-2'
+              ? 'overflow-hidden p-1.5'
               : 'overflow-y-auto p-4 lg:p-5'
           } bg-[#080B10] flex flex-col ${
             session.navDockPosition === 'right' || session.navDockPosition === 'bottom' ? 'order-1' : 'order-2'
