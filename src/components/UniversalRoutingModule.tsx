@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Cable, GitBranch, ShieldCheck, Sliders } from 'lucide-react';
+import { Cable, GitBranch, Plus, RefreshCw, ShieldCheck, Sliders } from 'lucide-react';
 import type { DspConfig, InputChannel, SpeakerZone } from '../types/audio.ts';
 
 interface UniversalRoutingModuleProps {
   channels: InputChannel[];
   onUpdateChannel: (id: string, patch: Partial<InputChannel>) => void;
+  onAddChannel?: (name?: string, role?: string) => void;
+  onAddZone?: (name?: string, role?: SpeakerZone['role']) => void;
   zones: SpeakerZone[];
   dsp: DspConfig;
   onOpenSignalJourney: (channelId: string) => void;
@@ -20,6 +22,8 @@ const BUS_COLUMNS = [
 export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
   channels,
   onUpdateChannel,
+  onAddChannel,
+  onAddZone,
   zones,
   dsp,
   onOpenSignalJourney,
@@ -27,6 +31,49 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
   const [selectedChannelId, setSelectedChannelId] = useState(channels[0]?.id ?? 'ch-1');
   const [virtualPatch, setVirtualPatch] = useState<Record<string, string>>({});
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
+  const [detectedInputSources, setDetectedInputSources] = useState<
+    { id: string; label: string; kind: string }[]
+  >([]);
+
+  const handleAutoDetectSources = async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+      setGuardNotice('Media device enumeration unavailable in this environment.');
+      return;
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices
+        .filter((d) => d.kind === 'audioinput')
+        .map((d, idx) => ({
+          id: d.deviceId || `in-${idx}`,
+          label: d.label || `Audio Input ${idx + 1} (Mic/Line-In)`,
+          kind: d.label.toLowerCase().includes('cable') || d.label.toLowerCase().includes('virtual')
+            ? 'Virtual Cable'
+            : d.label.toLowerCase().includes('line')
+              ? 'Line In'
+              : 'Mic / Interface',
+        }));
+
+      setDetectedInputSources(inputs);
+      inputs.forEach((src, i) => {
+        const target = channels[i];
+        if (target) {
+          onUpdateChannel(target.id, {
+            name: src.label.slice(0, 26),
+            role: src.kind,
+          });
+        } else if (onAddChannel) {
+          onAddChannel(src.label.slice(0, 26), src.kind);
+        }
+      });
+      setGuardNotice(
+        `Auto-detected ${inputs.length} audio input source(s) (Mics, Line-In, Virtual/Media) and mapped each to its own dedicated input channel.`
+      );
+      window.setTimeout(() => setGuardNotice(null), 5000);
+    } catch (err) {
+      setGuardNotice(`Source scan failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const selectedCh = channels.find((c) => c.id === selectedChannelId) ?? channels[0];
 
@@ -74,7 +121,35 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 font-mono text-[11px]">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+          <button
+            type="button"
+            onClick={() => void handleAutoDetectSources()}
+            className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 hover:bg-emerald-500/35 font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Auto-Detect &amp; Map Sources
+          </button>
+          {onAddChannel && (
+            <button
+              type="button"
+              onClick={() => onAddChannel()}
+              className="px-2.5 py-1 rounded bg-sky-500/20 border border-sky-400/50 text-sky-200 hover:bg-sky-500/35 font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Input
+            </button>
+          )}
+          {onAddZone && (
+            <button
+              type="button"
+              onClick={() => onAddZone()}
+              className="px-2.5 py-1 rounded bg-violet-500/20 border border-violet-400/50 text-violet-200 hover:bg-violet-500/35 font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Output Bus
+            </button>
+          )}
           <span className="px-2.5 py-1 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 font-bold">
             <ShieldCheck className="w-3.5 h-3.5" />
             CYCLE GUARD ARMED
@@ -141,9 +216,10 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
                         className="bg-[#05080F] border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 cursor-pointer"
                       >
                         <option value="hw-direct">Hardware ADC Direct</option>
-                        <option value="vbcable-a">VB-Cable A (Media/Zoom)</option>
-                        <option value="obs-return">OBS Virtual Return</option>
-                        <option value="loopback-pa">Main PA Loopback (Guarded)</option>
+                        <option value="internal-vc-browser">Built-in Virtual Cable A (Browser / Tab Audio)</option>
+                        <option value="internal-vc-media">Built-in Virtual Cable B (Media Player / File)</option>
+                        <option value="obs-return">Built-in Virtual Cable C (OBS Return)</option>
+                        <option value="loopback-pa">Main PA Loopback (Cycle Guarded)</option>
                       </select>
                     </td>
                     {BUS_COLUMNS.map((b) => {

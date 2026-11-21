@@ -323,6 +323,9 @@ export default function App() {
         dsp={session.dsp}
         onUpdateDsp={session.handleUpdateDsp}
         agcGainDb={audio.telemetry.agcGainDb ?? 0}
+        qualityScorePct={audio.telemetry.qualityScorePct ?? 100}
+        qualityGateEngaged={audio.telemetry.qualityGateEngaged ?? false}
+        qualityGateReason={audio.telemetry.qualityGateReason ?? null}
       />
 
       {(session.emergencyMuted || session.dsp.bypassed) && (
@@ -439,6 +442,9 @@ export default function App() {
               onToggleEmergencyMute={session.handleToggleEmergencyMute}
               zones={session.zones}
               initialPhase="phase-1-stage"
+              onAddChannel={session.handleAddChannel}
+              onAddEqBand={session.handleAddEqBand}
+              onRemoveEqBand={session.handleRemoveEqBand}
             />
           ) : activeModule === 'dsp' ? (
             <ConsoleInstrumentDeck
@@ -455,6 +461,9 @@ export default function App() {
               onToggleEmergencyMute={session.handleToggleEmergencyMute}
               zones={session.zones}
               initialPhase="phase-5-geq"
+              onAddChannel={session.handleAddChannel}
+              onAddEqBand={session.handleAddEqBand}
+              onRemoveEqBand={session.handleRemoveEqBand}
             />
           ) : activeModule === 'feedback' ? (
             <FeedbackAnalyzerModule
@@ -610,6 +619,8 @@ export default function App() {
             <UniversalRoutingModule
               channels={session.channels}
               onUpdateChannel={session.handleUpdateChannel}
+              onAddChannel={session.handleAddChannel}
+              onAddZone={session.handleAddZone}
               zones={session.zones}
               dsp={session.dsp}
               onOpenSignalJourney={(chId) => setSignalJourneyChannelId(chId)}

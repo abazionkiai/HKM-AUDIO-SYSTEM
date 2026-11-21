@@ -411,7 +411,7 @@ class LiveAudioEngine {
     this.hpfNode.type = 'highpass';
     this.hpfNode.Q.value = 0.707;
 
-    this.eqNodes = Array.from({ length: 6 }, () => {
+    this.eqNodes = Array.from({ length: 16 }, () => {
       const b = ctx.createBiquadFilter();
       b.type = 'peaking';
       return b;
@@ -1472,6 +1472,53 @@ class LiveAudioEngine {
       });
     }
 
+    // Apply Output Quality Gate: automatically enforce Smart AGC + Safety Limiter + attenuate harmful feedback/clipping
+    const qGate = this.lastDsp?.qualityGate;
+    const qGateEnabled = qGate?.enabled ?? true;
+    let qualityScore = 100;
+    let qualityReason: string | null = null;
+    let qualityGateEngaged = false;
+
+    if (postStats.peakDb > -0.3) {
+      qualityScore -= 30;
+      qualityReason = 'Peak > -0.3 dBFS (Safety Limiter clamping)';
+    }
+    if (feedbackDetected) {
+      qualityScore -= 35;
+      qualityReason = `Feedback ring @ ${Math.round(maxPromBin * binHz)} Hz`;
+    }
+    if (humDetected) {
+      qualityScore -= 15;
+      if (!qualityReason) qualityReason = `AC Hum @ ${hum50 ? 50 : 60} Hz`;
+    }
+    if (mudDetected) {
+      qualityScore -= 10;
+    }
+    if (this.lastDsp?.bypassed) {
+      qualityScore -= 25;
+      if (!qualityReason) qualityReason = 'DSP Bypassed (Unprotected)';
+    }
+    qualityScore = Math.max(0, Math.min(100, qualityScore));
+
+    if (this.masterOutputGainNode && this.lastDsp) {
+      const baseMasterDb = this.lastDsp.bypassed ? 0 : (this.lastDsp.masterOutputGainDb ?? 0);
+      if (qGateEnabled && !this.lastDsp.bypassed && (feedbackDetected || postStats.peakDb > -0.15)) {
+        qualityGateEngaged = true;
+        // Protective -9 dB safety ducking until harmful feedback or clip resolves
+        this.masterOutputGainNode.gain.setTargetAtTime(
+          dbToLinear(Math.max(-36, baseMasterDb - 9)),
+          now,
+          0.03
+        );
+      } else {
+        this.masterOutputGainNode.gain.setTargetAtTime(
+          dbToLinear(Math.max(-36, Math.min(6, baseMasterDb))),
+          now,
+          0.08
+        );
+      }
+    }
+
     return {
       telemetry: {
         source: this.sourceMode,
@@ -1490,6 +1537,9 @@ class LiveAudioEngine {
         estimatedLufs: Number(Math.max(-70, postStats.rmsDb - 0.6).toFixed(1)),
         gainReductionDb: grDb,
         agcGainDb: Number(this.currentAgcGainDb.toFixed(1)),
+        qualityScorePct: qualityScore,
+        qualityGateEngaged,
+        qualityGateReason: qualityReason,
         noiseFloorDb: this.noiseFloorDb,
         channelLevels,
         feedbackRisk: {

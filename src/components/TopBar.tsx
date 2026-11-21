@@ -60,6 +60,9 @@ interface TopBarProps {
   dsp?: DspConfig;
   onUpdateDsp?: (patch: Partial<DspConfig>) => void;
   agcGainDb?: number;
+  qualityScorePct?: number;
+  qualityGateEngaged?: boolean;
+  qualityGateReason?: string | null;
 }
 
 const THEME_OPTIONS: { id: ConsoleThemeId; label: string }[] = [
@@ -105,6 +108,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   dsp,
   onUpdateDsp,
   agcGainDb = 0,
+  qualityScorePct = 100,
+  qualityGateEngaged = false,
+  qualityGateReason = null,
 }) => {
   const [showMasterOutput, setShowMasterOutput] = useState(false);
   const platformLabel =
@@ -355,7 +361,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
             <span>
-              AGC {dsp.smartAgc?.enabled ? (agcGainDb !== 0 ? `${agcGainDb > 0 ? '+' : ''}${agcGainDb.toFixed(1)}dB` : 'ON') : 'OFF'}
+              {qualityGateEngaged
+                ? 'GATE PROTECT'
+                : `AGC ${dsp.smartAgc?.enabled ? (agcGainDb !== 0 ? `${agcGainDb > 0 ? '+' : ''}${agcGainDb.toFixed(1)}dB` : 'ON') : 'OFF'}`}
             </span>
           </button>
         )}
@@ -479,6 +487,59 @@ export const TopBar: React.FC<TopBarProps> = ({
                       </button>
                     ))}
                   </div>
+                </div>
+                {/* Persisted Output Quality Gate */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Output Quality Gate</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateDsp({
+                          qualityGate: {
+                            enabled: !(dsp.qualityGate?.enabled ?? true),
+                            minQualityScorePct: dsp.qualityGate?.minQualityScorePct ?? 80,
+                            autoProtectOnFeedback: true,
+                            autoProtectOnClip: true,
+                          },
+                          smartAgc: {
+                            enabled: true,
+                            targetRmsDb: dsp.smartAgc?.targetRmsDb ?? -18,
+                            maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
+                            maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
+                            gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
+                          },
+                          limiter: { ...dsp.limiter, enabled: true },
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
+                        (dsp.qualityGate?.enabled ?? true)
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {(dsp.qualityGate?.enabled ?? true) ? 'ENFORCED (PERSISTED)' : 'OFF'}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400">Live Signal Score:</span>
+                    <span
+                      className={`font-bold ${
+                        qualityScorePct >= 80
+                          ? 'text-emerald-400'
+                          : qualityScorePct >= 60
+                            ? 'text-amber-400'
+                            : 'text-rose-400'
+                      }`}
+                    >
+                      {qualityScorePct}% {qualityGateEngaged ? '· PROTECTING PA/STREAM' : '· CLEAN'}
+                    </span>
+                  </div>
+                  {qualityGateReason && (
+                    <div className="text-[10px] text-amber-300 bg-amber-950/40 px-2 py-1 rounded border border-amber-500/30">
+                      {qualityGateReason}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

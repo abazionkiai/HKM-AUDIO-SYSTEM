@@ -202,6 +202,13 @@ export interface SmartAgcConfig {
   gateFloorDb: number;
 }
 
+export interface OutputQualityGateConfig {
+  enabled: boolean; // Persisted: forces Smart AGC + Safety Limiter + auto-attenuates harmful feedback/clipping
+  minQualityScorePct: number; // Default 80%
+  autoProtectOnFeedback: boolean;
+  autoProtectOnClip: boolean;
+}
+
 export interface DspConfig {
   bypassed: boolean;
   inputTrimDb: number;
@@ -238,6 +245,7 @@ export interface DspConfig {
   masterDelayMs: number;
   masterOutputGainDb?: number;
   smartAgc?: SmartAgcConfig;
+  qualityGate?: OutputQualityGateConfig;
   graphicEq31?: GraphicEq31Config;
   crossover?: ActiveCrossoverConfig;
   cleanStandby?: CleanStandbyConfig;
@@ -352,6 +360,9 @@ export interface SignalTelemetry {
   estimatedLufs: number;
   gainReductionDb: number;
   agcGainDb?: number;
+  qualityScorePct?: number;
+  qualityGateEngaged?: boolean;
+  qualityGateReason?: string | null;
   noiseFloorDb: number;
   channelLevels: ChannelSignalTelemetry[];
   feedbackRisk: {

@@ -36,6 +36,9 @@ interface ConsoleInstrumentDeckProps {
   onToggleEmergencyMute?: () => void;
   zones?: SpeakerZone[];
   initialPhase?: ConsoleProcessingPhase;
+  onAddChannel?: (name?: string, role?: string) => void;
+  onAddEqBand?: () => void;
+  onRemoveEqBand?: (bandId: string) => void;
 }
 
 const PEQ_BAND_STYLES = [
@@ -91,6 +94,9 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
   onToggleEmergencyMute,
   zones = [],
   initialPhase,
+  onAddChannel,
+  onAddEqBand,
+  onRemoveEqBand,
 }) => {
   const [selectedPhase, setSelectedPhase] = useState<ConsoleProcessingPhase>(initialPhase ?? 'phase-3-peq');
 
@@ -101,7 +107,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
   }, [initialPhase]);
 
   const [selectedChannelId, setSelectedChannelId] = useState<string>(channels[0]?.id ?? 'ch-1');
-  const [faderBank, setFaderBank] = useState<'bank-1' | 'bank-2'>('bank-1');
+  const [bankIdx, setBankIdx] = useState<number>(0);
+  const [peqPageOffset, setPeqPageOffset] = useState<number>(0);
 
   const selectedChannel: InputChannel =
     channels.find((c) => c.id === selectedChannelId) ??
@@ -135,10 +142,12 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       stereoLinked: false,
     };
 
+  const totalBanks = Math.max(1, Math.ceil(channels.length / 8));
+  const safeBankIdx = Math.min(bankIdx, totalBanks - 1);
   const bankChannels = useMemo(() => {
-    if (faderBank === 'bank-2') return channels.slice(8, 16);
-    return channels.slice(0, 8);
-  }, [channels, faderBank]);
+    const start = safeBankIdx * 8;
+    return channels.slice(start, start + 8);
+  }, [channels, safeBankIdx]);
 
   // Real-time PEQ Curve Geometry for Phase 3
   const peqGeometry = useMemo(() => {
@@ -693,7 +702,34 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                 </h3>
               </div>
               <div className="flex items-center gap-2 font-mono text-[10px]">
-                <span className="text-slate-400">Range: ±18 dB</span>
+                <span className="text-slate-400">
+                  Bands: {dsp.eqBands.length} · ±18 dB
+                </span>
+                {dsp.eqBands.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPeqPageOffset((p) => (p + 4 >= dsp.eqBands.length ? 0 : p + 4))
+                    }
+                    className="px-2 py-0.5 rounded border border-sky-500/50 bg-sky-500/15 text-sky-200 hover:bg-sky-500/30 cursor-pointer font-bold"
+                  >
+                    BANDS {peqPageOffset + 1}–{Math.min(dsp.eqBands.length, peqPageOffset + 4)} ▸
+                  </button>
+                )}
+                {onAddEqBand && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAddEqBand();
+                      if (dsp.eqBands.length >= 4) {
+                        setPeqPageOffset(Math.floor(dsp.eqBands.length / 4) * 4);
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded border border-emerald-500/50 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/30 cursor-pointer font-bold"
+                  >
+                    + BAND
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() =>
@@ -769,10 +805,10 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
               </svg>
             </div>
 
-            {/* 4 Color-Coded Hardware Parametric Band Modules */}
+            {/* 4 Color-Coded Hardware Parametric Band Modules (Paged across Unlimited Bands) */}
             <div className="shrink-0 grid grid-cols-4 gap-2">
-              {dsp.eqBands.slice(0, 4).map((band, idx) => {
-                const style = PEQ_BAND_STYLES[idx] ?? PEQ_BAND_STYLES[3];
+              {dsp.eqBands.slice(peqPageOffset, peqPageOffset + 4).map((band, idx) => {
+                const style = PEQ_BAND_STYLES[idx % 4] ?? PEQ_BAND_STYLES[3];
                 return (
                   <div
                     key={band.id}
@@ -1121,32 +1157,47 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       <div className="h-[176px] shrink-0 bg-gradient-to-b from-[#111726] to-[#080B13] border-t-2 border-slate-700/80 flex flex-col px-2.5 py-1 shadow-2xl">
         {/* Bank Switcher Header */}
         <div className="h-6 shrink-0 flex items-center justify-between pb-1 border-b border-slate-800 font-mono text-[10px]">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-400 font-bold uppercase tracking-wider mr-1">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-slate-400 font-bold uppercase tracking-wider mr-1 shrink-0">
               FADER BANK:
             </span>
-            <button
-              type="button"
-              onClick={() => setFaderBank('bank-1')}
-              className={`px-2.5 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
-                faderBank === 'bank-1'
-                  ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.4)]'
-                  : 'bg-[#0A0F1A] border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              CH 1–8 · WORSHIP BAND
-            </button>
-            <button
-              type="button"
-              onClick={() => setFaderBank('bank-2')}
-              className={`px-2.5 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
-                faderBank === 'bank-2'
-                  ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.4)]'
-                  : 'bg-[#0A0F1A] border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              CH 9–16 · MEDIA &amp; VOCALS
-            </button>
+            {Array.from({ length: totalBanks }).map((_, i) => {
+              const startCh = i * 8 + 1;
+              const endCh = Math.min(channels.length, (i + 1) * 8);
+              const label =
+                i === 0
+                  ? `CH ${startCh}–${endCh} · BAND`
+                  : i === 1
+                    ? `CH ${startCh}–${endCh} · VOCALS`
+                    : `CH ${startCh}–${endCh} · EXPANSION`;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setBankIdx(i)}
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer whitespace-nowrap ${
+                    safeBankIdx === i
+                      ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.4)]'
+                      : 'bg-[#0A0F1A] border-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {onAddChannel && (
+              <button
+                type="button"
+                onClick={() => {
+                  onAddChannel();
+                  setBankIdx(Math.floor(channels.length / 8));
+                }}
+                className="px-2 py-0.5 rounded text-[10px] font-bold border border-emerald-500/50 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/30 cursor-pointer whitespace-nowrap"
+                title="Add unlimited input channel strip"
+              >
+                + CH
+              </button>
+            )}
           </div>
 
           <div className="text-slate-400 flex items-center gap-1.5">
@@ -1161,7 +1212,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
         <div className="flex-1 min-h-0 grid grid-cols-8 gap-1.5 pt-1.5">
           {bankChannels.map((ch, idx) => {
             const isSelected = ch.id === selectedChannel.id;
-            const chNum = faderBank === 'bank-2' ? idx + 9 : idx + 1;
+            const chNum = safeBankIdx * 8 + idx + 1;
             const meterNorm = Math.max(0, Math.min(100, ((ch.levelDb + 60) / 60) * 100));
             return (
               <div

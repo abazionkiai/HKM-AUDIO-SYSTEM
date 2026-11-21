@@ -560,6 +560,20 @@ export const DEFAULT_DSP_CONFIG: DspConfig = {
   polarityInverted: false,
   stereoWidth: 1.0,
   masterDelayMs: 0,
+  masterOutputGainDb: 0,
+  smartAgc: {
+    enabled: true,
+    targetRmsDb: -18,
+    maxBoostDb: 14,
+    maxCutDb: 18,
+    gateFloorDb: -52,
+  },
+  qualityGate: {
+    enabled: true,
+    minQualityScorePct: 80,
+    autoProtectOnFeedback: true,
+    autoProtectOnClip: true,
+  },
   graphicEq31: {
     enabled: true,
     rangeDb: 12,

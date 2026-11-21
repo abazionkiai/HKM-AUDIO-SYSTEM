@@ -772,6 +772,110 @@ export function useConsoleSession({
     [onEmergencyMuteChanged]
   );
 
+  const handleAddChannel = useCallback(
+    (name?: string, role = 'Dynamic Input') => {
+      setChannels((prev) => {
+        const nextIdx = prev.reduce((m, c) => Math.max(m, c.index), 0) + 1;
+        const created: InputChannel = {
+          id: `ch-dyn-${Date.now()}-${nextIdx}`,
+          index: nextIdx,
+          name: name?.trim() || `Input ${nextIdx}`,
+          role,
+          authority: 'software-dsp',
+          levelDb: -60,
+          peakDb: -60,
+          gainDb: 18,
+          faderDb: 0,
+          mute: false,
+          solo: false,
+          phantom48v: false,
+          padDb: false,
+          polarityInverted: false,
+          hpfHz: 80,
+          pan: 0,
+          noiseFloorDb: -62,
+          gateThresholdDb: -48,
+          compThresholdDb: -18,
+          compRatio: 3,
+          eqLowDb: 0,
+          eqMidDb: 0,
+          eqMidFreqHz: 1800,
+          eqHighDb: 0,
+          auxSends: { stageMon1Db: -60, stageMon2Db: -60, streamBusDb: 0, subsDb: -60 },
+          dcaGroup: 'None',
+          stereoLinked: false,
+        };
+        logAudit('Added Input Channel', `CH ${nextIdx} (${created.name})`, 'operator');
+        return [...prev, created];
+      });
+    },
+    [logAudit]
+  );
+
+  const handleRemoveChannel = useCallback(
+    (id: string) => {
+      setChannels((prev) => (prev.length <= 1 ? prev : prev.filter((c) => c.id !== id)));
+    },
+    []
+  );
+
+  const handleAddEqBand = useCallback(() => {
+    setDsp((prev) => {
+      if (prev.eqBands.length >= 16) return prev;
+      const nextNum = prev.eqBands.length + 1;
+      const newBand = {
+        id: `eq-dyn-${Date.now()}-${nextNum}`,
+        label: `Band ${nextNum}`,
+        enabled: true,
+        type: 'peaking' as const,
+        frequency: 1000,
+        gainDb: 0,
+        q: 1.8,
+      };
+      return { ...prev, eqBands: [...prev.eqBands, newBand] };
+    });
+  }, []);
+
+  const handleRemoveEqBand = useCallback((bandId: string) => {
+    setDsp((prev) => {
+      if (prev.eqBands.length <= 4) return prev;
+      return { ...prev, eqBands: prev.eqBands.filter((b) => b.id !== bandId) };
+    });
+  }, []);
+
+  const handleAddZone = useCallback(
+    (name?: string, role: SpeakerZone['role'] = 'overflow') => {
+      setZones((prev) => {
+        const idx = prev.length + 1;
+        const created: SpeakerZone = {
+          id: `zone-dyn-${Date.now()}-${idx}`,
+          name: name?.trim() || `Aux / Matrix Bus ${idx}`,
+          role,
+          x: 50,
+          y: 70,
+          rotationDeg: 0,
+          dispersionDeg: 90,
+          distanceMeters: 6,
+          delayMs: 0,
+          levelDb: 0,
+          mute: false,
+          polarityInverted: false,
+          crossoverHz: 90,
+          crossoverSlope: 'LR24',
+          limiterDb: -1.0,
+          hardwareOutput: `Out ${idx * 2 - 1}-${idx * 2}`,
+        };
+        logAudit('Added Output Bus/Zone', created.name, 'operator');
+        return [...prev, created];
+      });
+    },
+    [logAudit]
+  );
+
+  const handleRemoveZone = useCallback((zoneId: string) => {
+    setZones((prev) => (prev.length <= 1 ? prev : prev.filter((z) => z.id !== zoneId)));
+  }, []);
+
   const handleSaveAutomation = useCallback(
     (snapshot: AutomationSnapshot) => {
       setAutomationSnapshots((prev) => [
@@ -978,6 +1082,12 @@ export function useConsoleSession({
     handleResetDsp,
     handleUndoLastDsp,
     handleUpdateChannel,
+    handleAddChannel,
+    handleRemoveChannel,
+    handleAddEqBand,
+    handleRemoveEqBand,
+    handleAddZone,
+    handleRemoveZone,
     handleBatchMute,
     handleClearAllSolos,
     handleApplyAutomationFrame,
