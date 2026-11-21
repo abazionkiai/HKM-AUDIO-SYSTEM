@@ -1202,70 +1202,6 @@ export const INITIAL_ACOUSTIC_MEASUREMENT: AcousticMeasurement = {
 };
 
 export function buildChannelsForDevice(device: HardwareDevice): InputChannel[] {
-  if (!device.capabilities.perChannelCapture && device.capabilities.stereoMixCapture) {
-    // Tier 1 Stereo USB console (e.g. Yamaha MG16XU)
-    return [
-      {
-        id: 'ch-usb-l',
-        index: 1,
-        name: 'USB Stereo Return L',
-        role: 'Console Stereo Bus L',
-        authority: 'software-dsp',
-        levelDb: -96,
-        peakDb: -96,
-        gainDb: 0,
-        faderDb: 0,
-        mute: false,
-        solo: false,
-        phantom48v: false,
-        padDb: false,
-        polarityInverted: false,
-        hpfHz: 95,
-        pan: -100,
-        noiseFloorDb: -96,
-        gateThresholdDb: -54,
-        compThresholdDb: -18,
-        compRatio: 3.0,
-        eqLowDb: 0,
-        eqMidDb: -1.5,
-        eqMidFreqHz: 240,
-        eqHighDb: 1.0,
-        auxSends: { stageMon1Db: -12, stageMon2Db: -18, streamBusDb: 0, subsDb: -6 },
-        dcaGroup: 'DCA 4 · Speech',
-        stereoLinked: true,
-      },
-      {
-        id: 'ch-usb-r',
-        index: 2,
-        name: 'USB Stereo Return R',
-        role: 'Console Stereo Bus R',
-        authority: 'software-dsp',
-        levelDb: -96,
-        peakDb: -96,
-        gainDb: 0,
-        faderDb: 0,
-        mute: false,
-        solo: false,
-        phantom48v: false,
-        padDb: false,
-        polarityInverted: false,
-        hpfHz: 95,
-        pan: 100,
-        noiseFloorDb: -96,
-        gateThresholdDb: -54,
-        compThresholdDb: -18,
-        compRatio: 3.0,
-        eqLowDb: 0,
-        eqMidDb: -1.5,
-        eqMidFreqHz: 240,
-        eqHighDb: 1.0,
-        auxSends: { stageMon1Db: -12, stageMon2Db: -18, streamBusDb: 0, subsDb: -6 },
-        dcaGroup: 'DCA 4 · Speech',
-        stereoLinked: true,
-      },
-    ];
-  }
-
   const channelTemplates = [
     { name: 'Main Preacher', role: 'Lead Speech', hpfHz: 110, phantom: false, gain: 34, dca: 'DCA 4 · Speech' as const },
     { name: 'Assistant Pastor', role: 'Wireless HH', hpfHz: 110, phantom: false, gain: 32, dca: 'DCA 4 · Speech' as const },
@@ -1285,7 +1221,7 @@ export function buildChannelsForDevice(device: HardwareDevice): InputChannel[] {
     { name: 'Playback / Media', role: 'Stereo Aux', hpfHz: 40, phantom: false, gain: 0, dca: 'None' as const },
   ];
 
-  const count = Math.min(device.capabilities.maxInputChannels || 8, channelTemplates.length);
+  const count = Math.max(8, Math.min(device.capabilities.maxInputChannels || 8, channelTemplates.length));
   const authority = device.capabilities.perChannelFaderControl ? 'hardware-linked' : 'software-dsp';
 
   return channelTemplates.slice(0, count).map((tpl, i) => ({
@@ -1321,5 +1257,8 @@ export function buildChannelsForDevice(device: HardwareDevice): InputChannel[] {
     },
     dcaGroup: tpl.dca,
     stereoLinked: tpl.name.endsWith('L') || tpl.name.endsWith('R'),
+    mainPaAssign: true,
+    streamAssign: true,
+    subAssign: i === 8 || i === 13,
   }));
 }

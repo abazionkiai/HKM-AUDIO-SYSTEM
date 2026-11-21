@@ -222,8 +222,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '1',
       label: 'PREAMP',
       readout: `+${selectedChannel.gainDb}dB`,
-      activeClass: 'bg-amber-950/60 border-amber-400/80 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.25)]',
-      ledClass: 'bg-amber-400',
+      activeClass: 'bg-amber-500/25 border-2 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.5)] font-extrabold',
+      ledClass: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]',
       topBarClass: 'bg-amber-400',
       enabled: true,
     },
@@ -232,8 +232,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '2',
       label: 'HPF & GATE',
       readout: dsp.hpfEnabled ? `${dsp.hpfHz}Hz` : 'BYP',
-      activeClass: 'bg-cyan-950/60 border-cyan-400/80 text-cyan-100 shadow-[0_0_12px_rgba(34,211,238,0.25)]',
-      ledClass: dsp.hpfEnabled ? 'bg-cyan-400' : 'bg-slate-600',
+      activeClass: 'bg-cyan-500/25 border-2 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.5)] font-extrabold',
+      ledClass: dsp.hpfEnabled ? 'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.8)]' : 'bg-slate-600',
       topBarClass: 'bg-cyan-400',
       enabled: dsp.hpfEnabled,
     },
@@ -242,8 +242,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '3',
       label: '4-BAND PEQ',
       readout: 'RTA LIVE',
-      activeClass: 'bg-sky-950/60 border-sky-400/80 text-sky-100 shadow-[0_0_12px_rgba(56,189,248,0.25)]',
-      ledClass: 'bg-sky-400',
+      activeClass: 'bg-sky-500/25 border-2 border-sky-400 text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.5)] font-extrabold',
+      ledClass: 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]',
       topBarClass: 'bg-sky-400',
       enabled: true,
     },
@@ -252,8 +252,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '4',
       label: 'VCA COMP',
       readout: dsp.compressor.enabled ? `${dsp.compressor.ratio.toFixed(1)}:1` : 'OFF',
-      activeClass: 'bg-emerald-950/60 border-emerald-400/80 text-emerald-100 shadow-[0_0_12px_rgba(16,185,129,0.25)]',
-      ledClass: dsp.compressor.enabled ? 'bg-emerald-400' : 'bg-slate-600',
+      activeClass: 'bg-emerald-500/25 border-2 border-emerald-400 text-emerald-200 shadow-[0_0_12px_rgba(52,211,153,0.5)] font-extrabold',
+      ledClass: dsp.compressor.enabled ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-slate-600',
       topBarClass: 'bg-emerald-400',
       enabled: dsp.compressor.enabled,
     },
@@ -262,8 +262,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '5',
       label: '31-BAND GEQ',
       readout: `±${dsp.graphicEq31?.rangeDb ?? 12}dB`,
-      activeClass: 'bg-fuchsia-950/60 border-fuchsia-400/80 text-fuchsia-100 shadow-[0_0_12px_rgba(217,70,239,0.25)]',
-      ledClass: dsp.graphicEq31?.enabled !== false ? 'bg-fuchsia-400' : 'bg-slate-600',
+      activeClass: 'bg-fuchsia-500/25 border-2 border-fuchsia-400 text-fuchsia-200 shadow-[0_0_12px_rgba(232,121,249,0.5)] font-extrabold',
+      ledClass: dsp.graphicEq31?.enabled !== false ? 'bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.8)]' : 'bg-slate-600',
       topBarClass: 'bg-fuchsia-400',
       enabled: dsp.graphicEq31?.enabled !== false,
     },
@@ -272,8 +272,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '6',
       label: '3-WAY XOVER',
       readout: `${dsp.crossover?.subToMidHz ?? 80}Hz`,
-      activeClass: 'bg-violet-950/60 border-violet-400/80 text-violet-100 shadow-[0_0_12px_rgba(167,139,250,0.25)]',
-      ledClass: dsp.crossover?.enabled !== false ? 'bg-violet-400' : 'bg-slate-600',
+      activeClass: 'bg-violet-500/25 border-2 border-violet-400 text-violet-200 shadow-[0_0_12px_rgba(167,139,250,0.5)] font-extrabold',
+      ledClass: dsp.crossover?.enabled !== false ? 'bg-violet-400 shadow-[0_0_6px_rgba(167,139,250,0.8)]' : 'bg-slate-600',
       topBarClass: 'bg-violet-400',
       enabled: dsp.crossover?.enabled !== false,
     },
@@ -282,7 +282,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       step: '7',
       label: 'MATRIX & PA',
       readout: dsp.limiter.enabled ? `${dsp.limiter.ceilingDb.toFixed(1)}dB` : 'OPEN',
-      activeClass: 'bg-orange-950/60 border-orange-400/80 text-orange-100 shadow-[0_0_12px_rgba(251,146,60,0.25)]',
+      activeClass: 'bg-orange-500/25 border-2 border-orange-400 text-orange-200 shadow-[0_0_12px_rgba(251,146,60,0.5)] font-extrabold',
       ledClass: dsp.limiter.enabled ? 'bg-orange-400' : 'bg-slate-600',
       topBarClass: 'bg-orange-400',
       enabled: dsp.limiter.enabled,
@@ -383,7 +383,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       {/* =========================================================================
           TOP DECK ROW 2: REAL-WORLD SIGNAL-FLOW PHASE TABS (ZERO OVERLAP GRID)
           ========================================================================= */}
-      <div className="shrink-0 bg-[#0A0E17] border-b border-slate-700/80 px-2 py-1 grid grid-cols-7 gap-1">
+      <div className="shrink-0 bg-[#070B13] border-b border-slate-700/80 px-2.5 py-1.5 grid grid-cols-7 gap-1.5">
         {phaseTabs.map((tab, idx) => {
           const active = selectedPhase === tab.id;
           return (
@@ -391,27 +391,27 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
               key={tab.id}
               type="button"
               onClick={() => setSelectedPhase(tab.id)}
-              className={`relative rounded border px-2 py-1 flex items-center justify-between gap-1 font-mono text-[10px] transition-all cursor-pointer min-w-0 overflow-hidden ${
+              className={`relative rounded-md border-2 px-2.5 py-1.5 flex items-center justify-between gap-1.5 font-mono text-[10px] transition-all cursor-pointer min-w-0 overflow-hidden ${
                 active
                   ? tab.activeClass
-                  : 'bg-[#101624] border-slate-800 text-slate-400 hover:bg-[#161E30] hover:text-slate-200 hover:border-slate-700'
+                  : 'bg-[#0E1422] border-slate-700/90 text-slate-300 hover:bg-[#151D30] hover:text-white hover:border-slate-500 shadow-sm'
               }`}
             >
               {/* Top Illuminated Hardware Accent Bar */}
               {active && (
-                <span className={`absolute inset-x-0 top-0 h-[2px] ${tab.topBarClass}`} />
+                <span className={`absolute inset-x-0 top-0 h-[3px] ${tab.topBarClass}`} />
               )}
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tab.ledClass}`} />
-                <span className="text-[9px] text-slate-500 font-bold shrink-0">{tab.step}.</span>
-                <span className="font-bold truncate">{tab.label}</span>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${tab.ledClass}`} />
+                <span className={`text-[10px] font-extrabold shrink-0 ${active ? 'text-white' : 'text-slate-400'}`}>{tab.step}.</span>
+                <span className="font-bold truncate tracking-wide">{tab.label}</span>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <span className="text-[9px] opacity-80 hidden xl:inline tabular-nums">
+                <span className={`text-[9px] font-semibold hidden xl:inline tabular-nums ${active ? 'opacity-100 text-white' : 'opacity-75 text-slate-400'}`}>
                   {tab.readout}
                 </span>
                 {idx < phaseTabs.length - 1 && (
-                  <ArrowRight className="w-2.5 h-2.5 text-slate-600 hidden lg:inline" />
+                  <ArrowRight className={`w-3 h-3 hidden lg:inline ${active ? 'text-white' : 'text-slate-500'}`} />
                 )}
               </div>
             </button>
@@ -1213,33 +1213,58 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
           {bankChannels.map((ch, idx) => {
             const isSelected = ch.id === selectedChannel.id;
             const chNum = safeBankIdx * 8 + idx + 1;
-            const meterNorm = Math.max(0, Math.min(100, ((ch.levelDb + 60) / 60) * 100));
+            const globalChIdx = safeBankIdx * 8 + idx;
+            const chTelemetry = telemetry?.channelLevels?.[globalChIdx];
+            const liveLevelDb = chTelemetry?.rmsDb ?? ch.levelDb;
+            const livePeakDb = chTelemetry?.peakDb ?? ch.peakDb;
+            const hasSignal = telemetry?.isRunning && !ch.mute && liveLevelDb > -54;
+            const isHot = hasSignal && livePeakDb > -3;
+            const meterNorm = Math.max(0, Math.min(100, ((liveLevelDb + 60) / 60) * 100));
+
+            const isMainPaAssigned = ch.mainPaAssign ?? true;
+            const isStreamAssigned = ch.streamAssign ?? true;
+            const isSubAssigned = ch.subAssign ?? false;
+
             return (
               <div
                 key={ch.id}
                 onClick={() => setSelectedChannelId(ch.id)}
-                className={`h-full min-h-0 flex flex-col justify-between p-1.5 rounded-md border transition-all cursor-pointer ${
+                className={`h-full min-h-0 flex flex-col justify-between p-1 rounded-md border-2 transition-all cursor-pointer ${
                   isSelected
-                    ? 'border-sky-400 bg-gradient-to-b from-sky-950/50 to-[#09111E] shadow-[0_0_12px_rgba(56,189,248,0.25)]'
-                    : 'border-slate-800 bg-gradient-to-b from-[#0E1420] to-[#080B12] hover:border-slate-600'
+                    ? 'border-sky-400 bg-gradient-to-b from-sky-950/60 to-[#09111E] shadow-[0_0_12px_rgba(56,189,248,0.35)]'
+                    : 'border-slate-700/80 bg-gradient-to-b from-[#0E1420] to-[#080B12] hover:border-slate-500'
                 }`}
               >
-                {/* Recessed OLED Scribble Strip */}
+                {/* Recessed OLED Scribble Strip + Live Activity Dot */}
                 <div
                   className={`shrink-0 rounded px-1.5 py-0.5 border font-mono text-[9px] leading-tight flex items-center justify-between gap-1 ${
                     isSelected
-                      ? 'bg-[#040A14] border-sky-400/60 text-sky-200'
-                      : 'bg-[#04060B] border-slate-800 text-slate-300'
+                      ? 'bg-[#040A14] border-sky-400/70 text-sky-200'
+                      : 'bg-[#04060B] border-slate-700/80 text-slate-200'
                   }`}
                 >
-                  <span className="text-slate-500 font-bold shrink-0">CH{chNum}</span>
-                  <span className="font-bold truncate" title={ch.name}>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span
+                      title={hasSignal ? `Signal Live: ${liveLevelDb.toFixed(1)} dBFS` : 'No Signal / Idle'}
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
+                        ch.mute
+                          ? 'bg-rose-500'
+                          : isHot
+                            ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)] animate-pulse'
+                            : hasSignal
+                              ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]'
+                              : 'bg-slate-600'
+                      }`}
+                    />
+                    <span className="text-slate-400 font-bold shrink-0">CH{chNum}</span>
+                  </div>
+                  <span className="font-bold truncate text-right text-slate-100" title={ch.name}>
                     {ch.name}
                   </span>
                 </div>
 
-                {/* Vertical Fader + Mini RMS Signal Meter */}
-                <div className="flex-1 min-h-0 flex items-center justify-center gap-2 py-0.5">
+                {/* Vertical Fader + Multi-Segment Console VU Meter */}
+                <div className="flex-1 min-h-0 flex items-center justify-center gap-1.5 py-0.5">
                   <PrecisionVerticalFader
                     value={ch.faderDb}
                     min={-48}
@@ -1250,22 +1275,80 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                     accent={ch.mute ? 'amber' : isSelected ? 'sky' : 'cyan'}
                     onChange={(next) => onUpdateChannel(ch.id, { faderDb: next })}
                   />
-                  {/* Channel Level LED Bar */}
-                  <div className="h-16 w-1.5 rounded-full bg-[#04060A] border border-slate-800 overflow-hidden flex flex-col justify-end">
-                    <div
-                      className={`w-full transition-all duration-100 ${
-                        ch.mute
-                          ? 'bg-slate-700'
-                          : meterNorm > 85
-                            ? 'bg-amber-400'
-                            : 'bg-emerald-400'
-                      }`}
-                      style={{ height: `${ch.mute ? 4 : meterNorm}%` }}
-                    />
+                  {/* Multi-Segment VU Meter (-48 to 0 dBFS + Clip) */}
+                  <div className="h-16 w-2 rounded bg-[#04060A] border border-slate-700/80 p-[1px] flex flex-col justify-between overflow-hidden">
+                    {/* 6 LED VU Segments from Peak (+0) down to Quiet (-48) */}
+                    {[
+                      { threshold: -0.5, color: 'bg-rose-500 shadow-[0_0_4px_rgba(244,63,94,0.8)]' },
+                      { threshold: -3, color: 'bg-amber-400 shadow-[0_0_4px_rgba(251,191,36,0.8)]' },
+                      { threshold: -12, color: 'bg-yellow-400' },
+                      { threshold: -24, color: 'bg-emerald-400' },
+                      { threshold: -36, color: 'bg-emerald-500' },
+                      { threshold: -48, color: 'bg-emerald-600' },
+                    ].map((seg, sIdx) => {
+                      const lit = telemetry?.isRunning && !ch.mute && livePeakDb >= seg.threshold;
+                      return (
+                        <div
+                          key={sIdx}
+                          className={`w-full h-1.5 rounded-[1px] transition-all duration-75 ${
+                            lit ? seg.color : 'bg-slate-800/40'
+                          }`}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Tactile Illuminated SOLO & MUTE Keys */}
+                {/* Professional Console Bus ASSIGN Buttons (MAIN PA, STREAM, SUB) */}
+                <div className="shrink-0 grid grid-cols-3 gap-0.5 mb-1 font-mono text-[8px] font-bold">
+                  <button
+                    type="button"
+                    title="Assign to Main PA Sanctuary Mix"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateChannel(ch.id, { mainPaAssign: !isMainPaAssigned });
+                    }}
+                    className={`py-0.5 rounded border transition cursor-pointer text-center ${
+                      isMainPaAssigned
+                        ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-extrabold shadow-[0_0_6px_rgba(56,189,248,0.4)]'
+                        : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    MAIN
+                  </button>
+                  <button
+                    type="button"
+                    title="Assign to Live Stream / OBS Mix"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateChannel(ch.id, { streamAssign: !isStreamAssigned });
+                    }}
+                    className={`py-0.5 rounded border transition cursor-pointer text-center ${
+                      isStreamAssigned
+                        ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 font-extrabold shadow-[0_0_6px_rgba(52,211,153,0.4)]'
+                        : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    STRM
+                  </button>
+                  <button
+                    type="button"
+                    title="Assign to Subwoofer Bus Array"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateChannel(ch.id, { subAssign: !isSubAssigned });
+                    }}
+                    className={`py-0.5 rounded border transition cursor-pointer text-center ${
+                      isSubAssigned
+                        ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200 font-extrabold shadow-[0_0_6px_rgba(232,121,249,0.4)]'
+                        : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    SUB
+                  </button>
+                </div>
+
+                {/* Tactile Illuminated SOLO & MUTE Keys (Clear Borders & Maximum Contrast) */}
                 <div className="shrink-0 grid grid-cols-2 gap-1">
                   <button
                     type="button"
@@ -1273,10 +1356,10 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                       e.stopPropagation();
                       onUpdateChannel(ch.id, { solo: !ch.solo });
                     }}
-                    className={`py-0.5 text-[9px] font-mono font-bold rounded border transition cursor-pointer ${
+                    className={`py-0.5 text-[9px] font-mono font-bold rounded border-2 transition cursor-pointer ${
                       ch.solo
-                        ? 'bg-amber-400 text-slate-950 border-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.75)]'
-                        : 'bg-[#121824] border-slate-700 text-slate-400 hover:text-slate-200'
+                        ? 'bg-amber-400 text-slate-950 border-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.85)]'
+                        : 'bg-[#121824] border-slate-600 text-slate-300 hover:text-white hover:border-slate-400'
                     }`}
                   >
                     SOLO
@@ -1288,10 +1371,10 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                       e.stopPropagation();
                       onUpdateChannel(ch.id, { mute: !ch.mute });
                     }}
-                    className={`py-0.5 text-[9px] font-mono font-bold rounded border transition cursor-pointer ${
+                    className={`py-0.5 text-[9px] font-mono font-bold rounded border-2 transition cursor-pointer ${
                       ch.mute
-                        ? 'bg-red-600 text-white border-red-400 shadow-[0_0_8px_rgba(239,68,68,0.75)]'
-                        : 'bg-[#121824] border-slate-700 text-slate-400 hover:text-slate-200'
+                        ? 'bg-red-600 text-white border-red-300 shadow-[0_0_8px_rgba(239,68,68,0.85)]'
+                        : 'bg-[#121824] border-slate-600 text-slate-300 hover:text-white hover:border-slate-400'
                     }`}
                   >
                     MUTE

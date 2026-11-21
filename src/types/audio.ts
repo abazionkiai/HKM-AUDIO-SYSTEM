@@ -111,6 +111,9 @@ export interface InputChannel {
   };
   dcaGroup: DcaGroupName;
   stereoLinked: boolean;
+  mainPaAssign?: boolean;
+  streamAssign?: boolean;
+  subAssign?: boolean;
   hardwareInputId?: string;
   hardwareInputLabel?: string;
 }
