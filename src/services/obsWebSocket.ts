@@ -25,13 +25,23 @@ export interface ObsStreamTelemetry {
   outputTimecode: string;
 }
 
+export interface ObsAudioInput {
+  inputName: string;
+  inputKind: string;
+  muted: boolean;
+  volumeDb: number;
+}
+
 export interface ObsConnectionState {
   connected: boolean;
   connecting: boolean;
   authRequired: boolean;
   error: string | null;
   activeScene: string;
+  previewScene: string;
+  studioModeEnabled: boolean;
   scenes: string[];
+  audioInputs: ObsAudioInput[];
   telemetry: ObsStreamTelemetry;
 }
 
@@ -57,12 +67,15 @@ class ObsWebSocketService {
     authRequired: false,
     error: null,
     activeScene: 'Pre-Service Countdown',
+    previewScene: 'Worship Full Band',
+    studioModeEnabled: false,
     scenes: [
       'Pre-Service Countdown',
       'Worship Full Band',
       'Sanctuary Wide + Preacher',
       'Pulpit Close-Up',
     ],
+    audioInputs: [],
     telemetry: {
       streaming: false,
       recording: false,
@@ -412,6 +425,9 @@ class ObsWebSocketService {
     await Promise.allSettled([
       this.syncSceneList(),
       this.syncStreamStatus(),
+      this.syncRecordStatus(),
+      this.syncStudioMode(),
+      this.syncAudioInputs(),
       this.syncStats(),
     ]);
   }
@@ -542,6 +558,156 @@ class ObsWebSocketService {
       return this.stopStream();
     } else {
       return this.startStream();
+    }
+  }
+
+  public async syncRecordStatus() {
+    try {
+      const rec = await this.sendRequest<{ outputActive: boolean }>('GetRecordStatus');
+      if (rec) {
+        this.updateState({
+          telemetry: { ...this.state.telemetry, recording: rec.outputActive },
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  public async toggleRecord(): Promise<boolean> {
+    try {
+      const res = await this.sendRequest<{ outputActive: boolean }>('ToggleRecord');
+      this.updateState({
+        telemetry: { ...this.state.telemetry, recording: Boolean(res?.outputActive) },
+      });
+      return true;
+    } catch (err) {
+      console.error('[OBS WS] Failed to toggle recording:', err);
+      return false;
+    }
+  }
+
+  public async syncStudioMode() {
+    try {
+      const res = await this.sendRequest<{ studioModeEnabled: boolean }>('GetStudioModeEnabled');
+      const enabled = Boolean(res?.studioModeEnabled);
+      let previewScene = this.state.previewScene;
+      if (enabled) {
+        const prevRes = await this.sendRequest<{ currentPreviewSceneName: string }>(
+          'GetCurrentPreviewScene'
+        );
+        if (prevRes?.currentPreviewSceneName) previewScene = prevRes.currentPreviewSceneName;
+      }
+      this.updateState({ studioModeEnabled: enabled, previewScene });
+    } catch {
+      // ignore
+    }
+  }
+
+  public async toggleStudioMode(): Promise<boolean> {
+    try {
+      const next = !this.state.studioModeEnabled;
+      await this.sendRequest('SetStudioModeEnabled', { studioModeEnabled: next });
+      this.updateState({ studioModeEnabled: next });
+      if (next) await this.syncStudioMode();
+      return true;
+    } catch (err) {
+      console.error('[OBS WS] Failed to toggle studio mode:', err);
+      return false;
+    }
+  }
+
+  public async setPreviewScene(sceneName: string): Promise<boolean> {
+    try {
+      await this.sendRequest('SetCurrentPreviewScene', { sceneName });
+      this.updateState({ previewScene: sceneName });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async triggerTransition(): Promise<boolean> {
+    try {
+      await this.sendRequest('TriggerStudioModeTransition');
+      await this.syncSceneList();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async syncAudioInputs() {
+    try {
+      const list = await this.sendRequest<{
+        inputs: { inputName: string; inputKind: string }[];
+      }>('GetInputList');
+      if (!list?.inputs) return;
+
+      const audioList: ObsAudioInput[] = [];
+      for (const inp of list.inputs) {
+        try {
+          const [volRes, muteRes] = await Promise.all([
+            this.sendRequest<{ inputVolumeDb: number }>('GetInputVolume', {
+              inputName: inp.inputName,
+            }),
+            this.sendRequest<{ inputMuted: boolean }>('GetInputMute', {
+              inputName: inp.inputName,
+            }),
+          ]);
+          audioList.push({
+            inputName: inp.inputName,
+            inputKind: inp.inputKind,
+            muted: Boolean(muteRes?.inputMuted),
+            volumeDb: typeof volRes?.inputVolumeDb === 'number' ? Number(volRes.inputVolumeDb.toFixed(1)) : 0,
+          });
+        } catch {
+          // Non-audio inputs (e.g. image/color source) throw GetInputVolume unsupported
+        }
+      }
+      this.updateState({ audioInputs: audioList });
+    } catch {
+      // ignore
+    }
+  }
+
+  public async setInputMute(inputName: string, muted: boolean): Promise<boolean> {
+    try {
+      await this.sendRequest('SetInputMute', { inputName, inputMuted: muted });
+      this.updateState({
+        audioInputs: this.state.audioInputs.map((a) =>
+          a.inputName === inputName ? { ...a, muted } : a
+        ),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async setInputVolumeDb(inputName: string, volumeDb: number): Promise<boolean> {
+    try {
+      await this.sendRequest('SetInputVolume', { inputName, inputVolumeDb: volumeDb });
+      this.updateState({
+        audioInputs: this.state.audioInputs.map((a) =>
+          a.inputName === inputName ? { ...a, volumeDb } : a
+        ),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async setInputAudioSyncOffset(inputName: string, offsetMs: number): Promise<boolean> {
+    try {
+      await this.sendRequest('SetInputAudioSyncOffset', {
+        inputName,
+        inputAudioSyncOffset: Math.round(offsetMs),
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 }

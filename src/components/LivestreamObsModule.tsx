@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Radio,
   AlertTriangle,
@@ -11,7 +11,13 @@ import {
   X,
   Info,
   Tv,
+  Lock,
+  Circle,
+  Volume2,
+  VolumeX,
+  ArrowRightLeft,
 } from 'lucide-react';
+import { liveAudioEngine } from '../audio/liveAudioEngine.ts';
 import type {
   BroadcastDspConfig,
   HardwareDevice,
@@ -47,6 +53,14 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   const [speechStemDb, setSpeechStemDb] = useState<number>(0);
   const [bandStemDb, setBandStemDb] = useState<number>(-2.5);
   const [roomAmbiencePct, setRoomAmbiencePct] = useState<number>(18);
+  const [fastRoomDb, setFastRoomDb] = useState<number>(-96);
+  const [fastRoomPeakDb, setFastRoomPeakDb] = useState<number>(-96);
+  const [fastStreamDb, setFastStreamDb] = useState<number>(-96);
+  const [fastStreamPeakDb, setFastStreamPeakDb] = useState<number>(-96);
+  const [designatedObsInput, setDesignatedObsInput] = useState<string>('');
+  const [exclusiveAudioLock, setExclusiveAudioLock] = useState<boolean>(false);
+  const scopeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waveformHistoryRef = useRef<number[]>(new Array(96).fill(0.02));
 
   // Settings & Banner Controls
   const [showSettings, setShowSettings] = useState(false);
@@ -80,6 +94,102 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
     });
     return unsub;
   }, [onUpdateObs, wsUrl]);
+
+  // 60fps fast VU meters + live broadcast waveform scope
+  useEffect(() => {
+    let rafId = 0;
+    const renderScope = () => {
+      const fast = liveAudioEngine.sampleFastLevels();
+      const running = fast.isRunning;
+      const roomRms = running ? fast.postRmsDb : telemetry.isRunning ? telemetry.postRmsDb : -96;
+      const roomPeak = running ? fast.postPeakDb : telemetry.isRunning ? telemetry.postPeakDb : -96;
+      const boost = broadcastDsp.enabled ? 3.5 : 0;
+      const streamRms = roomRms > -90 ? Math.min(broadcastDsp.limiterCeilingDb, roomRms + boost) : -96;
+      const streamPeak = roomPeak > -90 ? Math.min(broadcastDsp.limiterCeilingDb, roomPeak + boost) : -96;
+
+      setFastRoomDb(roomRms);
+      setFastRoomPeakDb(roomPeak);
+      setFastStreamDb(streamRms);
+      setFastStreamPeakDb(streamPeak);
+
+      const amp = streamRms > -90 ? Math.max(0.03, Math.min(1, (streamRms + 54) / 54)) : 0.02;
+      const hist = waveformHistoryRef.current;
+      hist.push(amp);
+      if (hist.length > 96) hist.shift();
+
+      const canvas = scopeCanvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = '#05080E';
+          ctx.fillRect(0, 0, w, h);
+
+          // Target -14 LUFS guide line
+          const targetY = h * 0.28;
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.35)';
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(0, targetY);
+          ctx.lineTo(w, targetY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const barW = w / hist.length;
+          for (let i = 0; i < hist.length; i++) {
+            const v = hist[i];
+            const barH = Math.max(2, v * (h - 10));
+            const x = i * barW;
+            const y = (h - barH) / 2;
+            ctx.fillStyle = v > 0.88 ? '#F59E0B' : broadcastDsp.enabled ? '#10B981' : '#38BDF8';
+            ctx.fillRect(x, y, Math.max(1.5, barW - 1.5), barH);
+          }
+        }
+      }
+
+      rafId = window.requestAnimationFrame(renderScope);
+    };
+    rafId = window.requestAnimationFrame(renderScope);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [broadcastDsp.enabled, broadcastDsp.limiterCeilingDb, telemetry.isRunning, telemetry.postRmsDb, telemetry.postPeakDb]);
+
+  // Auto-select designated OBS broadcast input & enforce exclusive audio lock if enabled
+  useEffect(() => {
+    if (!obsState.connected || obsState.audioInputs.length === 0) return;
+    if (!designatedObsInput) {
+      const preferred =
+        obsState.audioInputs.find((i) =>
+          /cable|desktop|loopback|hkm|church/i.test(i.inputName)
+        ) ?? obsState.audioInputs[0];
+      if (preferred) setDesignatedObsInput(preferred.inputName);
+    }
+    if (exclusiveAudioLock && designatedObsInput) {
+      obsState.audioInputs.forEach((inp) => {
+        const shouldMute = inp.inputName !== designatedObsInput;
+        if (inp.muted !== shouldMute) {
+          void obsWsService.setInputMute(inp.inputName, shouldMute);
+        }
+      });
+    }
+  }, [obsState.connected, obsState.audioInputs, designatedObsInput, exclusiveAudioLock]);
+
+  const handleEnforceExclusiveObsAudio = async () => {
+    const target = designatedObsInput || obsState.audioInputs[0]?.inputName;
+    if (!target) return;
+    setDesignatedObsInput(target);
+    setExclusiveAudioLock(true);
+    for (const inp of obsState.audioInputs) {
+      await obsWsService.setInputMute(inp.inputName, inp.inputName !== target);
+    }
+  };
+
+  const handleSyncAvOffsetToObs = async () => {
+    const target = designatedObsInput || obsState.audioInputs[0]?.inputName;
+    if (!target) return;
+    await obsWsService.setInputAudioSyncOffset(target, broadcastDsp.avSyncOffsetMs);
+  };
 
   const roomLufs = telemetry.isRunning ? telemetry.estimatedLufs : -70;
   const broadcastLufs = telemetry.isRunning
@@ -405,8 +515,8 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
             <div className="sm:col-span-4 flex items-center justify-around py-2 bg-[#070A10] border border-slate-800 rounded">
               <div className="flex flex-col items-center gap-1">
                 <SegmentedLedMeter
-                  levelDb={telemetry.isRunning ? telemetry.postRmsDb : -96}
-                  peakDb={telemetry.isRunning ? telemetry.postPeakDb : -96}
+                  levelDb={fastRoomDb}
+                  peakDb={fastRoomPeakDb}
                   height={98}
                   segments={14}
                 />
@@ -414,13 +524,13 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
               </div>
               <div className="flex flex-col items-center gap-1">
                 <SegmentedLedMeter
-                  levelDb={telemetry.isRunning ? Math.min(-1, telemetry.postRmsDb + 3.5) : -96}
-                  peakDb={telemetry.isRunning ? broadcastDsp.limiterCeilingDb : -96}
+                  levelDb={fastStreamDb}
+                  peakDb={fastStreamPeakDb}
                   muted={!broadcastDsp.enabled}
                   height={98}
                   segments={14}
                 />
-                <span className="font-mono text-[9px] text-emerald-400">STREAM</span>
+                <span className="font-mono text-[9px] text-emerald-400 font-bold">STREAM</span>
               </div>
             </div>
             <div className="sm:col-span-4">
@@ -558,6 +668,25 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Live Broadcast Output Waveform Scope */}
+          <div className="p-2.5 rounded bg-[#05080E] border border-emerald-500/25 space-y-1.5">
+            <div className="flex items-center justify-between font-mono text-[10px]">
+              <span className="text-emerald-300 font-bold uppercase flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Live Broadcast Stream Waveform Scope
+              </span>
+              <span className="text-slate-400 tabular-nums">
+                Peak: <strong className="text-white">{fastStreamPeakDb > -90 ? `${fastStreamPeakDb.toFixed(1)} dBFS` : '--'}</strong> · Ceiling: {broadcastDsp.limiterCeilingDb.toFixed(1)} dB
+              </span>
+            </div>
+            <canvas
+              ref={scopeCanvasRef}
+              width={520}
+              height={54}
+              className="w-full h-14 rounded border border-slate-800/80 block"
+            />
+          </div>
         </div>
 
         {/* Right OBS Studio Scene Matrix & Telemetry */}
@@ -608,6 +737,149 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
                 );
               })}
             </div>
+          </div>
+
+          {/* OBS Transport: Record, Studio Mode & Sync A/V */}
+          <div className="grid grid-cols-3 gap-2 font-mono text-[10px]">
+            <button
+              type="button"
+              disabled={!obsState.connected}
+              onClick={() => void obsWsService.toggleRecord()}
+              className={`py-2 px-2.5 rounded border font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 ${
+                obsState.telemetry.recording
+                  ? 'bg-rose-600 text-white border-rose-400 animate-pulse'
+                  : 'bg-[#090D14] border-slate-700 text-slate-300 hover:text-white'
+              }`}
+            >
+              <Circle className="w-3 h-3 fill-current" />
+              {obsState.telemetry.recording ? 'STOP REC' : 'REC SERMON'}
+            </button>
+
+            <button
+              type="button"
+              disabled={!obsState.connected}
+              onClick={() => void obsWsService.toggleStudioMode()}
+              className={`py-2 px-2.5 rounded border font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 ${
+                obsState.studioModeEnabled
+                  ? 'bg-amber-500/25 text-amber-200 border-amber-400/60'
+                  : 'bg-[#090D14] border-slate-700 text-slate-300 hover:text-white'
+              }`}
+            >
+              <ArrowRightLeft className="w-3 h-3" />
+              STUDIO: {obsState.studioModeEnabled ? 'ON' : 'OFF'}
+            </button>
+
+            <button
+              type="button"
+              disabled={!obsState.connected}
+              onClick={() => void obsWsService.triggerTransition()}
+              className="py-2 px-2.5 rounded border border-sky-500/50 bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40"
+            >
+              CUT / TRANSITION
+            </button>
+          </div>
+
+          {/* OBS Exclusive Audio Isolation + Live OBS Audio Mixer */}
+          <div className="p-3 rounded border border-emerald-500/30 bg-[#080F0D] space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-[10px] font-bold text-emerald-300 uppercase flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" />
+                OBS Exclusive App-Audio Lock
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={!obsState.connected}
+                  onClick={() => void handleSyncAvOffsetToObs()}
+                  className="px-2 py-1 rounded border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/30 text-sky-200 font-mono text-[10px] font-bold cursor-pointer disabled:opacity-40"
+                >
+                  Sync {broadcastDsp.avSyncOffsetMs}ms A/V
+                </button>
+                <button
+                  type="button"
+                  disabled={!obsState.connected || obsState.audioInputs.length === 0}
+                  onClick={() =>
+                    exclusiveAudioLock
+                      ? setExclusiveAudioLock(false)
+                      : void handleEnforceExclusiveObsAudio()
+                  }
+                  className={`px-2.5 py-1 rounded border font-mono text-[10px] font-bold cursor-pointer disabled:opacity-40 ${
+                    exclusiveAudioLock
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                      : 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200 hover:bg-emerald-500/35'
+                  }`}
+                >
+                  {exclusiveAudioLock ? 'EXCLUSIVE LOCK ON' : 'MUTE ALL OTHER OBS MICS'}
+                </button>
+              </div>
+            </div>
+
+            {obsState.connected && obsState.audioInputs.length > 0 ? (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {obsState.audioInputs.map((inp) => {
+                  const isAppFeed = designatedObsInput === inp.inputName;
+                  return (
+                    <div
+                      key={inp.inputName}
+                      className={`px-2.5 py-1.5 rounded border flex items-center justify-between gap-2 font-mono text-[10px] ${
+                        isAppFeed
+                          ? 'border-emerald-400/50 bg-emerald-950/30'
+                          : 'border-slate-800 bg-[#06090F]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="radio"
+                          name="designated-obs-feed"
+                          checked={isAppFeed}
+                          onChange={() => setDesignatedObsInput(inp.inputName)}
+                          title="Designate as App Broadcast Feed"
+                          className="accent-emerald-400 cursor-pointer"
+                        />
+                        <span className="text-white font-semibold truncate">{inp.inputName}</span>
+                        {isAppFeed && (
+                          <span className="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[8px] font-bold">
+                            APP FEED
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <input
+                          type="range"
+                          min={-48}
+                          max={6}
+                          step={0.5}
+                          value={inp.volumeDb}
+                          onChange={(e) =>
+                            void obsWsService.setInputVolumeDb(inp.inputName, parseFloat(e.target.value))
+                          }
+                          className="w-16 accent-sky-400 cursor-pointer"
+                        />
+                        <span className="w-11 text-right text-slate-300 tabular-nums">
+                          {inp.volumeDb.toFixed(1)}dB
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void obsWsService.setInputMute(inp.inputName, !inp.muted)}
+                          className={`px-2 py-0.5 rounded border font-bold cursor-pointer flex items-center gap-1 ${
+                            inp.muted
+                              ? 'bg-red-600/80 border-red-400 text-white'
+                              : 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                          }`}
+                        >
+                          {inp.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                          {inp.muted ? 'MUTED' : 'LIVE'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="font-mono text-[10px] text-slate-400">
+                Connect OBS WebSocket above to view &amp; mute all OBS mics/inputs and lock the stream exclusively to this app&apos;s audio.
+              </p>
+            )}
           </div>
 
           {/* Feedback Loop Guard */}
