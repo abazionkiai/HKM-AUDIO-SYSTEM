@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "church-audio-intelligence"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "chrono",
  "serde",

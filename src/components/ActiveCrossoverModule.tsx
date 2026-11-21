@@ -255,12 +255,69 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
     <div
       className={`${
         compactConsoleMode
-          ? 'h-full min-h-0 overflow-y-auto space-y-2.5 p-2.5'
+          ? 'h-full min-h-0 flex flex-col justify-between gap-1.5 p-2 overflow-hidden'
           : 'space-y-4 p-4'
       } rounded-xl border border-violet-500/35 bg-gradient-to-b from-[#110E1E] via-[#090D17] to-[#06080F] text-slate-200 shadow-2xl`}
     >
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+      {compactConsoleMode ? (
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-1.5 px-2 py-1.5 rounded-lg border border-slate-800 bg-[#0B0F1A] font-mono text-[10px]">
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 rounded bg-violet-500/20 border border-violet-400/40 text-violet-300 font-bold">
+              LR-24 XOVER
+            </span>
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={() => updateXover({ stereoLinked: !isLinked })}
+              className={`px-2 py-1 rounded border font-bold flex items-center gap-1 cursor-pointer ${
+                isLinked
+                  ? 'bg-violet-500/20 border-violet-400/60 text-violet-200'
+                  : 'bg-amber-500/20 border-amber-400/60 text-amber-200'
+              }`}
+            >
+              {isLinked ? <Link2 className="w-3 h-3" /> : <Unlink className="w-3 h-3" />}
+              {isLinked ? 'L+R' : 'DUAL'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={handleToggleSuperBass}
+              className={`px-2 py-1 rounded border font-bold flex items-center gap-1 cursor-pointer ${
+                superBass.enabled
+                  ? 'bg-fuchsia-600 text-white border-fuchsia-400'
+                  : 'bg-slate-900 border-slate-700 text-slate-400'
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              SUPERBASS {superBass.enabled ? `+${superBass.boostDb.toFixed(0)}dB` : 'OFF'}
+            </button>
+            <select
+              aria-label="SuperBass Voicing"
+              value={superBass.mode}
+              disabled={panelLocked}
+              onChange={(e) => handleSuperBassMode(e.target.value as 'deep-sub' | 'punch-808' | 'subharmonic')}
+              className="rounded border border-slate-700 bg-[#05080F] px-2 py-1 text-[10px] text-fuchsia-200 cursor-pointer"
+            >
+              <option value="deep-sub">Deep Sub (45 Hz)</option>
+              <option value="punch-808">808 Punch (63 Hz)</option>
+              <option value="subharmonic">Subharmonic Synth</option>
+            </select>
+          </div>
+
+          <ConsolePushButton
+            label={xover.enabled && !dsp.bypassed ? 'XOVER IN' : 'BYP'}
+            active={xover.enabled && !dsp.bypassed}
+            tone={xover.enabled && !dsp.bypassed ? 'emerald' : 'amber'}
+            onClick={() => updateXover({ enabled: !xover.enabled })}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-3">
           <div className="w-2.5 h-9 rounded-xs bg-violet-400 shadow-[0_0_12px_rgba(167,139,250,0.8)]" />
           <div>
@@ -420,9 +477,15 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
           </div>
         </div>
       </div>
+        </>
+      )}
 
       {/* Real-Time Filter Slopes Visualizer */}
-      <div className="relative rounded-lg border border-slate-800 bg-[#06080F] p-3 shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)]">
+      <div
+        className={`relative rounded-lg border border-slate-800 bg-[#06080F] ${
+          compactConsoleMode ? 'p-1.5 shrink-0' : 'p-3'
+        } shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)]`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2 font-mono text-[10px]">
           <div className="text-slate-400 uppercase flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-fuchsia-400 font-bold">
@@ -444,7 +507,10 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
           </div>
         </div>
 
-        <svg viewBox="0 0 800 120" className="w-full h-28 overflow-hidden rounded bg-[#04060C]">
+        <svg
+          viewBox="0 0 800 120"
+          className={`w-full ${compactConsoleMode ? 'h-14' : 'h-28'} overflow-hidden rounded bg-[#04060C]`}
+        >
           {/* Grids */}
           <line x1={0} y1={25} x2={800} y2={25} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
           <line x1={0} y1={55} x2={800} y2={55} stroke="rgba(148,163,184,0.25)" />
@@ -562,7 +628,7 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
       </div>
 
       {/* 3 Physical Band Processing & Output Matrix Strips */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className={`grid grid-cols-1 md:grid-cols-3 ${compactConsoleMode ? 'flex-1 min-h-0 gap-2' : 'gap-3'}`}>
         {/* BAND 1: SUBWOOFER CHANNEL STRIP */}
         <div
           className={`rounded-xl border p-3 flex flex-col justify-between gap-3 transition-all ${

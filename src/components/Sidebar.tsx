@@ -110,17 +110,17 @@ const NAV_TABS: NavTab[] = [
   makeTab('console', 'Console', 'Live Sound Console', Sliders, 'sky'),
   makeTab('dsp', 'DSP', 'Audio DSP Engine', AudioWaveform, 'sky'),
   makeTab('feedback', 'Feedback', 'Feedback Detection', Activity, 'emerald'),
-  makeTab('acoustics', 'Acoustics', 'Acoustic & Room Analyzer', Radio, 'emerald'),
+  makeTab('acoustics', 'Acoustic', 'Acoustic & Room Analyzer', Radio, 'emerald'),
   makeTab('speakers', 'Speakers', 'Speaker Management', MapPin, 'violet'),
   makeTab('routing', 'Matrix', 'Universal Routing & Virtual Patchbay', Cable, 'violet'),
   makeTab('microphones', 'Mics', 'Microphone Intelligence', Mic, 'amber'),
   makeTab('instruments', 'Band', 'Instrument & Music', Music, 'amber'),
-  makeTab('virtual-di', 'Virtual DI', 'Virtual DI & Bass', Zap, 'amber'),
+  makeTab('virtual-di', 'Virt DI', 'Virtual DI & Bass', Zap, 'amber'),
   makeTab('livestream', 'Stream', 'Livestream Studio', Video, 'rose'),
   makeTab('recorder', 'Recorder', 'Multitrack Live Service Recorder', Radio, 'rose'),
-  makeTab('soundcheck', 'Soundcheck', 'Automated Sound Check', CheckSquare, 'fuchsia'),
+  makeTab('soundcheck', 'Soundchk', 'Automated Sound Check', CheckSquare, 'fuchsia'),
   makeTab('presets', 'Presets', 'Presets & Service Profiles', Layers, 'fuchsia'),
-  makeTab('ai-engineer', 'AI Eng', 'AI Sound Engineer', Sparkles, 'fuchsia'),
+  makeTab('ai-engineer', 'AI', 'AI Sound Engineer', Sparkles, 'fuchsia'),
   makeTab('hardware', 'Hardware', 'Diagnostics, Hardware & Remote Access', Cpu, 'cyan'),
   makeTab('midi', 'MIDI', 'MIDI & Key Shortcuts', Cable, 'cyan'),
 ];
@@ -198,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <aside
           aria-label="Console Navigation Bar"
           data-dock={dockPosition}
-          className={`w-full shrink-0 ${borderClass} border-slate-800/90 bg-[#070A11] h-10 px-2 flex items-center z-30`}
+          className={`w-full shrink-0 ${borderClass} border-slate-300 bg-white h-10 px-2 flex items-center z-30 shadow-xs`}
         >
           <nav
             aria-label="Console Modules"
@@ -218,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   aria-current={active ? 'page' : undefined}
                   whileTap={{ scale: 0.96 }}
                   transition={{ duration: 0.12 }}
-                  className={`group relative flex-1 min-w-0 h-7 px-1.5 rounded-md border text-[10.5px] font-mono flex items-center justify-center gap-1 whitespace-nowrap overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 ${
+                  className={`group relative flex-1 min-w-0 h-7 px-1 rounded-md border text-[10px] font-mono flex items-center justify-center gap-1 whitespace-nowrap overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 ${
                     active ? `${tab.activeClass} font-bold` : `${tab.idleClass} font-medium`
                   }`}
                 >

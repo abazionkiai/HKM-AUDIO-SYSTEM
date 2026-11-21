@@ -320,16 +320,153 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
     <div
       className={`${
         compactConsoleMode
-          ? 'h-full min-h-0 flex flex-col justify-between gap-1.5 p-2.5'
+          ? 'h-full min-h-0 flex flex-col justify-between gap-1.5 p-2'
           : 'space-y-3.5 p-4'
       } rounded-xl border border-fuchsia-500/35 bg-gradient-to-b from-[#130D1B] via-[#090D16] to-[#06080E] text-slate-200 shadow-2xl`}
     >
-      {/* Top Header Strip */}
-      <div
-        className={`flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 ${
-          compactConsoleMode ? 'pb-1.5 shrink-0' : 'pb-3'
-        }`}
-      >
+      {/* Single-Line Hardware Rack Control Strip (Zero Stacked Pill Rows) */}
+      {compactConsoleMode ? (
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-1.5 px-2 py-1.5 rounded-lg border border-slate-800 bg-[#0B0F1A] font-mono text-[10px]">
+          {/* Left: Identity, Stereo Link, Channel Focus, Range */}
+          <div className="flex items-center gap-1.5">
+            <span className="px-1.5 py-0.5 rounded bg-fuchsia-500/20 border border-fuchsia-400/40 text-fuchsia-300 font-bold">
+              EQ-31
+            </span>
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={handleToggleStereoLink}
+              className={`px-2 py-1 rounded border font-bold flex items-center gap-1 cursor-pointer ${
+                isLinked
+                  ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
+                  : 'bg-amber-500/20 border-amber-400/60 text-amber-200'
+              }`}
+            >
+              {isLinked ? <Link2 className="w-3 h-3" /> : <Unlink className="w-3 h-3" />}
+              {isLinked ? 'L+R' : 'DUAL'}
+            </button>
+            {!isLinked && (
+              <div className="flex items-center rounded border border-slate-700 bg-[#05080F] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('L')}
+                  className={`px-1.5 py-0.5 rounded font-bold cursor-pointer ${
+                    activeTab === 'L' ? 'bg-cyan-500/30 text-cyan-200' : 'text-slate-400'
+                  }`}
+                >
+                  CH1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('R')}
+                  className={`px-1.5 py-0.5 rounded font-bold cursor-pointer ${
+                    activeTab === 'R' ? 'bg-violet-500/30 text-violet-200' : 'text-slate-400'
+                  }`}
+                >
+                  CH2
+                </button>
+              </div>
+            )}
+            <div className="flex items-center rounded border border-slate-700 bg-[#05080F] p-0.5">
+              <button
+                type="button"
+                onClick={() => setRangeMode(12)}
+                className={`px-1.5 py-0.5 rounded font-bold cursor-pointer ${
+                  rangeMode === 12 ? 'bg-cyan-500/25 text-cyan-200' : 'text-slate-400'
+                }`}
+              >
+                ±12
+              </button>
+              <button
+                type="button"
+                onClick={() => setRangeMode(6)}
+                className={`px-1.5 py-0.5 rounded font-bold cursor-pointer ${
+                  rangeMode === 6 ? 'bg-cyan-500/25 text-cyan-200' : 'text-slate-400'
+                }`}
+              >
+                ±6
+              </button>
+            </div>
+          </div>
+
+          {/* Center: Voicing Curve & Output Bus Dropdowns */}
+          <div className="flex items-center gap-1.5">
+            <select
+              aria-label="EQ Voicing Curve"
+              defaultValue=""
+              disabled={panelLocked}
+              onChange={(e) => {
+                const found = PRESET_CURVES.find((c) => c.id === e.target.value);
+                if (found) handleApplyPreset(found);
+              }}
+              className="rounded border border-slate-700 bg-[#05080F] px-2 py-1 text-[10px] text-slate-200 cursor-pointer"
+            >
+              <option value="" disabled>
+                Voicing Curve…
+              </option>
+              {PRESET_CURVES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              aria-label="GEQ Output Bus"
+              value={eqConfig.outputAssignment || 'main-lr'}
+              onChange={(e) => handleOutputAssignment(e.target.value)}
+              disabled={panelLocked}
+              className="rounded border border-slate-700 bg-[#05080F] px-2 py-1 text-[10px] text-sky-200 cursor-pointer"
+            >
+              <option value="main-lr">Bus: Main PA L/R</option>
+              <option value="aux-sub">Bus: Aux 1 Sub Array</option>
+              <option value="aux-mids">Bus: Aux 2 Vocals</option>
+              <option value="balcony-fill">Bus: Out 3-4 Balcony</option>
+              <option value="cryroom-overflow">Bus: Out 5-6 Foyer</option>
+            </select>
+          </div>
+
+          {/* Right: SuperBass Keys, Flat Reset & EQ Active */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={() => handleTriggerSuperBass(4.0)}
+              className="px-2 py-1 rounded border border-cyan-400/50 bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-200 font-bold cursor-pointer"
+              title="SuperBass +4 dB Sub Punch"
+            >
+              +4 SUB
+            </button>
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={() => handleTriggerSuperBass(7.5)}
+              className="px-2 py-1 rounded border border-fuchsia-400/60 bg-fuchsia-600/25 hover:bg-fuchsia-600/40 text-fuchsia-200 font-bold cursor-pointer"
+              title="SuperBass +7.5 dB Sub Slam"
+            >
+              +7.5 SLAM
+            </button>
+            <button
+              type="button"
+              disabled={panelLocked}
+              onClick={() => handleApplyPreset(PRESET_CURVES[0])}
+              className="px-2 py-1 rounded border border-slate-700 bg-[#121824] hover:bg-slate-800 text-slate-200 font-bold cursor-pointer flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3 text-cyan-400" />
+              FLAT
+            </button>
+            <ConsolePushButton
+              label={eqConfig.enabled && !dsp.bypassed ? 'EQ IN' : 'BYP'}
+              active={eqConfig.enabled && !dsp.bypassed}
+              tone={eqConfig.enabled && !dsp.bypassed ? 'emerald' : 'amber'}
+              onClick={handleToggleEnabled}
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Top Header Strip */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2.5">
           <div
             className={`w-2 ${
@@ -555,6 +692,8 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
           ))}
         </div>
       </div>
+        </>
+      )}
 
       {/* Real-Time SVG Frequency Response Display */}
       <div
@@ -580,7 +719,7 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
 
         <svg
           viewBox="0 0 860 90"
-          className={`w-full ${compactConsoleMode ? 'h-11' : 'h-20'} overflow-visible mt-0.5`}
+          className={`w-full ${compactConsoleMode ? 'h-8' : 'h-20'} overflow-visible mt-0.5`}
         >
           {/* Horizontal Grid lines */}
           <line x1={0} y1={12} x2={860} y2={12} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
@@ -666,6 +805,18 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
               band.hz === 8000 ||
               band.hz === 16000;
 
+            const bandHz = band.hz ?? ISO_31_FREQUENCIES[idx] ?? 1000;
+            const bandAccent =
+              activeTab === 'R' && !isLinked
+                ? 'fuchsia'
+                : bandHz <= 63
+                  ? 'fuchsia'
+                  : bandHz <= 250
+                    ? 'amber'
+                    : bandHz <= 2500
+                      ? 'emerald'
+                      : 'cyan';
+
             return (
               <PrecisionVerticalFader
                 key={band.hz}
@@ -677,9 +828,9 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
                 subLabel={`${band.hz} Hz`}
                 disabled={panelLocked}
                 isKeyFreq={isKeyFreq}
-                trackHeightClass={compactConsoleMode ? 'h-20' : 'h-44'}
+                trackHeightClass={compactConsoleMode ? 'h-28' : 'h-44'}
                 compact={compactConsoleMode}
-                accent={activeTab === 'R' && !isLinked ? 'fuchsia' : 'cyan'}
+                accent={bandAccent}
                 onChange={(nextVal) => handleBandChange(idx, nextVal)}
                 onDoubleClick={() => handleBandChange(idx, 0)}
               />
