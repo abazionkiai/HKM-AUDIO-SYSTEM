@@ -33,6 +33,7 @@ import { GlobalSearchModal } from './components/GlobalSearchModal.tsx';
 import { SignalJourneyModal } from './components/SignalJourneyModal.tsx';
 import { MultitrackRecorderModule } from './components/MultitrackRecorderModule.tsx';
 import { UniversalRoutingModule } from './components/UniversalRoutingModule.tsx';
+import { MasterPreviewDock } from './components/MasterPreviewDock.tsx';
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
@@ -413,14 +414,17 @@ export default function App() {
           />
         </div>
 
+        <div
+          className={`flex-1 min-h-0 min-w-0 flex flex-row ${
+            session.navDockPosition === 'right' || session.navDockPosition === 'bottom' ? 'order-1' : 'order-2'
+          }`}
+        >
         <main
           className={`flex-1 min-h-0 min-w-0 ${
             activeModule === 'console' || activeModule === 'dsp'
               ? 'overflow-hidden p-1.5'
               : 'overflow-y-auto p-4 lg:p-5'
-          } bg-[#080B10] flex flex-col ${
-            session.navDockPosition === 'right' || session.navDockPosition === 'bottom' ? 'order-1' : 'order-2'
-          }`}
+          } bg-[#080B10] flex flex-col`}
         >
           {audio.audioError && (
             <div className="mb-4 p-3 rounded-md border border-red-500/40 bg-red-500/10 text-xs text-red-300">
@@ -672,6 +676,18 @@ export default function App() {
             />
           )}
         </main>
+        <MasterPreviewDock
+          dsp={session.dsp}
+          onUpdateDsp={session.handleUpdateDsp}
+          telemetry={audio.telemetry}
+          spectrum={audio.spectrum}
+          emergencyMuted={session.emergencyMuted}
+          onToggleEmergencyMute={session.handleToggleEmergencyMute}
+          onToggleTotalBypass={session.handleToggleTotalBypass}
+          obsStatus={session.obsStatus}
+          onNavigateModule={setActiveModule}
+        />
+        </div>
       </div>
 
       {/* Global Keyboard Shortcut Manager Modal */}
