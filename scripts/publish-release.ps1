@@ -32,4 +32,5 @@ $json = $manifest | ConvertTo-Json -Depth 5
 
 gh release create $tag --repo $repo --title "Church Audio Intelligence $tag" --notes $Notes `
   "$out/$exeName" "$out/$exeName.sig" "$out/$msiName" "$out/latest.json"
+if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit $LASTEXITCODE)" }
 Write-Host "Published $tag -> https://github.com/$repo/releases/tag/$tag"
