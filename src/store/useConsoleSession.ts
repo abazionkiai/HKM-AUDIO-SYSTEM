@@ -237,7 +237,22 @@ export function useConsoleSession({
               if (foundDev) setActiveDevice(foundDev);
             }
           }
-          if (Array.isArray(data.channels) && data.channels.length > 0) setChannels(data.channels);
+          if (Array.isArray(data.channels) && data.channels.length > 0) {
+            // Cleanse any legacy cached mock channels (e.g. "USB Stereo Return") from previous versions
+            const cleaned = data.channels.map((ch: InputChannel) => {
+              if (ch.name?.includes('USB Stereo Return L')) {
+                return { ...ch, name: 'Main Preacher', role: 'Lead Speech' };
+              }
+              if (ch.name?.includes('USB Stereo Return R')) {
+                return { ...ch, name: 'Assistant Pastor', role: 'Wireless HH' };
+              }
+              if (ch.name?.includes('USB Stereo Ret')) {
+                return { ...ch, name: `Input ${ch.index}`, role: 'Dynamic Input' };
+              }
+              return ch;
+            });
+            setChannels(cleaned);
+          }
           if (data.dsp && typeof data.dsp === 'object') setDsp(data.dsp);
           if (typeof data.activePresetId === 'string') {
             const matchedPreset = SERVICE_PRESETS.find((p) => p.id === data.activePresetId);

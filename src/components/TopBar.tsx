@@ -14,6 +14,7 @@ import {
   Activity,
   Sliders,
   ShieldCheck,
+  Mic,
 } from 'lucide-react';
 import type {
   AudioSourceSimulation,
@@ -54,6 +55,9 @@ interface TopBarProps {
   onTapTempo: () => void;
   onOpenShortcuts: () => void;
   shortcutsArmed: boolean;
+  inputDevices?: MediaDeviceInfo[];
+  activeInputDeviceId?: string;
+  onSelectInputDevice?: (deviceId: string) => void;
   outputDevices?: MediaDeviceInfo[];
   activeOutputDeviceId?: string;
   onSelectOutputDevice?: (deviceId: string) => void;
@@ -103,6 +107,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onTapTempo,
   onOpenShortcuts,
   shortcutsArmed,
+  inputDevices = [],
+  activeInputDeviceId,
+  onSelectInputDevice,
   outputDevices = [],
   activeOutputDeviceId = '',
   onSelectOutputDevice,
@@ -146,7 +153,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           ·
         </span>
         <span className="text-xs font-mono text-sky-400 truncate hidden 2xl:inline">
-          {activeDevice.manufacturer} {activeDevice.model} ({platformLabel} · {driver} · {(sampleRate / 1000).toFixed(1)}k) · {activePreset.name}
+          {activeDevice.id === 'system-live-io'
+            ? `${(inputDevices[0]?.label || outputDevices[0]?.label || 'System Audio Endpoint').slice(0, 32)} (${platformLabel} · ${driver} · ${(sampleRate / 1000).toFixed(1)}k)`
+            : `${activeDevice.manufacturer} ${activeDevice.model} (${platformLabel} · ${driver} · ${(sampleRate / 1000).toFixed(1)}k)`} · {activePreset.name}
         </span>
       </div>
 
@@ -268,20 +277,42 @@ export const TopBar: React.FC<TopBarProps> = ({
           </select>
         </div>
 
-        <select
-          aria-label="Audio Input Source"
-          value={audioSource}
-          onChange={(e) => onSourceChange(e.target.value as AudioSourceSimulation)}
-          className="hidden lg:block h-8 px-1.5 text-[11px] font-mono rounded border border-slate-700 bg-[#121824] text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 min-w-0 flex-1 max-w-[180px]"
-        >
-          <option value="live-mic">
-            Hardware Input: {activeDevice.model} (Live)
-          </option>
-          <option value="desktop-audio">
-            Desktop Audio: System / Browser Loopback
-          </option>
-          <option value="pink-noise">Calibration: Pink Noise (-20 dBFS)</option>
-        </select>
+        {/* Real Live Physical Input Selection */}
+        <div className="hidden lg:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[190px]">
+          <Mic className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          <select
+            aria-label="Audio Input Source"
+            value={audioSource === 'live-mic' ? (activeInputDeviceId || '') : audioSource}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'desktop-audio' || val === 'pink-noise') {
+                onSourceChange(val as AudioSourceSimulation);
+              } else {
+                onSourceChange('live-mic');
+                if (onSelectInputDevice) onSelectInputDevice(val);
+              }
+            }}
+            className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
+          >
+            {inputDevices.length === 0 ? (
+              <option value="" className="bg-[#0E131C] text-slate-100">
+                In: System Live Mic
+              </option>
+            ) : (
+              inputDevices.map((d, idx) => (
+                <option key={`in-${d.deviceId}-${idx}`} value={d.deviceId} className="bg-[#0E131C] text-slate-100">
+                  In: {d.label || `Audio Input ${idx + 1}`}
+                </option>
+              ))
+            )}
+            <option value="desktop-audio" className="bg-[#0E131C] text-sky-300">
+              In: Desktop Loopback (OBS/App)
+            </option>
+            <option value="pink-noise" className="bg-[#0E131C] text-amber-300">
+              In: Pink Noise Ref (-20dB)
+            </option>
+          </select>
+        </div>
 
         {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
           <div className="hidden xl:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[160px]">

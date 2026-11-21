@@ -40,7 +40,36 @@ export const DEFAULT_BASS_DI_CONFIG: BassDiConfig = {
   tunerRefHz: 440,
 };
 
+export const SYSTEM_DEFAULT_DEVICE: HardwareDevice = {
+  id: 'system-live-io',
+  manufacturer: 'System Hardware',
+  model: 'Live Audio Device',
+  tier: 1,
+  tierLabel: 'Tier 1 · System Live Audio',
+  category: 'USB Audio Interface',
+  connectionType: 'Operating System Audio Subsystem (WASAPI / ASIO / CoreAudio)',
+  sampleRates: [44100, 48000, 96000],
+  defaultSampleRate: 48000,
+  defaultBufferSize: 256,
+  supportedPlatforms: ['windows', 'macos', 'linux'],
+  capabilities: {
+    perChannelFaderControl: false,
+    perChannelCapture: true,
+    stereoMixCapture: true,
+    phantomPowerControl: false,
+    remoteMuteSolo: false,
+    networkMatrix: false,
+    calibratedMeasurement: false,
+    maxInputChannels: 16,
+    maxOutputChannels: 16,
+    controlProtocol: 'OS Audio Endpoint',
+    supportedDrivers: ['ASIO', 'WASAPI Exclusive', 'WASAPI Shared', 'CoreAudio', 'ALSA', 'PipeWire'],
+    limitationsNote: 'Direct live hardware audio stream via system sound architecture.',
+  },
+};
+
 export const HARDWARE_CATALOG: HardwareDevice[] = [
+  SYSTEM_DEFAULT_DEVICE,
   {
     id: 'yamaha-mg16xu',
     manufacturer: 'Yamaha',

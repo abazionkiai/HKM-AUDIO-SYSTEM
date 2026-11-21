@@ -318,6 +318,9 @@ export default function App() {
         onTapTempo={() => shortcuts.executeShortcutAction('tap-tempo', 'CLICK')}
         onOpenShortcuts={() => shortcuts.setShowShortcutsModal(true)}
         shortcutsArmed={shortcuts.shortcutsGlobalEnabled}
+        inputDevices={hardware.inputDevices}
+        activeInputDeviceId={hardware.preferredBrowserInputId}
+        onSelectInputDevice={hardware.setPreferredBrowserInputId}
         outputDevices={hardware.outputDevices}
         activeOutputDeviceId={hardware.preferredOutputDeviceId}
         onSelectOutputDevice={hardware.handleSelectOutputDevice}
