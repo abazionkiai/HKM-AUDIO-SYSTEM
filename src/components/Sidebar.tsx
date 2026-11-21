@@ -118,7 +118,7 @@ const NAV_TABS: NavTab[] = [
   makeTab('virtual-di', 'Virtual DI', 'Virtual DI & Bass', Zap, 'amber'),
   makeTab('livestream', 'Stream', 'Livestream Studio', Video, 'rose'),
   makeTab('recorder', 'Recorder', 'Multitrack Live Service Recorder', Radio, 'rose'),
-  makeTab('soundcheck', 'Check', 'Automated Sound Check', CheckSquare, 'fuchsia'),
+  makeTab('soundcheck', 'Soundcheck', 'Automated Sound Check', CheckSquare, 'fuchsia'),
   makeTab('presets', 'Presets', 'Presets & Service Profiles', Layers, 'fuchsia'),
   makeTab('ai-engineer', 'AI Eng', 'AI Sound Engineer', Sparkles, 'fuchsia'),
   makeTab('hardware', 'Hardware', 'Diagnostics, Hardware & Remote Access', Cpu, 'cyan'),
@@ -198,11 +198,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <aside
           aria-label="Console Navigation Bar"
           data-dock={dockPosition}
-          className={`w-full shrink-0 ${borderClass} border-slate-800/90 bg-[#070A11] h-10 px-2 flex items-center justify-between gap-2 z-30`}
+          className={`w-full shrink-0 ${borderClass} border-slate-800/90 bg-[#070A11] h-10 px-2 flex items-center z-30`}
         >
           <nav
             aria-label="Console Modules"
-            className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto overflow-y-hidden h-full py-1 scrollbar-none"
+            className="flex items-center gap-1 w-full h-full py-1"
           >
             {NAV_TABS.map((tab) => {
               const Icon = tab.icon;
@@ -218,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   aria-current={active ? 'page' : undefined}
                   whileTap={{ scale: 0.96 }}
                   transition={{ duration: 0.12 }}
-                  className={`group relative h-7 px-2 rounded-md border text-[10.5px] font-mono flex items-center gap-1 whitespace-nowrap shrink-0 overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 ${
+                  className={`group relative flex-1 min-w-0 h-7 px-1.5 rounded-md border text-[10.5px] font-mono flex items-center justify-center gap-1 whitespace-nowrap overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 ${
                     active ? `${tab.activeClass} font-bold` : `${tab.idleClass} font-medium`
                   }`}
                 >
@@ -232,16 +232,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       aria-hidden="true"
                     />
                   )}
-                  <span className="relative z-10 flex items-center gap-1">
+                  <span className="relative z-10 flex items-center gap-1 min-w-0">
                     {active && (
                       <span className={`w-1.5 h-1.5 rounded-full ${tab.dotClass} animate-pulse shrink-0`} />
                     )}
                     <Icon className="w-3 h-3 shrink-0 opacity-90" />
-                    <span>{tab.label}</span>
+                    <span className="truncate">{tab.label}</span>
                   </span>
                   {alertCount > 0 && (
                     <span
-                      className="ml-0.5 px-1 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 font-mono text-[8px] font-bold tabular-nums leading-tight pointer-events-none"
+                      className="ml-0.5 px-1 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 font-mono text-[8px] font-bold tabular-nums leading-tight pointer-events-none shrink-0"
                       aria-label={`${alertCount} active alert`}
                     >
                       {alertCount}
@@ -251,10 +251,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
           </nav>
-
-          <div className="pl-2 border-l border-slate-800 shrink-0 flex items-center">
-            {renderDockAllocator()}
-          </div>
         </aside>
       </MotionConfig>
     );
