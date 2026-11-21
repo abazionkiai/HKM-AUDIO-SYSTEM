@@ -15,6 +15,7 @@ import {
 } from '../utils/hardwareCacheDb.ts';
 import { scanBrowserMediaDevices } from '../utils/hardwareRecognition.ts';
 import {
+  enumerateAudioInputs,
   enumerateAudioOutputs,
   liveAudioEngine,
   subscribeHardwareChanges,
@@ -46,10 +47,18 @@ export function useHardwareManager({
   const [scanningHardware, setScanningHardware] = useState(false);
   const [hotPlugEndpoint, setHotPlugEndpoint] = useState<DetectedHardwareEndpoint | null>(null);
   const [preferredBrowserInputId, setPreferredBrowserInputId] = useState<string | undefined>(undefined);
+  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [preferredOutputDeviceId, setPreferredOutputDeviceId] = useState<string>(() => {
     try {
       return window.localStorage.getItem('church_audio_output_device_id') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [preferredStreamOutputDeviceId, setPreferredStreamOutputDeviceId] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem('church_audio_stream_output_device_id') || '';
     } catch {
       return '';
     }
@@ -70,20 +79,72 @@ export function useHardwareManager({
     logAudit('Audio Output Changed', deviceId ? `Target device: ${deviceId}` : 'Default system output', 'operator');
   }, [logAudit]);
 
+  const handleSelectStreamOutputDevice = useCallback(async (deviceId: string) => {
+    setPreferredStreamOutputDeviceId(deviceId);
+    try {
+      window.localStorage.setItem('church_audio_stream_output_device_id', deviceId);
+    } catch {
+      // ignore storage error
+    }
+    await liveAudioEngine.setStreamOutputDevice(deviceId);
+    logAudit(
+      'Dedicated Stream Output Changed',
+      deviceId ? `Stream / Virtual Cable sink: ${deviceId}` : 'Dedicated stream sink disabled',
+      'operator'
+    );
+  }, [logAudit]);
+
+  const refreshAudioDevices = useCallback(async (requestPermission = false) => {
+    if (requestPermission && typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tempStream.getTracks().forEach((t) => t.stop());
+      } catch {
+        // Proceed even if permission prompt dismissed
+      }
+    }
+    const [inputs, outputs] = await Promise.all([
+      enumerateAudioInputs(),
+      enumerateAudioOutputs(),
+    ]);
+    setInputDevices(inputs);
+    setOutputDevices(outputs);
+    // Auto-bind VB-Audio Virtual Cable ("CABLE Input") if not manually cleared
+    const vbCableOut = outputs.find((d) =>
+      (d.label || '').toLowerCase().includes('cable input') ||
+      (d.label || '').toLowerCase().includes('vb-audio')
+    );
+    if (vbCableOut && !preferredStreamOutputDeviceId) {
+      setPreferredStreamOutputDeviceId(vbCableOut.deviceId);
+      void liveAudioEngine.setStreamOutputDevice(vbCableOut.deviceId);
+    }
+    return { inputs, outputs };
+  }, [preferredStreamOutputDeviceId]);
+
   useEffect(() => {
     let active = true;
-    const refreshOutputs = () => {
-      enumerateAudioOutputs().then((devs) => {
-        if (active) setOutputDevices(devs);
+    const refreshPorts = () => {
+      Promise.all([enumerateAudioInputs(), enumerateAudioOutputs()]).then(([ins, outs]) => {
+        if (!active) return;
+        setInputDevices(ins);
+        setOutputDevices(outs);
+        const vbCableOut = outs.find((d) =>
+          (d.label || '').toLowerCase().includes('cable input') ||
+          (d.label || '').toLowerCase().includes('vb-audio')
+        );
+        if (vbCableOut && !preferredStreamOutputDeviceId) {
+          setPreferredStreamOutputDeviceId(vbCableOut.deviceId);
+          void liveAudioEngine.setStreamOutputDevice(vbCableOut.deviceId);
+        }
       });
     };
-    refreshOutputs();
-    const unsub = subscribeHardwareChanges(refreshOutputs);
+    refreshPorts();
+    const unsub = subscribeHardwareChanges(refreshPorts);
     return () => {
       active = false;
       unsub();
     };
-  }, []);
+  }, [preferredStreamOutputDeviceId]);
 
   // Proactive USB, Internal, and LAN Audio endpoint hardware scanner
   const runHardwareScan = useCallback(
@@ -242,9 +303,13 @@ export function useHardwareManager({
     scanningHardware,
     hotPlugEndpoint,
     preferredBrowserInputId,
+    inputDevices,
     outputDevices,
     preferredOutputDeviceId,
+    preferredStreamOutputDeviceId,
+    refreshAudioDevices,
     handleSelectOutputDevice,
+    handleSelectStreamOutputDevice,
     runHardwareScan,
     handleClearHardwareCache,
     handleBindDetectedEndpoint,

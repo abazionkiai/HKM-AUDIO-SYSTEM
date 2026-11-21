@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Plus,
+  RefreshCw,
   ShieldAlert,
   Sliders,
 } from 'lucide-react';
@@ -11,6 +13,10 @@ import { RotaryKnob, SegmentedLedMeter } from './StudioControls.tsx';
 interface SpeakerZonesModuleProps {
   zones: SpeakerZone[];
   onUpdateZone: (id: string, patch: Partial<SpeakerZone>) => void;
+  onAddZone?: (name?: string, role?: SpeakerZone['role']) => void;
+  onRemoveZone?: (id: string) => void;
+  outputDevices?: MediaDeviceInfo[];
+  onScanAudioDevices?: (requestPermission?: boolean) => Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }>;
   telemetry?: SignalTelemetry;
   emergencyMuted?: boolean;
   onToggleEmergencyMute?: () => void;
@@ -28,6 +34,10 @@ const DISTRIBUTED_ZONES = [
 export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
   zones,
   onUpdateZone,
+  onAddZone,
+  onRemoveZone,
+  outputDevices = [],
+  onScanAudioDevices,
   telemetry,
   emergencyMuted = false,
   onToggleEmergencyMute,
@@ -199,8 +209,8 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
     : 24;
   const nominalImpedance = selectedZone?.role === 'sub' ? '4.0 Ω' : '7.8 Ω';
 
-  // Build 6-row rack display mapped to available zones
-  const rackZones = zones.slice(0, 6);
+  // Show all configured speaker zones without artificial cap
+  const rackZones = zones;
 
   return (
     <div className="space-y-3">
@@ -231,6 +241,26 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
           <div className="text-slate-400">
             ZONES: <span className="text-sky-300 font-semibold">{zoneStats.normal}/{zoneStats.total} LIVE</span>
           </div>
+          {onScanAudioDevices && (
+            <button
+              type="button"
+              onClick={() => void onScanAudioDevices(false)}
+              className="px-2.5 py-1.5 rounded border border-slate-600 bg-slate-800/80 text-slate-200 hover:bg-slate-700 font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Scan Ports ({outputDevices.length})</span>
+            </button>
+          )}
+          {onAddZone && (
+            <button
+              type="button"
+              onClick={() => onAddZone(`Speaker Zone ${zones.length + 1}`, 'overflow')}
+              className="px-2.5 py-1.5 rounded border border-sky-400/50 bg-sky-500/20 text-sky-200 hover:bg-sky-500/35 font-semibold flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Speaker</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onToggleEmergencyMute ?? handleUnmuteAllZones}
@@ -764,26 +794,78 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
                 </button>
               </div>
 
-              <div className="p-2.5 rounded bg-[#080C13] border border-slate-800 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-mono text-xs font-bold text-white truncate">
-                    {selectedZone.name.toUpperCase()}
+              <div className="p-2.5 rounded bg-[#080C13] border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-xs font-bold text-white truncate">
+                      {selectedZone.name.toUpperCase()}
+                    </div>
+                    <div className="font-mono text-[10px] text-sky-400 truncate">
+                      {selectedZone.hardwareOutput}
+                    </div>
                   </div>
-                  <div className="font-mono text-[10px] text-sky-400 truncate">
-                    {selectedZone.hardwareOutput}
-                  </div>
+                  <SegmentedLedMeter
+                    levelDb={
+                      selectedZone.mute || emergencyMuted || !telemetry?.isRunning
+                        ? -96
+                        : Math.max(-56, telemetry.postRmsDb + selectedZone.levelDb)
+                    }
+                    peakDb={selectedZone.limiterDb}
+                    muted={selectedZone.mute || emergencyMuted}
+                    height={38}
+                    segments={8}
+                  />
                 </div>
-                <SegmentedLedMeter
-                  levelDb={
-                    selectedZone.mute || emergencyMuted || !telemetry?.isRunning
-                      ? -96
-                      : Math.max(-56, telemetry.postRmsDb + selectedZone.levelDb)
-                  }
-                  peakDb={selectedZone.limiterDb}
-                  muted={selectedZone.mute || emergencyMuted}
-                  height={38}
-                  segments={8}
-                />
+                <div className="grid grid-cols-2 gap-1.5 font-mono text-[10px]">
+                  <select
+                    aria-label="Speaker Role"
+                    value={selectedZone.role}
+                    onChange={(e) =>
+                      onUpdateZone(selectedZone.id, { role: e.target.value as SpeakerZone['role'] })
+                    }
+                    className="bg-[#0D121F] border border-slate-700 rounded px-1.5 py-1 text-slate-200"
+                  >
+                    <option value="main-lr">Front Main L/R</option>
+                    <option value="rear-fill">Rear Fill</option>
+                    <option value="sub">Subwoofer</option>
+                    <option value="center">Center</option>
+                    <option value="stage-monitor">Stage Monitor</option>
+                    <option value="overflow">Overflow / Aux</option>
+                  </select>
+                  <select
+                    aria-label="Assigned System Output Port"
+                    value={selectedZone.hardwareOutputId ?? ''}
+                    onChange={(e) => {
+                      const devId = e.target.value;
+                      const dev = outputDevices.find((d) => d.deviceId === devId);
+                      onUpdateZone(selectedZone.id, {
+                        hardwareOutputId: devId || undefined,
+                        hardwareOutput: dev?.label || (devId ? devId : 'System Default'),
+                      });
+                    }}
+                    className="bg-[#0D121F] border border-slate-700 rounded px-1.5 py-1 text-sky-200"
+                  >
+                    <option value="">System Default</option>
+                    {outputDevices.map((d, idx) => (
+                      <option key={`${d.deviceId}-${idx}`} value={d.deviceId}>
+                        {d.label || `Output Port ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {onRemoveZone && zones.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = zones.find((z) => z.id !== selectedZone.id);
+                      onRemoveZone(selectedZone.id);
+                      if (next) setSelectedId(next.id);
+                    }}
+                    className="w-full py-1 rounded border border-rose-500/40 bg-rose-950/30 text-rose-300 hover:bg-rose-900/40 font-mono text-[10px]"
+                  >
+                    Remove Speaker Zone
+                  </button>
+                )}
               </div>
             </div>
 

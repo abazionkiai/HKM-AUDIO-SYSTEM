@@ -502,6 +502,10 @@ export default function App() {
               onUpdateZone={(id, patch) =>
                 session.setZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)))
               }
+              onAddZone={session.handleAddZone}
+              onRemoveZone={session.handleRemoveZone}
+              outputDevices={hardware.outputDevices}
+              onScanAudioDevices={hardware.refreshAudioDevices}
               telemetry={audio.telemetry}
               emergencyMuted={session.emergencyMuted}
               onToggleEmergencyMute={session.handleToggleEmergencyMute}
@@ -625,7 +629,19 @@ export default function App() {
               channels={session.channels}
               onUpdateChannel={session.handleUpdateChannel}
               onAddChannel={session.handleAddChannel}
+              onRemoveChannel={session.handleRemoveChannel}
               onAddZone={session.handleAddZone}
+              onUpdateZone={(id, patch) =>
+                session.setZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)))
+              }
+              onRemoveZone={session.handleRemoveZone}
+              inputDevices={hardware.inputDevices}
+              outputDevices={hardware.outputDevices}
+              preferredOutputDeviceId={hardware.preferredOutputDeviceId}
+              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+              onSelectOutputDevice={hardware.handleSelectOutputDevice}
+              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
+              onScanAudioDevices={hardware.refreshAudioDevices}
               zones={session.zones}
               dsp={session.dsp}
               onOpenSignalJourney={(chId) => setSignalJourneyChannelId(chId)}

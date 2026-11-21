@@ -111,6 +111,8 @@ export interface InputChannel {
   };
   dcaGroup: DcaGroupName;
   stereoLinked: boolean;
+  hardwareInputId?: string;
+  hardwareInputLabel?: string;
 }
 
 export type EqFilterType = 'peaking' | 'lowshelf' | 'highshelf' | 'highpass' | 'lowpass';
@@ -280,6 +282,7 @@ export interface SpeakerZone {
   crossoverSlope: 'LR24' | 'BW18' | 'None';
   limiterDb: number;
   hardwareOutput: string;
+  hardwareOutputId?: string;
 }
 
 export interface ServicePreset {

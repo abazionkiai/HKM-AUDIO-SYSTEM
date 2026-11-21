@@ -148,6 +148,10 @@ class LiveAudioEngine {
 
   private monitorGain: GainNode | null = null;
   private preferredOutputDeviceId: string | undefined = undefined;
+  private preferredStreamOutputDeviceId: string | undefined = undefined;
+  private streamOutputGain: GainNode | null = null;
+  private streamMediaDest: MediaStreamAudioDestinationNode | null = null;
+  private streamAudioEl: HTMLAudioElement | null = null;
   private standbySilenceTimerSec = 0;
   private standbyGateIsClosed = false;
 
@@ -235,6 +239,39 @@ class LiveAudioEngine {
 
   public getPreferredOutputDeviceId(): string {
     return this.preferredOutputDeviceId || '';
+  }
+
+  public async setStreamOutputDevice(deviceId?: string): Promise<boolean> {
+    this.preferredStreamOutputDeviceId = deviceId || undefined;
+    if (!deviceId) {
+      if (this.streamAudioEl) {
+        this.streamAudioEl.pause();
+        this.streamAudioEl.srcObject = null;
+      }
+      return true;
+    }
+    if (!this.ctx || !this.streamMediaDest) return false;
+    try {
+      if (!this.streamAudioEl && typeof Audio !== 'undefined') {
+        this.streamAudioEl = new Audio();
+        this.streamAudioEl.autoplay = true;
+      }
+      if (this.streamAudioEl) {
+        this.streamAudioEl.srcObject = this.streamMediaDest.stream;
+        if ('setSinkId' in this.streamAudioEl && typeof (this.streamAudioEl as any).setSinkId === 'function') {
+          await (this.streamAudioEl as any).setSinkId(deviceId);
+        }
+        await this.streamAudioEl.play().catch(() => {});
+      }
+      return true;
+    } catch (err) {
+      console.warn('Stream output setSinkId failed:', err);
+      return false;
+    }
+  }
+
+  public getPreferredStreamOutputDeviceId(): string {
+    return this.preferredStreamOutputDeviceId || '';
   }
 
   public stop(): void {
@@ -650,6 +687,16 @@ class LiveAudioEngine {
     this.postSplitter.connect(this.postRAnalyser, 1);
     this.postAnalyser.connect(this.monitorGain);
     this.monitorGain.connect(ctx.destination);
+
+    // Secondary dedicated Virtual-Cable / OBS stream sink (runs in parallel with physical speakers)
+    this.streamOutputGain = ctx.createGain();
+    this.streamOutputGain.gain.value = 1;
+    this.streamMediaDest = ctx.createMediaStreamDestination();
+    this.postAnalyser.connect(this.streamOutputGain);
+    this.streamOutputGain.connect(this.streamMediaDest);
+    if (this.preferredStreamOutputDeviceId) {
+      void this.setStreamOutputDevice(this.preferredStreamOutputDeviceId);
+    }
 
     const binCount = this.preAnalyser.frequencyBinCount;
     this.preFreqBuf = new Float32Array(binCount);
@@ -1682,15 +1729,23 @@ export function subscribeHardwareChanges(cb: () => void): () => void {
   };
 }
 
-export async function enumerateAudioOutputs(): Promise<MediaDeviceInfo[]> {
+async function enumerateAudioDevicesByKind(kind: MediaDeviceKind): Promise<MediaDeviceInfo[]> {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
     return [];
   }
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter((d) => d.kind === 'audiooutput');
+    return devices.filter((d) => d.kind === kind);
   } catch (err) {
-    console.warn('enumerateAudioOutputs failed:', err);
+    console.warn(`enumerateAudioDevices(${kind}) failed:`, err);
     return [];
   }
+}
+
+export function enumerateAudioInputs(): Promise<MediaDeviceInfo[]> {
+  return enumerateAudioDevicesByKind('audioinput');
+}
+
+export function enumerateAudioOutputs(): Promise<MediaDeviceInfo[]> {
+  return enumerateAudioDevicesByKind('audiooutput');
 }
