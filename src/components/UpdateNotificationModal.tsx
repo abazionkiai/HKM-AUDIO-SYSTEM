@@ -4,7 +4,7 @@ import { ArrowDownCircle, RefreshCw, X, Sparkles, CheckCircle2 } from 'lucide-re
 interface UpdateNotificationModalProps {
   version: string;
   notes?: string;
-  onInstall: () => Promise<void>;
+  onInstall: (onProgress?: (percent: number) => void) => Promise<void>;
   onDismiss: () => void;
 }
 
@@ -21,9 +21,10 @@ export function UpdateNotificationModal({
 
   const handleStartUpdate = async () => {
     setDownloading(true);
+    setProgress(0);
     setError(null);
     try {
-      await onInstall();
+      await onInstall((pct) => setProgress(pct));
       setReady(true);
       setDownloading(false);
     } catch (err) {

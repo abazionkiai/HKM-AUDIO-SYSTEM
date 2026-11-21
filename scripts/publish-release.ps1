@@ -16,21 +16,25 @@ $msiName = "Church-Audio-Intelligence_${version}_x64_en-US.msi"
 Copy-Item "$bundle/nsis/Church Audio Intelligence_${version}_x64-setup.exe"     "$out/$exeName"
 Copy-Item "$bundle/nsis/Church Audio Intelligence_${version}_x64-setup.exe.sig" "$out/$exeName.sig"
 Copy-Item "$bundle/msi/Church Audio Intelligence_${version}_x64_en-US.msi"      "$out/$msiName"
+Copy-Item "$bundle/msi/Church Audio Intelligence_${version}_x64_en-US.msi.sig"  "$out/$msiName.sig"
 
-$sig  = (Get-Content "$out/$exeName.sig" -Raw).Trim()
-$base = "https://github.com/$repo/releases/download/$tag"
+$sigNsis = (Get-Content "$out/$exeName.sig" -Raw).Trim()
+$sigMsi  = (Get-Content "$out/$msiName.sig" -Raw).Trim()
+$base    = "https://github.com/$repo/releases/download/$tag"
 $manifest = [ordered]@{
   version  = $version
   notes    = $Notes
   pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   platforms = [ordered]@{
-    "windows-x86_64" = [ordered]@{ signature = $sig; url = "$base/$exeName" }
+    "windows-x86_64"      = [ordered]@{ signature = $sigNsis; url = "$base/$exeName" }
+    "windows-x86_64-nsis" = [ordered]@{ signature = $sigNsis; url = "$base/$exeName" }
+    "windows-x86_64-msi"  = [ordered]@{ signature = $sigMsi;  url = "$base/$msiName" }
   }
 }
 $json = $manifest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $out) "latest.json"), $json, (New-Object System.Text.UTF8Encoding $false))
 
 gh release create $tag --repo $repo --title "Church Audio Intelligence $tag" --notes $Notes `
-  "$out/$exeName" "$out/$exeName.sig" "$out/$msiName" "$out/latest.json"
+  "$out/$exeName" "$out/$exeName.sig" "$out/$msiName" "$out/$msiName.sig" "$out/latest.json"
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit $LASTEXITCODE)" }
 Write-Host "Published $tag -> https://github.com/$repo/releases/tag/$tag"

@@ -15,17 +15,15 @@ export interface UpdateStatus {
  * Checks for new releases against the public GitHub Release manifest.
  * Only executes when running inside the Tauri native desktop shell.
  */
-export async function checkDesktopUpdate(
-  onProgress?: (percent: number) => void
-): Promise<{
+export async function checkDesktopUpdate(): Promise<{
   available: boolean;
   version?: string;
   notes?: string;
-  downloadAndInstall?: () => Promise<void>;
+  downloadAndInstall?: (onProgress?: (percent: number) => void) => Promise<void>;
   error?: string;
 }> {
   if (!isDesktopApp()) {
-    return { available: false };
+    return { available: false, error: 'In-app updates are only available in the desktop app.' };
   }
 
   try {
@@ -40,7 +38,7 @@ export async function checkDesktopUpdate(
       available: true,
       version: update.version,
       notes: update.body,
-      downloadAndInstall: async () => {
+      downloadAndInstall: async (onProgress?: (percent: number) => void) => {
         let downloaded = 0;
         let contentLength = 0;
 
@@ -53,7 +51,7 @@ export async function checkDesktopUpdate(
             case 'Progress':
               downloaded += event.data.chunkLength;
               if (contentLength > 0) {
-                const pct = Math.round((downloaded / contentLength) * 100);
+                const pct = Math.min(100, Math.round((downloaded / contentLength) * 100));
                 onProgress?.(pct);
               }
               break;

@@ -27,6 +27,7 @@ import { VirtualDiBassModule } from './components/VirtualDiBassModule.tsx';
 import { RemoteCompanionView } from './components/RemoteCompanionView.tsx';
 import { KeyboardShortcutManager } from './components/KeyboardShortcutManager.tsx';
 import { UpdateNotificationModal } from './components/UpdateNotificationModal.tsx';
+import { AppMenuBar, APP_VERSION, type UpdateCheckBannerState } from './components/AppMenuBar.tsx';
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
@@ -44,24 +45,55 @@ export default function App() {
   });
 
   const [activeModule, setActiveModule] = useState<ModuleId>('console');
+  const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateCheckState, setUpdateCheckState] = useState<UpdateCheckBannerState>({ status: 'idle' });
   const [availableUpdate, setAvailableUpdate] = useState<{
     version: string;
     notes?: string;
-    onInstall: () => Promise<void>;
+    onInstall: (onProgress?: (percent: number) => void) => Promise<void>;
   } | null>(null);
 
-  // Proactively check for verified desktop releases on launch
+  const runUpdateCheck = useCallback(async (openModalIfFound: boolean) => {
+    setUpdateCheckState({ status: 'checking' });
+    const res = await checkDesktopUpdate();
+    if (res.available && res.downloadAndInstall && res.version) {
+      setAvailableUpdate({
+        version: res.version,
+        notes: res.notes,
+        onInstall: res.downloadAndInstall,
+      });
+      setUpdateCheckState({ status: 'available', version: res.version });
+      if (openModalIfFound) {
+        setShowUpdateModal(true);
+      }
+      return;
+    }
+    if (res.error) {
+      setUpdateCheckState({ status: 'error', message: res.error });
+      return;
+    }
+    setUpdateCheckState({ status: 'up-to-date' });
+  }, []);
+
+  // Resolve exact native desktop version & proactively check for verified releases on launch
   useEffect(() => {
     if (!isDesktopApp()) return;
     let active = true;
+
+    import('@tauri-apps/api/app')
+      .then((appApi) => appApi.getVersion())
+      .then((ver) => {
+        if (active && ver) setAppVersion(ver);
+      })
+      .catch(() => {
+        // fallback to build-time APP_VERSION
+      });
+
     const timer = window.setTimeout(async () => {
-      const res = await checkDesktopUpdate();
-      if (active && res.available && res.downloadAndInstall && res.version) {
-        setAvailableUpdate({
-          version: res.version,
-          notes: res.notes,
-          onInstall: res.downloadAndInstall,
-        });
+      if (active) {
+        await runUpdateCheck(true);
       }
     }, 3500);
 
@@ -69,7 +101,7 @@ export default function App() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [runUpdateCheck]);
 
   const midiRef = useRef<any>(null);
   const shortcutsRef = useRef<any>(null);
@@ -206,6 +238,35 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-[#080B10] text-slate-100 overflow-hidden">
+      <AppMenuBar
+        appVersion={appVersion}
+        isDesktop={isDesktopApp()}
+        engineRunning={audio.engineRunning}
+        monitorAudible={audio.monitorAudible}
+        totalBypassed={session.dsp.bypassed}
+        emergencyMuted={session.emergencyMuted}
+        canUndo={session.undoStack.length > 0}
+        navDockPosition={session.navDockPosition}
+        updateState={updateCheckState}
+        onNavigateModule={setActiveModule}
+        onChangeDockPosition={session.setNavDockPosition}
+        onSaveSnapshot={() => session.handleSaveVersion('Manual Menu Snapshot')}
+        onUndoLastDsp={session.handleUndoLastDsp}
+        onResetEqFlat={() =>
+          session.handleUpdateDsp({
+            eqBands: session.dsp.eqBands.map((b) => ({ ...b, gainDb: 0 })),
+          })
+        }
+        onClearAllSolos={session.handleClearAllSolos}
+        onOpenShortcuts={() => shortcuts.setShowShortcutsModal(true)}
+        onToggleEngine={audio.handleToggleEngine}
+        onToggleMonitor={audio.handleToggleMonitor}
+        onToggleTotalBypass={session.handleToggleTotalBypass}
+        onToggleEmergencyMute={session.handleToggleEmergencyMute}
+        onCheckForUpdates={() => void runUpdateCheck(true)}
+        onOpenUpdateModal={() => setShowUpdateModal(true)}
+        onOpenAbout={() => setShowAboutModal(true)}
+      />
       <TopBar
         venueName={session.venueName}
         roomName={session.roomName}
@@ -591,13 +652,78 @@ export default function App() {
       )}
 
       {/* In-App Desktop Auto-Update Notification Modal */}
-      {availableUpdate && (
+      {showUpdateModal && availableUpdate && (
         <UpdateNotificationModal
           version={availableUpdate.version}
           notes={availableUpdate.notes}
           onInstall={availableUpdate.onInstall}
-          onDismiss={() => setAvailableUpdate(null)}
+          onDismiss={() => setShowUpdateModal(false)}
         />
+      )}
+
+      {/* About Church Audio Intelligence Dialog */}
+      {showAboutModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="About Church Audio Intelligence"
+          onClick={() => setShowAboutModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-sky-500/40 bg-[#0A0F18] p-5 shadow-2xl space-y-4 font-sans text-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-display text-base font-bold text-white">
+                  Church Audio Intelligence
+                </h3>
+                <p className="font-mono text-xs text-sky-400 font-semibold">
+                  Version v{appVersion}
+                </p>
+              </div>
+              <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-[10px] font-bold">
+                {isDesktopApp() ? 'TAURI DESKTOP' : 'WEB CONSOLE'}
+              </span>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-300 font-mono bg-[#06090F] p-3 rounded-lg border border-slate-800">
+              <div className="flex justify-between">
+                <span className="text-slate-500">DSP Engine:</span>
+                <span>CamillaDSP v2.0 + WebAudio</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Hardware Device:</span>
+                <span className="truncate max-w-[200px]">{session.activeDevice.model}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Update Endpoint:</span>
+                <span>GitHub Releases (Signed)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAboutModal(false);
+                  void runUpdateCheck(true);
+                }}
+                className="px-3 py-1.5 rounded-lg border border-sky-500/40 bg-sky-600/20 hover:bg-sky-600/35 text-sky-200 text-xs font-semibold cursor-pointer"
+              >
+                Check for Updates
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAboutModal(false)}
+                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Non-intrusive Keydown Trigger Feedback Toast */}
