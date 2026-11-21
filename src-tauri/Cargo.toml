@@ -1,6 +1,6 @@
 [package]
 name = "church-audio-intelligence"
-version = "0.2.15"
+version = "0.2.16"
 description = "Church Audio Intelligence desktop application"
 authors = ["HKM Audio System"]
 edition = "2021"

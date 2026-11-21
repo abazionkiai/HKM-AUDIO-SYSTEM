@@ -129,11 +129,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   }, [tapTempo.lastTapAt]);
 
   return (
-    <header className="h-14 shrink-0 border-b border-slate-800/90 bg-[#0B0F17] px-4 flex items-center justify-between gap-2.5 overflow-x-auto overflow-y-hidden">
+    <header className="h-12 shrink-0 border-b border-slate-800/90 bg-[#0B0F17] px-2.5 flex items-center justify-between gap-1.5 overflow-hidden">
       {/* Zone 1: Brand & Hardware Context */}
-      <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
+      <div className="flex items-center gap-2 min-w-0 shrink">
         <AppLogo className="w-6 h-6 shrink-0 shadow-[0_0_12px_rgba(56,189,248,0.4)]" />
-        <span className="font-display font-semibold text-sm tracking-tight text-white whitespace-nowrap shrink-0">
+        <span className="font-display font-semibold text-xs tracking-tight text-white whitespace-nowrap hidden 2xl:inline shrink-0">
           Church Audio Intelligence
         </span>
         <span className="text-slate-700 hidden 2xl:inline shrink-0" aria-hidden="true">
@@ -151,13 +151,13 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Zone 2: Real-Time Audio CPU Monitor, Tap Tempo, Hotkeys, Theme & Signal Source */}
-      <div className="flex items-center gap-2 shrink-0">
-        {/* Real-Time Audio Engine DSP & Buffer Underrun Monitor (Fixed Width - Zero Jitter) */}
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        {/* Real-Time Audio Engine DSP & Buffer Underrun Monitor */}
         <button
           type="button"
           onClick={onOpenDiagnostics}
           title={`Audio Engine DSP Load: ${audioCpuPct}% · Buffer ${bufferSize} samples @ ${(sampleRate / 1000).toFixed(1)} kHz (${quantumMs} ms quantum) · Underrun Risk: ${underrunRisk.toUpperCase()} · Host OS CPU: <2% (Click for Audio Diagnostics)`}
-          className={`h-8 w-[184px] sm:w-[228px] px-2.5 rounded border font-mono text-[11px] flex items-center justify-between gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[142px] sm:w-[172px] px-2 rounded border font-mono text-[11px] flex items-center justify-between gap-1 transition-colors whitespace-nowrap shrink-0 ${
             underrunRisk === 'critical'
               ? 'border-red-500/80 bg-red-950/60 text-red-200 shadow-[0_0_12px_rgba(239,68,68,0.35)]'
               : underrunRisk === 'elevated'
@@ -222,12 +222,12 @@ export const TopBar: React.FC<TopBarProps> = ({
           </span>
         </button>
 
-        {/* Live Tap Tempo Trigger (Fixed Width) */}
+        {/* Live Tap Tempo Trigger */}
         <button
           type="button"
           onClick={onTapTempo}
           title={`Tap Tempo (Quarter: ${tapTempo.quarterMs} ms · Dotted 1/8: ${tapTempo.dottedEighthMs} ms) — Click or press bound shortcut`}
-          className={`h-8 w-[88px] px-2 rounded border font-mono text-[11px] flex items-center justify-between gap-1 whitespace-nowrap shrink-0 ${
+          className={`h-8 w-[76px] px-1.5 rounded border font-mono text-[11px] flex items-center justify-between gap-1 whitespace-nowrap shrink-0 ${
             tapFlash
               ? 'border-sky-400 bg-sky-500/25 text-sky-200 shadow-[0_0_10px_rgba(56,189,248,0.4)]'
               : 'border-slate-700 bg-[#121824] text-slate-200 hover:border-slate-500'
@@ -242,23 +242,23 @@ export const TopBar: React.FC<TopBarProps> = ({
           type="button"
           onClick={onOpenShortcuts}
           title="Configure Global Keyboard Shortcuts (Mute All, Tap Tempo, Save Snapshot, etc.)"
-          className={`h-8 px-2 rounded border font-mono text-[11px] flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+          className={`h-8 px-2 rounded border font-mono text-[11px] flex items-center gap-1 whitespace-nowrap shrink-0 ${
             shortcutsArmed
               ? 'border-slate-700 bg-[#121824] text-slate-200 hover:border-sky-500/50'
               : 'border-amber-500/50 bg-amber-950/30 text-amber-300'
           }`}
         >
           <Keyboard className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-          <span className="hidden md:inline">KEYS</span>
+          <span className="hidden 2xl:inline">KEYS</span>
         </button>
 
-        <div className="flex items-center gap-1.5 h-8 px-2 rounded border border-slate-700 bg-[#121824] shrink-0">
+        <div className="flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[148px]">
           <Palette className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           <select
             aria-label="Console Color Theme"
             value={consoleTheme}
             onChange={(e) => onThemeChange(e.target.value as ConsoleThemeId)}
-            className="bg-transparent text-xs font-mono text-slate-200 focus:outline-none cursor-pointer w-[178px]"
+            className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
           >
             {THEME_OPTIONS.map((t) => (
               <option key={t.id} value={t.id} className="bg-[#0E131C] text-slate-100">
@@ -272,7 +272,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           aria-label="Audio Input Source"
           value={audioSource}
           onChange={(e) => onSourceChange(e.target.value as AudioSourceSimulation)}
-          className="hidden lg:block h-8 px-2 text-xs font-mono rounded border border-slate-700 bg-[#121824] text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 w-[236px] shrink-0"
+          className="hidden lg:block h-8 px-1.5 text-[11px] font-mono rounded border border-slate-700 bg-[#121824] text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 min-w-0 flex-1 max-w-[180px]"
         >
           <option value="live-mic">
             Hardware Input: {activeDevice.model} (Live)
@@ -284,13 +284,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         </select>
 
         {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
-          <div className="hidden xl:flex items-center gap-1.5 h-8 px-2 rounded border border-slate-700 bg-[#121824] shrink-0">
+          <div className="hidden xl:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[160px]">
             <Volume2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <select
               aria-label="Audio Output Destination"
               value={activeOutputDeviceId || ''}
               onChange={(e) => onSelectOutputDevice(e.target.value)}
-              className="bg-transparent text-xs font-mono text-slate-200 focus:outline-none cursor-pointer w-[190px] truncate"
+              className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
             >
               <option value="" className="bg-[#0E131C] text-slate-100">
                 Out: System Default
@@ -306,18 +306,19 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Zone 3: Engine Transport & High-Priority Live Safety Controls */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         <button
           type="button"
           onClick={onToggleEngine}
-          className={`h-8 w-[116px] px-2.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 ${
+          title={engineRunning ? 'Stop Live Audio Engine' : 'Start Live Audio Engine'}
+          className={`h-8 w-[80px] px-2 rounded text-[11px] font-mono font-semibold flex items-center justify-center gap-1 border transition-colors whitespace-nowrap shrink-0 ${
             engineRunning
               ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
               : 'bg-sky-600 border-sky-400/50 text-white hover:bg-sky-500'
           }`}
         >
           {engineRunning ? <Square className="w-3.5 h-3.5 shrink-0" /> : <Play className="w-3.5 h-3.5 shrink-0" />}
-          <span>{engineRunning ? 'STOP' : 'START ENGINE'}</span>
+          <span>{engineRunning ? 'STOP' : 'START'}</span>
         </button>
 
         <button
@@ -325,7 +326,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           onClick={onToggleMonitor}
           disabled={!engineRunning}
           title="Audition processed console output in local speakers/headphones"
-          className={`h-8 px-2.5 rounded text-xs font-mono font-medium flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 ${
+          className={`h-8 px-2 rounded text-[11px] font-mono font-medium flex items-center gap-1 border transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 ${
             monitorAudible && !emergencyMuted
               ? 'bg-sky-500/20 border-sky-400/60 text-sky-300'
               : 'border-slate-700 bg-[#121824] text-slate-300 hover:bg-slate-800'
@@ -355,7 +356,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               })
             }
             title="Smart Auto-Level Guard (AGC): lifts quiet sources & tames loud inputs automatically"
-            className={`h-8 px-2.5 rounded text-xs font-mono font-bold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`h-8 px-2 rounded text-[11px] font-mono font-bold flex items-center gap-1 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               dsp.smartAgc?.enabled
                 ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
                 : 'border-slate-700 bg-[#121824] text-slate-400 hover:text-white'
@@ -364,8 +365,8 @@ export const TopBar: React.FC<TopBarProps> = ({
             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
             <span>
               {qualityGateEngaged
-                ? 'GATE PROTECT'
-                : `AGC ${dsp.smartAgc?.enabled ? (agcGainDb !== 0 ? `${agcGainDb > 0 ? '+' : ''}${agcGainDb.toFixed(1)}dB` : 'ON') : 'OFF'}`}
+                ? 'GATE'
+                : `AGC ${dsp.smartAgc?.enabled ? (agcGainDb !== 0 ? `${agcGainDb > 0 ? '+' : ''}${agcGainDb.toFixed(1)}` : 'ON') : 'OFF'}`}
             </span>
           </button>
         )}
@@ -377,7 +378,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               type="button"
               onClick={() => setShowMasterOutput((v) => !v)}
               title="Direct Final Output Level, Limiter Ceiling & Master Delay"
-              className={`h-8 px-2.5 rounded text-xs font-mono font-bold flex items-center gap-1.5 border transition-colors whitespace-nowrap cursor-pointer ${
+              className={`h-8 px-2 rounded text-[11px] font-mono font-bold flex items-center gap-1 border transition-colors whitespace-nowrap cursor-pointer ${
                 showMasterOutput
                   ? 'bg-sky-500/25 border-sky-400 text-sky-200'
                   : 'border-sky-500/40 bg-[#101827] text-sky-300 hover:bg-sky-500/15'
@@ -572,14 +573,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           aria-checked={totalBypassed}
           onClick={onToggleTotalBypass}
           title="Bypass all software EQ, HPF, compression, and limiting immediately (passes dry signal)"
-          className={`h-8 px-2.5 rounded text-xs font-mono font-semibold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+          className={`h-8 px-2 rounded text-[11px] font-mono font-semibold flex items-center justify-center gap-1 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             totalBypassed
               ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]'
               : 'border-amber-500/40 bg-[#121824] text-amber-300 hover:bg-amber-500/10'
           }`}
         >
           <GitBranch className="w-3.5 h-3.5 shrink-0" />
-          <span>{totalBypassed ? 'BYPASS: ON' : 'BYPASS'}</span>
+          <span>{totalBypassed ? 'BYP:ON' : 'BYPASS'}</span>
         </button>
 
         {/* Dedicated Global Emergency Mute */}
@@ -588,7 +589,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           aria-pressed={emergencyMuted}
           onClick={onToggleEmergencyMute}
           title="Immediate global emergency mute for all live PA & monitor outputs"
-          className={`h-8 px-2.5 rounded text-xs font-mono font-bold flex items-center justify-center gap-1.5 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+          className={`h-8 px-2 rounded text-[11px] font-mono font-bold flex items-center justify-center gap-1 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             emergencyMuted
               ? 'bg-red-600 border-red-300 text-white shadow-[0_0_16px_rgba(239,68,68,0.65)]'
               : 'border-red-500/60 bg-red-950/40 text-red-300 hover:bg-red-600/25'
