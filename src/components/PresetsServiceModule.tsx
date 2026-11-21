@@ -175,60 +175,91 @@ export const PresetsServiceModule: React.FC<PresetsServiceModuleProps> = ({
         </div>
       </div>
 
-      {/* Main Grid: Scene Preset Matrix | Diff & Versioned Snapshot Vault */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
-        {/* Preset Matrix */}
-        <div className="xl:col-span-7 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5 space-y-3">
+      {/* Main Grid: Scene Memory Table | Diff & Versioned Snapshot Vault */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-stretch">
+        {/* Scene Memory Table (Clean Console Rows — Zero Stuffy Cards) */}
+        <div className="xl:col-span-7 rounded-lg border border-slate-800 bg-[#0A0E17] p-3 flex flex-col justify-between gap-2">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <span className="font-mono text-xs font-semibold text-white uppercase">
-              Service Profile Library ({presets.length} Profiles)
+            <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
+              Scene Memory Bank ({presets.length} Profiles)
             </span>
-            <span className="font-mono text-[10px] text-sky-400">DSP + Broadcast Curves</span>
+            <span className="font-mono text-[10px] text-sky-400">
+              Click row to inspect · LOAD to recall DSP + OBS curve
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="divide-y divide-slate-800/70 rounded-lg border border-slate-800 bg-[#060910] overflow-hidden">
             {presets.map((p, idx) => {
               const active = p.id === activePreset.id;
+              const comparing = p.id === comparePreset.id;
               return (
                 <div
                   key={p.id}
-                  className={`p-3 rounded border transition-all flex flex-col justify-between gap-2 ${
+                  onClick={() => setComparePresetId(p.id)}
+                  className={`px-3 py-2 flex items-center justify-between gap-3 transition-colors cursor-pointer ${
                     active
-                      ? 'border-sky-400 bg-sky-500/15'
-                      : 'border-slate-800 bg-[#090D14] hover:border-slate-600'
+                      ? 'bg-sky-500/15 border-l-2 border-l-sky-400'
+                      : comparing
+                        ? 'bg-amber-500/10 border-l-2 border-l-amber-400'
+                        : 'hover:bg-slate-900/70 border-l-2 border-l-transparent'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] text-slate-400">
-                      SCN {String(idx + 1).padStart(2, '0')} · {p.category}
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span
+                      className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold shrink-0 ${
+                        active
+                          ? 'bg-sky-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      SCN {String(idx + 1).padStart(2, '0')}
                     </span>
-                    <span className="font-mono text-[10px] text-slate-500">v{p.version}</span>
-                  </div>
-                  <div className="text-xs font-semibold text-white">{p.name}</div>
-                  <p className="text-[11px] text-slate-400 line-clamp-2">{p.description}</p>
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="font-mono text-[10px] text-sky-300 tabular-nums">
-                      HPF {p.dsp.hpfHz} Hz · {p.dsp.compressor.ratio}:1 · {p.broadcastDsp.targetLufs} LUFS
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setComparePresetId(p.id)}
-                        className="px-2 py-1 rounded-xs border border-slate-700 bg-[#121824] text-[10px] font-mono text-slate-300 hover:border-slate-500"
-                      >
-                        DIFF
-                      </button>
-                      <ConsolePushButton
-                        label={active ? 'ACTIVE' : 'LOAD'}
-                        active={active}
-                        tone="sky"
-                        onClick={() => onSelectPreset(p)}
-                      />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-white truncate">{p.name}</span>
+                        <span className="text-[10px] font-mono text-slate-500 hidden sm:inline">
+                          {p.category}
+                        </span>
+                      </div>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0 font-mono text-[10px]">
+                    <span className="text-sky-300/90 tabular-nums hidden md:inline">
+                      HPF {p.dsp.hpfHz}Hz · {p.dsp.compressor.ratio}:1 · {p.broadcastDsp.targetLufs} LUFS
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setComparePresetId(p.id);
+                      }}
+                      className={`px-2 py-1 rounded border text-[10px] cursor-pointer ${
+                        comparing
+                          ? 'border-amber-400/60 bg-amber-500/20 text-amber-200 font-bold'
+                          : 'border-slate-700 bg-[#111723] text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      DIFF
+                    </button>
+                    <ConsolePushButton
+                      label={active ? 'ACTIVE' : 'LOAD'}
+                      active={active}
+                      tone="sky"
+                      onClick={() => onSelectPreset(p)}
+                    />
                   </div>
                 </div>
               );
             })}
+          </div>
+
+          {/* Selected Scene Summary Bar */}
+          <div className="px-3 py-2 rounded border border-slate-800 bg-[#060910] font-mono text-[11px] flex items-center justify-between gap-2">
+            <span className="text-slate-300 truncate">
+              <strong className="text-sky-300">{comparePreset.name}:</strong> {comparePreset.description}
+            </span>
+            <span className="text-slate-500 shrink-0">v{comparePreset.version}</span>
           </div>
         </div>
 
