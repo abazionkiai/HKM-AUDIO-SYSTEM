@@ -98,6 +98,10 @@ class LiveAudioEngine {
   private eqNodes: BiquadFilterNode[] = [];
   private lpfNode: BiquadFilterNode | null = null;
   private compNode: DynamicsCompressorNode | null = null;
+  private autoRumbleHpfNode: BiquadFilterNode | null = null;
+  private autoMudCutNode: BiquadFilterNode | null = null;
+  private surgicalNotchNodes: BiquadFilterNode[] = [];
+  private surgicalNotchMeta: { freqHz: number; cutDb: number; holdFrames: number }[] = [];
   private makeupGain: GainNode | null = null;
   private limiterNode: DynamicsCompressorNode | null = null;
   private delayNode: DelayNode | null = null;
@@ -421,6 +425,32 @@ class LiveAudioEngine {
     this.lpfNode.type = 'lowpass';
     this.lpfNode.Q.value = 0.707;
 
+    // Surgical Digital Troubleshooting Filter Bank (Sub-Rumble HPF + Mud Cut + 4x Q=18 Feedback Notches)
+    this.autoRumbleHpfNode = ctx.createBiquadFilter();
+    this.autoRumbleHpfNode.type = 'highpass';
+    this.autoRumbleHpfNode.frequency.value = 18;
+    this.autoRumbleHpfNode.Q.value = 0.707;
+
+    this.autoMudCutNode = ctx.createBiquadFilter();
+    this.autoMudCutNode.type = 'peaking';
+    this.autoMudCutNode.frequency.value = 220;
+    this.autoMudCutNode.Q.value = 2.0;
+    this.autoMudCutNode.gain.value = 0;
+
+    this.surgicalNotchNodes = Array.from({ length: 4 }, () => {
+      const n = ctx.createBiquadFilter();
+      n.type = 'peaking';
+      n.frequency.value = 1000;
+      n.Q.value = 18;
+      n.gain.value = 0;
+      return n;
+    });
+    this.surgicalNotchMeta = Array.from({ length: 4 }, () => ({
+      freqHz: 0,
+      cutDb: 0,
+      holdFrames: 0,
+    }));
+
     this.compNode = ctx.createDynamicsCompressor();
     this.makeupGain = ctx.createGain();
     this.limiterNode = ctx.createDynamicsCompressor();
@@ -551,7 +581,20 @@ class LiveAudioEngine {
       prev = eq;
     }
     prev.connect(this.lpfNode);
-    this.lpfNode.connect(this.compNode);
+    let troubleChain: AudioNode = this.lpfNode;
+    if (this.autoRumbleHpfNode) {
+      troubleChain.connect(this.autoRumbleHpfNode);
+      troubleChain = this.autoRumbleHpfNode;
+    }
+    if (this.autoMudCutNode) {
+      troubleChain.connect(this.autoMudCutNode);
+      troubleChain = this.autoMudCutNode;
+    }
+    for (const notch of this.surgicalNotchNodes) {
+      troubleChain.connect(notch);
+      troubleChain = notch;
+    }
+    troubleChain.connect(this.compNode);
     this.compNode.connect(this.makeupGain);
     this.makeupGain.connect(this.limiterNode);
     this.limiterNode.connect(this.delayNode);
@@ -1472,20 +1515,74 @@ class LiveAudioEngine {
       });
     }
 
-    // Apply Output Quality Gate: automatically enforce Smart AGC + Safety Limiter + attenuate harmful feedback/clipping
+    // Surgical Digital Troubleshooter + Output Quality Gate:
+    // Filter harmful frequencies (sub-rumble, mud, feedback rings) instead of shutting down the mix, then auto-normalize!
     const qGate = this.lastDsp?.qualityGate;
     const qGateEnabled = qGate?.enabled ?? true;
+    const activeSurgicalFilters: string[] = [];
+
+    if (qGateEnabled && this.lastDsp && !this.lastDsp.bypassed) {
+      // 1. Sub-sonic / stage rumble check (< 55 Hz excess eating headroom)
+      const subEnergy = (getBinDb(28) + getBinDb(42)) / 2;
+      const rumbleExcess = subEnergy - midRef > 6 && subEnergy > -36;
+      if (this.autoRumbleHpfNode) {
+        this.autoRumbleHpfNode.frequency.setTargetAtTime(rumbleExcess ? 80 : 18, now, 0.06);
+        if (rumbleExcess) activeSurgicalFilters.push('Sub-Rumble HPF @ 80 Hz');
+      }
+
+      // 2. Low-mid mud buildup check (180-260 Hz)
+      if (this.autoMudCutNode) {
+        this.autoMudCutNode.gain.setTargetAtTime(mudDetected ? -5.5 : 0, now, mudDetected ? 0.05 : 0.25);
+        if (mudDetected) activeSurgicalFilters.push('Mud Cut @ 220 Hz (-5.5 dB)');
+      }
+
+      // 3. Surgical Q=18 feedback/ringing frequency notch (4 slots)
+      if (this.persistentPeakFrames >= 4 && maxProminence > 9.5 && maxPromBin > 0) {
+        const ringHz = Math.round(maxPromBin * binHz);
+        const existingIdx = this.surgicalNotchMeta.findIndex(
+          (m) => m.freqHz > 0 && Math.abs(m.freqHz - ringHz) <= Math.max(35, ringHz * 0.04)
+        );
+        if (existingIdx >= 0) {
+          this.surgicalNotchMeta[existingIdx].cutDb = Math.max(-14, this.surgicalNotchMeta[existingIdx].cutDb - 1.5);
+          this.surgicalNotchMeta[existingIdx].holdFrames = 240; // Hold 12s
+        } else {
+          const emptyIdx = this.surgicalNotchMeta.findIndex((m) => m.holdFrames <= 0);
+          const slot = emptyIdx >= 0 ? emptyIdx : 0;
+          this.surgicalNotchMeta[slot] = { freqHz: ringHz, cutDb: -9.0, holdFrames: 240 };
+        }
+      }
+
+      this.surgicalNotchNodes.forEach((node, idx) => {
+        const meta = this.surgicalNotchMeta[idx];
+        if (!meta) return;
+        if (meta.holdFrames > 0 && meta.freqHz >= 200) {
+          meta.holdFrames--;
+          node.frequency.setTargetAtTime(Math.min(sampleRate * 0.45, meta.freqHz), now, 0.015);
+          node.gain.setTargetAtTime(meta.cutDb, now, 0.02);
+          activeSurgicalFilters.push(`Notch ${meta.freqHz} Hz (${meta.cutDb.toFixed(0)} dB)`);
+        } else {
+          meta.freqHz = 0;
+          meta.cutDb = 0;
+          node.gain.setTargetAtTime(0, now, 0.15);
+        }
+      });
+    } else {
+      this.autoRumbleHpfNode?.frequency.setTargetAtTime(18, now, 0.08);
+      this.autoMudCutNode?.gain.setTargetAtTime(0, now, 0.08);
+      this.surgicalNotchNodes.forEach((n) => n.gain.setTargetAtTime(0, now, 0.08));
+    }
+
     let qualityScore = 100;
     let qualityReason: string | null = null;
     let qualityGateEngaged = false;
 
     if (postStats.peakDb > -0.3) {
-      qualityScore -= 30;
-      qualityReason = 'Peak > -0.3 dBFS (Safety Limiter clamping)';
+      qualityScore -= 25;
+      qualityReason = 'Peak > -0.3 dBFS (Safety Limiter + Normalize active)';
     }
     if (feedbackDetected) {
-      qualityScore -= 35;
-      qualityReason = `Feedback ring @ ${Math.round(maxPromBin * binHz)} Hz`;
+      qualityScore -= 25;
+      qualityReason = `Auto-Filtering Ring @ ${Math.round(maxPromBin * binHz)} Hz`;
     }
     if (humDetected) {
       qualityScore -= 15;
@@ -1502,11 +1599,11 @@ class LiveAudioEngine {
 
     if (this.masterOutputGainNode && this.lastDsp) {
       const baseMasterDb = this.lastDsp.bypassed ? 0 : (this.lastDsp.masterOutputGainDb ?? 0);
-      if (qGateEnabled && !this.lastDsp.bypassed && (feedbackDetected || postStats.peakDb > -0.15)) {
+      if (qGateEnabled && !this.lastDsp.bypassed && postStats.peakDb > -0.15) {
         qualityGateEngaged = true;
-        // Protective -9 dB safety ducking until harmful feedback or clip resolves
+        // Gentle -3 dB headroom trim only if residual spike persists after surgical filtering
         this.masterOutputGainNode.gain.setTargetAtTime(
-          dbToLinear(Math.max(-36, baseMasterDb - 9)),
+          dbToLinear(Math.max(-36, baseMasterDb - 3)),
           now,
           0.03
         );
@@ -1540,6 +1637,7 @@ class LiveAudioEngine {
         qualityScorePct: qualityScore,
         qualityGateEngaged,
         qualityGateReason: qualityReason,
+        activeSurgicalFilters,
         noiseFloorDb: this.noiseFloorDb,
         channelLevels,
         feedbackRisk: {

@@ -63,6 +63,7 @@ interface TopBarProps {
   qualityScorePct?: number;
   qualityGateEngaged?: boolean;
   qualityGateReason?: string | null;
+  activeSurgicalFilters?: string[];
 }
 
 const THEME_OPTIONS: { id: ConsoleThemeId; label: string }[] = [
@@ -111,6 +112,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   qualityScorePct = 100,
   qualityGateEngaged = false,
   qualityGateReason = null,
+  activeSurgicalFilters = [],
 }) => {
   const [showMasterOutput, setShowMasterOutput] = useState(false);
   const platformLabel =
@@ -538,6 +540,23 @@ export const TopBar: React.FC<TopBarProps> = ({
                   {qualityGateReason && (
                     <div className="text-[10px] text-amber-300 bg-amber-950/40 px-2 py-1 rounded border border-amber-500/30">
                       {qualityGateReason}
+                    </div>
+                  )}
+                  {activeSurgicalFilters.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <span className="text-[9px] text-sky-300 uppercase font-bold">
+                        Auto-Filtered Harmful Frequencies:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {activeSurgicalFilters.map((f) => (
+                          <span
+                            key={f}
+                            className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/40 text-sky-200 text-[9px]"
+                          >
+                            {f}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

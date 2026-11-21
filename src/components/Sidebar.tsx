@@ -38,25 +38,91 @@ interface NavTab {
   label: string;
   fullTitle: string;
   icon: React.FC<{ className?: string }>;
+  idleClass: string;
+  activeClass: string;
+  railClass: string;
+  dotClass: string;
 }
 
+const TONE_MAP = {
+  sky: {
+    idle: 'bg-[#091322] border-sky-500/25 text-sky-300/85 hover:bg-[#0D1C33] hover:text-sky-100 hover:border-sky-400/50',
+    active: 'bg-gradient-to-b from-sky-500/35 via-sky-900/60 to-[#081526] border-sky-400 text-white shadow-[0_0_14px_rgba(56,189,248,0.45)]',
+    rail: 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.9)]',
+    dot: 'bg-sky-400',
+  },
+  emerald: {
+    idle: 'bg-[#081814] border-emerald-500/25 text-emerald-300/85 hover:bg-[#0C241E] hover:text-emerald-100 hover:border-emerald-400/50',
+    active: 'bg-gradient-to-b from-emerald-500/35 via-emerald-900/60 to-[#071A15] border-emerald-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.45)]',
+    rail: 'bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.9)]',
+    dot: 'bg-emerald-400',
+  },
+  violet: {
+    idle: 'bg-[#120D22] border-violet-500/25 text-violet-300/85 hover:bg-[#1B1333] hover:text-violet-100 hover:border-violet-400/50',
+    active: 'bg-gradient-to-b from-violet-500/35 via-violet-900/60 to-[#120C24] border-violet-400 text-white shadow-[0_0_14px_rgba(167,139,250,0.45)]',
+    rail: 'bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.9)]',
+    dot: 'bg-violet-400',
+  },
+  amber: {
+    idle: 'bg-[#191208] border-amber-500/25 text-amber-300/85 hover:bg-[#261B0B] hover:text-amber-100 hover:border-amber-400/50',
+    active: 'bg-gradient-to-b from-amber-500/35 via-amber-900/60 to-[#191107] border-amber-400 text-white shadow-[0_0_14px_rgba(245,158,11,0.45)]',
+    rail: 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.9)]',
+    dot: 'bg-amber-400',
+  },
+  rose: {
+    idle: 'bg-[#1B0A10] border-rose-500/25 text-rose-300/85 hover:bg-[#290F18] hover:text-rose-100 hover:border-rose-400/50',
+    active: 'bg-gradient-to-b from-rose-500/35 via-rose-900/60 to-[#1C0910] border-rose-400 text-white shadow-[0_0_14px_rgba(244,63,94,0.45)]',
+    rail: 'bg-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.9)]',
+    dot: 'bg-rose-400',
+  },
+  fuchsia: {
+    idle: 'bg-[#190B21] border-fuchsia-500/25 text-fuchsia-300/85 hover:bg-[#261033] hover:text-fuchsia-100 hover:border-fuchsia-400/50',
+    active: 'bg-gradient-to-b from-fuchsia-500/35 via-fuchsia-900/60 to-[#180A21] border-fuchsia-400 text-white shadow-[0_0_14px_rgba(217,70,239,0.45)]',
+    rail: 'bg-fuchsia-400 shadow-[0_0_8px_rgba(217,70,239,0.9)]',
+    dot: 'bg-fuchsia-400',
+  },
+  cyan: {
+    idle: 'bg-[#08161E] border-cyan-500/25 text-cyan-300/85 hover:bg-[#0D222E] hover:text-cyan-100 hover:border-cyan-400/50',
+    active: 'bg-gradient-to-b from-cyan-500/35 via-cyan-900/60 to-[#081720] border-cyan-400 text-white shadow-[0_0_14px_rgba(34,211,238,0.45)]',
+    rail: 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.9)]',
+    dot: 'bg-cyan-400',
+  },
+};
+
+const makeTab = (
+  id: ModuleId,
+  label: string,
+  fullTitle: string,
+  icon: React.FC<{ className?: string }>,
+  tone: keyof typeof TONE_MAP
+): NavTab => ({
+  id,
+  label,
+  fullTitle,
+  icon,
+  idleClass: TONE_MAP[tone].idle,
+  activeClass: TONE_MAP[tone].active,
+  railClass: TONE_MAP[tone].rail,
+  dotClass: TONE_MAP[tone].dot,
+});
+
 const NAV_TABS: NavTab[] = [
-  { id: 'console', label: 'Console', fullTitle: 'Live Sound Console', icon: Sliders },
-  { id: 'dsp', label: 'DSP', fullTitle: 'Audio DSP Engine', icon: AudioWaveform },
-  { id: 'feedback', label: 'Feedback', fullTitle: 'Feedback Detection', icon: Activity },
-  { id: 'acoustics', label: 'Acoustics', fullTitle: 'Acoustic & Room Analyzer', icon: Radio },
-  { id: 'speakers', label: 'Speakers', fullTitle: 'Speaker Management', icon: MapPin },
-  { id: 'microphones', label: 'Mics', fullTitle: 'Microphone Intelligence', icon: Mic },
-  { id: 'instruments', label: 'Band', fullTitle: 'Instrument & Music', icon: Music },
-  { id: 'virtual-di', label: 'Virtual DI', fullTitle: 'Virtual DI & Bass', icon: Zap },
-  { id: 'livestream', label: 'Stream', fullTitle: 'Livestream Studio', icon: Video },
-  { id: 'soundcheck', label: 'Soundcheck', fullTitle: 'Automated Sound Check', icon: CheckSquare },
-  { id: 'presets', label: 'Presets', fullTitle: 'Presets & Service Profiles', icon: Layers },
-  { id: 'ai-engineer', label: 'AI Eng', fullTitle: 'AI Sound Engineer', icon: Sparkles },
-  { id: 'hardware', label: 'Hardware', fullTitle: 'Diagnostics, Hardware & Remote Access', icon: Cpu },
-  { id: 'midi', label: 'MIDI & Keys', fullTitle: 'MIDI & Key Shortcuts', icon: Cable },
-  { id: 'routing', label: 'Matrix', fullTitle: 'Universal Routing & Virtual Patchbay', icon: Cable },
-  { id: 'recorder', label: 'Recorder', fullTitle: 'Multitrack Live Service Recorder', icon: Radio },
+  makeTab('console', 'Console', 'Live Sound Console', Sliders, 'sky'),
+  makeTab('dsp', 'DSP', 'Audio DSP Engine', AudioWaveform, 'sky'),
+  makeTab('feedback', 'Feedback', 'Feedback Detection', Activity, 'emerald'),
+  makeTab('acoustics', 'Acoustics', 'Acoustic & Room Analyzer', Radio, 'emerald'),
+  makeTab('speakers', 'Speakers', 'Speaker Management', MapPin, 'violet'),
+  makeTab('routing', 'Matrix', 'Universal Routing & Virtual Patchbay', Cable, 'violet'),
+  makeTab('microphones', 'Mics', 'Microphone Intelligence', Mic, 'amber'),
+  makeTab('instruments', 'Band', 'Instrument & Music', Music, 'amber'),
+  makeTab('virtual-di', 'Virtual DI', 'Virtual DI & Bass', Zap, 'amber'),
+  makeTab('livestream', 'Stream', 'Livestream Studio', Video, 'rose'),
+  makeTab('recorder', 'Recorder', 'Multitrack Live Service Recorder', Radio, 'rose'),
+  makeTab('soundcheck', 'Check', 'Automated Sound Check', CheckSquare, 'fuchsia'),
+  makeTab('presets', 'Presets', 'Presets & Service Profiles', Layers, 'fuchsia'),
+  makeTab('ai-engineer', 'AI Eng', 'AI Sound Engineer', Sparkles, 'fuchsia'),
+  makeTab('hardware', 'Hardware', 'Diagnostics, Hardware & Remote Access', Cpu, 'cyan'),
+  makeTab('midi', 'MIDI', 'MIDI & Key Shortcuts', Cable, 'cyan'),
 ];
 
 const DOCK_OPTIONS: {
@@ -132,11 +198,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <aside
           aria-label="Console Navigation Bar"
           data-dock={dockPosition}
-          className={`w-full shrink-0 ${borderClass} console-nav-shell h-11 px-3 flex items-center justify-between gap-2.5 z-30`}
+          className={`w-full shrink-0 ${borderClass} border-slate-800/90 bg-[#070A11] h-10 px-2 flex items-center justify-between gap-2 z-30`}
         >
           <nav
             aria-label="Console Modules"
-            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto overflow-y-hidden h-full py-1.5"
+            className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto overflow-y-hidden h-full py-1 scrollbar-none"
           >
             {NAV_TABS.map((tab) => {
               const Icon = tab.icon;
@@ -150,35 +216,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   data-active={active ? 'true' : 'false'}
                   onClick={() => onSelectModule(tab.id)}
                   aria-current={active ? 'page' : undefined}
-                  whileTap={{ scale: 0.97 }}
-                  transition={{ duration: 0.14 }}
-                  className="group console-nav-tab relative h-8 px-2.5 rounded-md text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0 overflow-hidden focus-visible:outline-2 focus-visible:outline-sky-500"
+                  whileTap={{ scale: 0.96 }}
+                  transition={{ duration: 0.12 }}
+                  className={`group relative h-7 px-2 rounded-md border text-[10.5px] font-mono flex items-center gap-1 whitespace-nowrap shrink-0 overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 ${
+                    active ? `${tab.activeClass} font-bold` : `${tab.idleClass} font-medium`
+                  }`}
                 >
-                  {active && (
-                    <motion.span
-                      layoutId="nav-tab-active-surface"
-                      transition={TAB_SPRING}
-                      className="console-nav-active-surface absolute inset-0 rounded-[5px] pointer-events-none"
-                      aria-hidden="true"
-                    />
-                  )}
                   {active && (
                     <motion.span
                       layoutId="nav-tab-active-rail"
                       transition={TAB_SPRING}
-                      className={`console-nav-active-rail absolute inset-x-1.5 h-[2.5px] rounded-full pointer-events-none ${
-                        dockPosition === 'bottom' ? 'top-0' : 'bottom-0'
+                      className={`${tab.railClass} absolute inset-x-1 h-[2.5px] rounded-full pointer-events-none ${
+                        dockPosition === 'bottom' ? 'bottom-0' : 'top-0'
                       }`}
                       aria-hidden="true"
                     />
                   )}
-                  <span className="relative z-10 flex items-center gap-1.5">
-                    <Icon className="w-3.5 h-3.5 shrink-0 opacity-90" />
+                  <span className="relative z-10 flex items-center gap-1">
+                    {active && (
+                      <span className={`w-1.5 h-1.5 rounded-full ${tab.dotClass} animate-pulse shrink-0`} />
+                    )}
+                    <Icon className="w-3 h-3 shrink-0 opacity-90" />
                     <span>{tab.label}</span>
                   </span>
                   {alertCount > 0 && (
                     <span
-                      className="absolute top-0.5 right-1 z-10 font-mono text-[8px] font-bold console-nav-alert tabular-nums leading-none pointer-events-none"
+                      className="ml-0.5 px-1 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 font-mono text-[8px] font-bold tabular-nums leading-tight pointer-events-none"
                       aria-label={`${alertCount} active alert`}
                     >
                       {alertCount}
@@ -189,7 +252,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </nav>
 
-          {renderDockAllocator()}
+          <div className="pl-2 border-l border-slate-800 shrink-0 flex items-center">
+            {renderDockAllocator()}
+          </div>
         </aside>
       </MotionConfig>
     );

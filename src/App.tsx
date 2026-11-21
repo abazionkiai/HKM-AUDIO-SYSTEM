@@ -326,6 +326,7 @@ export default function App() {
         qualityScorePct={audio.telemetry.qualityScorePct ?? 100}
         qualityGateEngaged={audio.telemetry.qualityGateEngaged ?? false}
         qualityGateReason={audio.telemetry.qualityGateReason ?? null}
+        activeSurgicalFilters={audio.telemetry.activeSurgicalFilters ?? []}
       />
 
       {(session.emergencyMuted || session.dsp.bypassed) && (

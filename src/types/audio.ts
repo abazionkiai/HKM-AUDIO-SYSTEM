@@ -363,6 +363,7 @@ export interface SignalTelemetry {
   qualityScorePct?: number;
   qualityGateEngaged?: boolean;
   qualityGateReason?: string | null;
+  activeSurgicalFilters?: string[];
   noiseFloorDb: number;
   channelLevels: ChannelSignalTelemetry[];
   feedbackRisk: {
