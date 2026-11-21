@@ -21,12 +21,14 @@ interface ActiveCrossoverModuleProps {
   dsp: DspConfig;
   onUpdateDsp: (patch: Partial<DspConfig>) => void;
   panelLocked?: boolean;
+  compactConsoleMode?: boolean;
 }
 
 export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
   dsp,
   onUpdateDsp,
   panelLocked = false,
+  compactConsoleMode = false,
 }) => {
   const [activeChannelTab, setActiveChannelTab] = useState<'L' | 'R'>('L');
 
@@ -250,7 +252,13 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
   }, [activeHighBand.gainDb, activeMidBand.gainDb, activeSubBand.gainDb, xover.midToHighHz, xover.subToMidHz]);
 
   return (
-    <div className="space-y-4 rounded-xl border border-slate-800 bg-gradient-to-b from-[#0E121E] via-[#090D17] to-[#06080F] p-4 text-slate-200 shadow-2xl">
+    <div
+      className={`${
+        compactConsoleMode
+          ? 'h-full min-h-0 overflow-y-auto space-y-2.5 p-2.5'
+          : 'space-y-4 p-4'
+      } rounded-xl border border-violet-500/35 bg-gradient-to-b from-[#110E1E] via-[#090D17] to-[#06080F] text-slate-200 shadow-2xl`}
+    >
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-3">

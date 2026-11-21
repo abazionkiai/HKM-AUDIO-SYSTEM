@@ -10,6 +10,8 @@ interface PrecisionVerticalFaderProps {
   disabled?: boolean;
   accent?: 'cyan' | 'amber' | 'emerald' | 'sky' | 'fuchsia';
   isKeyFreq?: boolean;
+  trackHeightClass?: string;
+  compact?: boolean;
   onChange: (val: number) => void;
   onDoubleClick?: () => void;
 }
@@ -24,6 +26,8 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
   disabled = false,
   accent = 'cyan',
   isKeyFreq = false,
+  trackHeightClass = 'h-44',
+  compact = false,
   onChange,
   onDoubleClick,
 }) => {
@@ -152,24 +156,26 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
       title={`${subLabel || label || ''}: ${clamped > 0 ? '+' : ''}${clamped.toFixed(1)} dB (Click/drag to slide, double-click to reset)`}
     >
       {/* Top LED Optical Indicator Dot */}
-      <div
-        className="w-1.5 h-1.5 rounded-full mb-1 transition-all duration-150"
-        style={{
-          backgroundColor: isBoost ? theme.ledHex : isCut ? '#F59E0B' : 'rgba(100,116,139,0.4)',
-          boxShadow:
-            isBoost || isCut
-              ? `0 0 6px ${isBoost ? theme.glow : 'rgba(245,158,11,0.7)'}`
-              : 'none',
-        }}
-      />
+      {!compact && (
+        <div
+          className="w-1.5 h-1.5 rounded-full mb-1 transition-all duration-150"
+          style={{
+            backgroundColor: isBoost ? theme.ledHex : isCut ? '#F59E0B' : 'rgba(100,116,139,0.4)',
+            boxShadow:
+              isBoost || isCut
+                ? `0 0 6px ${isBoost ? theme.glow : 'rgba(245,158,11,0.7)'}`
+                : 'none',
+          }}
+        />
+      )}
 
       {/* Real-time gain numeric display above fader */}
       <span
-        className={`font-mono text-[9px] mb-1 font-semibold tabular-nums h-4 flex items-center justify-center transition-colors ${
+        className={`font-mono text-[9px] ${compact ? 'mb-0.5 h-3.5' : 'mb-1 h-4'} font-semibold tabular-nums flex items-center justify-center transition-colors ${
           isZero ? 'text-slate-500' : isBoost ? `${theme.text} font-bold drop-shadow-[0_0_4px_rgba(6,182,212,0.4)]` : 'text-amber-400 font-bold'
         }`}
       >
-        {isBoost ? `+${clamped.toFixed(1)}` : isZero ? '0' : clamped.toFixed(1)}
+        {isBoost ? `+${clamped.toFixed(1)}` : isZero ? '0.0' : clamped.toFixed(1)}
       </span>
 
       {/* Futuristic Backlit Fader Track */}
@@ -180,7 +186,7 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onDoubleClick={handleReset}
-        className="relative h-44 w-5 sm:w-5.5 rounded-sm bg-[#04070D] border border-slate-800/90 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] flex items-center justify-center touch-none overflow-visible"
+        className={`relative ${trackHeightClass} w-5 sm:w-5.5 rounded-sm bg-[#04070D] border border-slate-800/90 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] flex items-center justify-center touch-none overflow-visible`}
         style={{
           boxShadow: isBoost
             ? `inset 0 0 8px rgba(0,0,0,0.9), 0 0 ${Math.round(absGainRatio * 8)}px ${theme.glow}`

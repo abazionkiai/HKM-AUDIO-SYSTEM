@@ -9,6 +9,7 @@ interface StereoGraphicEqModuleProps {
   dsp: DspConfig;
   onUpdateDsp: (patch: Partial<DspConfig>) => void;
   panelLocked?: boolean;
+  compactConsoleMode?: boolean;
 }
 
 const PRESET_CURVES: {
@@ -113,6 +114,7 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
   dsp,
   onUpdateDsp,
   panelLocked = false,
+  compactConsoleMode = false,
 }) => {
   const [rangeMode, setRangeMode] = useState<6 | 12>(12);
   const [activeTab, setActiveTab] = useState<'L' | 'R'>('L');
@@ -315,21 +317,39 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
   );
 
   return (
-    <div className="space-y-3.5 rounded-xl border border-slate-800 bg-gradient-to-b from-[#0D121F] via-[#090D16] to-[#06080E] p-4 text-slate-200 shadow-2xl">
+    <div
+      className={`${
+        compactConsoleMode
+          ? 'h-full min-h-0 flex flex-col justify-between gap-1.5 p-2.5'
+          : 'space-y-3.5 p-4'
+      } rounded-xl border border-fuchsia-500/35 bg-gradient-to-b from-[#130D1B] via-[#090D16] to-[#06080E] text-slate-200 shadow-2xl`}
+    >
       {/* Top Header Strip */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-2.5 h-9 rounded-xs bg-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.8)]" />
+      <div
+        className={`flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 ${
+          compactConsoleMode ? 'pb-1.5 shrink-0' : 'pb-3'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`w-2 ${
+              compactConsoleMode ? 'h-5' : 'h-9'
+            } rounded-xs bg-fuchsia-400 shadow-[0_0_12px_rgba(217,70,239,0.8)]`}
+          />
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-bold text-cyan-400 tracking-wider">PRO STEREO EQ-31</span>
-              <h2 className="font-display text-base font-semibold text-white tracking-tight">
+              <span className="font-mono text-xs font-bold text-fuchsia-400 tracking-wider">
+                PRO STEREO EQ-31
+              </span>
+              <h2 className="font-display text-sm font-semibold text-white tracking-tight">
                 Dual-Channel 31-Band Stereo Graphic Equalizer
               </h2>
             </div>
-            <p className="text-[11px] font-mono text-slate-400">
-              Illuminated Constant-Q Sliders · Stereo L/R Matrix Routing · Instant SuperBass Accel
-            </p>
+            {!compactConsoleMode && (
+              <p className="text-[11px] font-mono text-slate-400">
+                Illuminated Constant-Q Sliders · Stereo L/R Matrix Routing · Instant SuperBass Accel
+              </p>
+            )}
           </div>
         </div>
 
@@ -537,8 +557,12 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
       </div>
 
       {/* Real-Time SVG Frequency Response Display */}
-      <div className="relative rounded-md border border-slate-800 bg-[#05080F] p-2.5 overflow-hidden shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)]">
-        <div className="flex items-center justify-between font-mono text-[9px] mb-1">
+      <div
+        className={`relative rounded-md border border-slate-800 bg-[#05080F] ${
+          compactConsoleMode ? 'px-2 py-1 shrink-0' : 'p-2.5'
+        } overflow-hidden shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)]`}
+      >
+        <div className="flex items-center justify-between font-mono text-[9px] mb-0.5">
           <div className="flex items-center gap-3">
             <span className="text-cyan-400 font-semibold tracking-wider flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
@@ -554,7 +578,10 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
           <span className="text-slate-500 font-mono">Range: ±{rangeMode} dB</span>
         </div>
 
-        <svg viewBox="0 0 860 90" className="w-full h-20 overflow-visible mt-1">
+        <svg
+          viewBox="0 0 860 90"
+          className={`w-full ${compactConsoleMode ? 'h-11' : 'h-20'} overflow-visible mt-0.5`}
+        >
           {/* Horizontal Grid lines */}
           <line x1={0} y1={12} x2={860} y2={12} stroke="rgba(148,163,184,0.12)" strokeDasharray="3 3" />
           <line x1={0} y1={45} x2={860} y2={45} stroke="rgba(148,163,184,0.3)" />
@@ -621,8 +648,12 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
       </div>
 
       {/* 31 Vertical Precision Faders with Neon Lighting & Tactile Drag */}
-      <div className="relative rounded-lg border border-slate-800 bg-[#05070E] p-3 shadow-inner overflow-x-auto">
-        <div className="flex items-end justify-between min-w-[850px] gap-1 px-1">
+      <div
+        className={`relative rounded-lg border border-slate-800 bg-[#05070E] ${
+          compactConsoleMode ? 'flex-1 min-h-0 p-1.5 flex items-center' : 'p-3'
+        } shadow-inner overflow-x-auto`}
+      >
+        <div className="flex items-end justify-between min-w-[850px] w-full gap-1 px-1">
           {currentBands.map((band, idx) => {
             const isKeyFreq =
               band.hz === 63 ||
@@ -646,6 +677,8 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
                 subLabel={`${band.hz} Hz`}
                 disabled={panelLocked}
                 isKeyFreq={isKeyFreq}
+                trackHeightClass={compactConsoleMode ? 'h-20' : 'h-44'}
+                compact={compactConsoleMode}
                 accent={activeTab === 'R' && !isLinked ? 'fuchsia' : 'cyan'}
                 onChange={(nextVal) => handleBandChange(idx, nextVal)}
                 onDoubleClick={() => handleBandChange(idx, 0)}
