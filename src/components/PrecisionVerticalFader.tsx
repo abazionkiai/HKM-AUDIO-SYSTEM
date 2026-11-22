@@ -225,24 +225,24 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
           }}
         />
 
-        {/* Heavy Studio-Grade Sculpted Metallic Fader Cap with Laser-Cut Illuminated Line */}
+        {/* Studio-Grade Sculpted Metallic Fader Cap with Laser-Cut Illuminated Line */}
         <div
-          className="absolute left-[-3px] right-[-3px] h-4.5 rounded-xs bg-gradient-to-b from-[#333E50] via-[#1D2533] to-[#0E131C] border border-slate-400/70 shadow-[0_4px_10px_rgba(0,0,0,0.95),inset_0_1px_1px_rgba(255,255,255,0.3)] flex items-center justify-center z-10 pointer-events-none transition-transform group-hover:border-slate-300 active:scale-105"
+          className="absolute left-[-5px] right-[-5px] h-5 rounded-xs bg-gradient-to-b from-[#4A5568] via-[#2D3748] to-[#1A202C] border-2 border-slate-300/80 shadow-[0_4px_12px_rgba(0,0,0,0.95),inset_0_1px_2px_rgba(255,255,255,0.4)] flex items-center justify-center z-10 pointer-events-none transition-transform group-hover:border-white active:scale-105"
           style={{
             top: `${topPercent}%`,
             transform: 'translateY(-50%)',
           }}
         >
-          {/* Laser-etched glowing center LED marker on fader knob */}
+          {/* Laser-etched glowing center line on fader knob */}
           <div
-            className="w-full h-[2px] transition-all"
+            className="w-full h-[2px] transition-all shadow-sm"
             style={{
               backgroundColor: isZero ? '#FFFFFF' : isBoost ? theme.ledHex : '#F59E0B',
-              boxShadow: isZero
-                ? '0 0 4px rgba(255,255,255,0.8)'
-                : isBoost
-                  ? `0 0 6px ${theme.ledHex}, 0 0 2px #fff`
-                  : '0 0 6px #F59E0B, 0 0 2px #fff',
+              boxShadow: isBoost
+                ? `0 0 6px ${theme.glow}`
+                : isCut
+                  ? '0 0 6px rgba(245,158,11,0.8)'
+                  : '0 0 4px rgba(255,255,255,0.8)',
             }}
           />
         </div>

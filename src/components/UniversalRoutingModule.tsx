@@ -491,7 +491,7 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
                   }}
                   className="col-span-5 bg-[#070A10] border border-slate-700 rounded px-1.5 py-1 text-slate-200 text-[11px] focus:outline-none focus:border-violet-400"
                 >
-                  <option value="">System Default ({z.hardwareOutput})</option>
+                  <option value="">System Default Output</option>
                   {outputDevices.map((d, idx) => (
                     <option key={`${d.deviceId}-${idx}`} value={d.deviceId}>
                       {d.label || `System Output ${idx + 1}`}

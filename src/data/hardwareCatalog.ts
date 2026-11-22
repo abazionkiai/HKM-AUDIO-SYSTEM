@@ -933,7 +933,7 @@ export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
     crossoverHz: 90,
     crossoverSlope: 'LR24',
     limiterDb: -1.0,
-    hardwareOutput: 'Out 1 (Main L)',
+    hardwareOutput: 'System Default Output',
   },
   {
     id: 'zone-main-r',
@@ -951,7 +951,7 @@ export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
     crossoverHz: 90,
     crossoverSlope: 'LR24',
     limiterDb: -1.0,
-    hardwareOutput: 'Out 2 (Main R)',
+    hardwareOutput: 'System Default Output',
   },
   {
     id: 'zone-sub',
@@ -969,7 +969,7 @@ export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
     crossoverHz: 90,
     crossoverSlope: 'LR24',
     limiterDb: -1.5,
-    hardwareOutput: 'Out 3 (Aux/Matrix Sub)',
+    hardwareOutput: 'System Default Output',
   },
   {
     id: 'zone-rear',
@@ -987,7 +987,7 @@ export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
     crossoverHz: 100,
     crossoverSlope: 'LR24',
     limiterDb: -2.0,
-    hardwareOutput: 'Out 4 (Delay Zone)',
+    hardwareOutput: 'System Default Output',
   },
   {
     id: 'zone-monitor',
@@ -1005,7 +1005,7 @@ export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
     crossoverHz: 110,
     crossoverSlope: 'BW18',
     limiterDb: -3.0,
-    hardwareOutput: 'Aux 1 (Wedges)',
+    hardwareOutput: 'System Default Output',
   },
   {
     id: 'zone-overflow',
@@ -1023,7 +1023,7 @@ export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
     crossoverHz: 120,
     crossoverSlope: 'None',
     limiterDb: -3.0,
-    hardwareOutput: 'Out 5 (Overflow)',
+    hardwareOutput: 'System Default Output',
   },
 ];
 
@@ -1231,63 +1231,47 @@ export const INITIAL_ACOUSTIC_MEASUREMENT: AcousticMeasurement = {
 };
 
 export function buildChannelsForDevice(device: HardwareDevice): InputChannel[] {
-  const channelTemplates = [
-    { name: 'Main Preacher', role: 'Lead Speech', hpfHz: 110, phantom: false, gain: 34, dca: 'DCA 4 · Speech' as const },
-    { name: 'Assistant Pastor', role: 'Wireless HH', hpfHz: 110, phantom: false, gain: 32, dca: 'DCA 4 · Speech' as const },
-    { name: 'Pulpit Lectern', role: 'Gooseneck', hpfHz: 130, phantom: true, gain: 24, dca: 'DCA 4 · Speech' as const },
-    { name: 'Worship Lead 1', role: 'Lead Vocal', hpfHz: 105, phantom: false, gain: 36, dca: 'DCA 1 · Vox' as const },
-    { name: 'Backing Vocal 2', role: 'BVox', hpfHz: 120, phantom: false, gain: 34, dca: 'DCA 1 · Vox' as const },
-    { name: 'Backing Vocal 3', role: 'BVox', hpfHz: 120, phantom: false, gain: 33, dca: 'DCA 1 · Vox' as const },
-    { name: 'Choir Overhead L', role: 'Condenser', hpfHz: 135, phantom: true, gain: 28, dca: 'DCA 3 · Choir' as const },
-    { name: 'Choir Overhead R', role: 'Condenser', hpfHz: 135, phantom: true, gain: 28, dca: 'DCA 3 · Choir' as const },
-    { name: 'Bass Guitar DI', role: 'Active DI', hpfHz: 35, phantom: true, gain: 18, dca: 'DCA 2 · Band' as const },
-    { name: 'Acoustic Guitar', role: 'Piezo DI', hpfHz: 95, phantom: true, gain: 22, dca: 'DCA 2 · Band' as const },
-    { name: 'Keys L', role: 'Stereo DI', hpfHz: 65, phantom: false, gain: 12, dca: 'DCA 2 · Band' as const },
-    { name: 'Keys R', role: 'Stereo DI', hpfHz: 65, phantom: false, gain: 12, dca: 'DCA 2 · Band' as const },
-    { name: 'Electric Guitar', role: 'Amp Modeler', hpfHz: 85, phantom: false, gain: 14, dca: 'DCA 2 · Band' as const },
-    { name: 'Kick Drum', role: 'Dynamic', hpfHz: 40, phantom: false, gain: 26, dca: 'DCA 2 · Band' as const },
-    { name: 'Snare / Drums OH', role: 'Percussion', hpfHz: 100, phantom: true, gain: 24, dca: 'DCA 2 · Band' as const },
-    { name: 'Playback / Media', role: 'Stereo Aux', hpfHz: 40, phantom: false, gain: 0, dca: 'None' as const },
-  ];
-
-  const count = Math.max(8, Math.min(device.capabilities.maxInputChannels || 8, channelTemplates.length));
+  const count = Math.max(8, Math.min(device.capabilities.maxInputChannels || 8, 32));
   const authority = device.capabilities.perChannelFaderControl ? 'hardware-linked' : 'software-dsp';
 
-  return channelTemplates.slice(0, count).map((tpl, i) => ({
-    id: `ch-${i + 1}`,
-    index: i + 1,
-    name: tpl.name,
-    role: tpl.role,
-    authority,
-    levelDb: -96,
-    peakDb: -96,
-    gainDb: tpl.gain,
-    faderDb: i < 4 ? 0 : -4,
-    mute: false,
-    solo: false,
-    phantom48v: tpl.phantom,
-    padDb: i === 13 || i === 14,
-    polarityInverted: false,
-    hpfHz: tpl.hpfHz,
-    pan: tpl.name.endsWith('L') ? -80 : tpl.name.endsWith('R') ? 80 : 0,
-    noiseFloorDb: -96,
-    gateThresholdDb: i < 3 ? -48 : -56,
-    compThresholdDb: i < 6 ? -18 : -16,
-    compRatio: i < 3 ? 3.5 : 3.0,
-    eqLowDb: i === 8 || i === 13 ? 1.5 : 0,
-    eqMidDb: i < 3 ? -2.5 : -1.0,
-    eqMidFreqHz: i < 3 ? 220 : 400,
-    eqHighDb: i < 6 ? 1.5 : 0.5,
-    auxSends: {
-      stageMon1Db: i < 3 ? -4 : -14,
-      stageMon2Db: i >= 3 && i < 6 ? -3 : -12,
-      streamBusDb: i < 8 ? 0 : -3,
-      subsDb: i === 8 || i === 13 ? 0 : -48,
-    },
-    dcaGroup: tpl.dca,
-    stereoLinked: tpl.name.endsWith('L') || tpl.name.endsWith('R'),
-    mainPaAssign: true,
-    streamAssign: true,
-    subAssign: i === 8 || i === 13,
-  }));
+  return Array.from({ length: count }, (_, i) => {
+    const chNum = i + 1;
+    return {
+      id: `ch-${chNum}`,
+      index: chNum,
+      name: `Input ${chNum}`,
+      role: `Live Input ${chNum}`,
+      authority,
+      levelDb: -96,
+      peakDb: -96,
+      gainDb: 24,
+      faderDb: 0,
+      mute: false,
+      solo: false,
+      phantom48v: false,
+      padDb: false,
+      polarityInverted: false,
+      hpfHz: 80,
+      pan: 0,
+      noiseFloorDb: -96,
+      gateThresholdDb: -48,
+      compThresholdDb: -18,
+      compRatio: 3.0,
+      eqLowDb: 0,
+      eqMidDb: 0,
+      eqMidFreqHz: 1200,
+      eqHighDb: 0,
+      auxSends: {
+        stageMon1Db: -12,
+        stageMon2Db: -12,
+        streamBusDb: 0,
+        subsDb: -48,
+      },
+      dcaGroup: 'None' as const,
+      stereoLinked: false,
+      mainPaAssign: true,
+      streamAssign: true,
+      subAssign: false,
+    };
+  });
 }

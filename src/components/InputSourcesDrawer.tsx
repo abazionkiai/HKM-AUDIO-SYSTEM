@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mic, RefreshCw, Plus, ChevronLeft, ChevronRight, Activity, ArrowRight } from 'lucide-react';
 import type { InputChannel } from '../types/audio.ts';
+import { deriveAutoChannelNameAndRole } from '../utils/audioNaming.ts';
 
 interface InputSourcesDrawerProps {
   inputDevices: MediaDeviceInfo[];
@@ -158,9 +159,16 @@ export const InputSourcesDrawer: React.FC<InputSourcesDrawerProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      const targetCh = channels.find((c) => c.id === selectedChannelId);
+                      const auto = deriveAutoChannelNameAndRole(
+                        dev.label || `Audio Input ${idx + 1}`,
+                        targetCh?.index ?? 1
+                      );
                       onUpdateChannel(selectedChannelId, {
                         hardwareInputId: dev.deviceId,
                         hardwareInputLabel: dev.label || `Audio Input ${idx + 1}`,
+                        name: auto.name,
+                        role: auto.role,
                       });
                     }}
                     className="w-full mt-1 py-1 rounded bg-[#131B2E] hover:bg-sky-500/20 border border-slate-700 hover:border-sky-400/60 font-mono text-[9px] font-semibold text-slate-300 hover:text-sky-200 transition flex items-center justify-center gap-1 cursor-pointer"

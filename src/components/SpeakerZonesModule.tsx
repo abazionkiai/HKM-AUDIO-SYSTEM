@@ -801,7 +801,9 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
                       {selectedZone.name.toUpperCase()}
                     </div>
                     <div className="font-mono text-[10px] text-sky-400 truncate">
-                      {selectedZone.hardwareOutput}
+                      {selectedZone.hardwareOutputId
+                        ? outputDevices.find((d) => d.deviceId === selectedZone.hardwareOutputId)?.label || selectedZone.hardwareOutput
+                        : outputDevices[0]?.label || 'System Default Output'}
                     </div>
                   </div>
                   <SegmentedLedMeter

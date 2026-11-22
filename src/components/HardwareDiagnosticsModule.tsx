@@ -159,16 +159,11 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   const [tab, setTab] = useState<'hardware' | 'remote' | 'plugins' | 'crossplatform' | 'watchdog'>(
     'hardware'
   );
-  const [tierFilter, setTierFilter] = useState<'all' | 1 | 2 | 3 | 4>('all');
   const [pluginDraft, setPluginDraft] = useState(SAMPLE_CUSTOM_HARDWARE_PLUGIN);
   const [pluginError, setPluginError] = useState<string | null>(null);
   const [pluginSuccess, setPluginSuccess] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copiedUrl, setCopiedUrl] = useState(false);
-
-  const filteredDevices = devices.filter(
-    (d) => tierFilter === 'all' || d.tier === tierFilter
-  );
 
   const latencyMs = calculateRoundTripLatencyMs(bufferSize, sampleRate, driver);
   const platformSpec = PLATFORM_SPECS[platform];
@@ -790,93 +785,6 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                 })}
               </div>
             )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            {[
-              { id: 'all', label: `ALL HARDWARE (${devices.length})` },
-              { id: 1, label: 'TIER 1 · ANALOG & USB' },
-              { id: 2, label: 'TIER 2 · DIGITAL CONSOLES' },
-              { id: 3, label: 'TIER 3 · DEDICATED DSP' },
-              { id: 4, label: 'TIER 4 · DANTE & CAL' },
-            ].map((t) => (
-              <button
-                key={String(t.id)}
-                type="button"
-                onClick={() => setTierFilter(t.id as typeof tierFilter)}
-                className={`px-3 py-1.5 rounded text-[11px] font-mono font-semibold border transition-colors ${
-                  tierFilter === t.id
-                    ? 'border-sky-400 bg-sky-500/20 text-sky-300'
-                    : 'border-slate-800 bg-[#0D1119] text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredDevices.map((dev) => {
-              const isSelected = dev.id === activeDevice.id;
-              const supportsCurrentPlatform = dev.supportedPlatforms.includes(platform);
-
-              return (
-                <div
-                  key={dev.id}
-                  className={`p-4 rounded-lg border flex flex-col justify-between gap-3 transition-colors ${
-                    isSelected
-                      ? 'border-sky-400 bg-[#121B2B]'
-                      : 'border-slate-800 bg-[#0D1119]'
-                  }`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-mono text-[10px] text-sky-400 uppercase">{dev.tierLabel}</div>
-                        <div className="text-sm font-semibold text-white mt-0.5">
-                          {dev.manufacturer} {dev.model}
-                        </div>
-                      </div>
-                      <span className="font-mono text-[11px] text-slate-400 shrink-0 tabular-nums">
-                        {dev.capabilities.maxInputChannels}×{dev.capabilities.maxOutputChannels}
-                      </span>
-                    </div>
-
-                    <div className="text-xs font-mono text-emerald-400">{dev.connectionType}</div>
-                    <div className="text-xs text-slate-400 leading-relaxed">
-                      {dev.capabilities.limitationsNote}
-                    </div>
-
-                    <div className="pt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-slate-500">
-                      <span>FADERS: {dev.capabilities.perChannelFaderControl ? 'REMOTE' : 'MANUAL'}</span>
-                      <span>·</span>
-                      <span>STREAMS: {dev.capabilities.perChannelCapture ? 'MULTITRACK' : 'STEREO'}</span>
-                      <span>·</span>
-                      <span>OS: {dev.supportedPlatforms.join('/')}</span>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={!supportsCurrentPlatform}
-                    onClick={() => onSelectDevice(dev)}
-                    className={`w-full py-2 px-3 rounded text-xs font-mono font-semibold transition-colors ${
-                      isSelected
-                        ? 'bg-emerald-600 text-white'
-                        : supportsCurrentPlatform
-                          ? 'bg-sky-600 hover:bg-sky-500 text-white'
-                          : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    {isSelected
-                      ? 'ACTIVE BOUND DEVICE'
-                      : supportsCurrentPlatform
-                        ? `BIND ${dev.model.toUpperCase()}`
-                        : `UNSUPPORTED ON ${platform.toUpperCase()}`}
-                  </button>
-                </div>
-              );
-            })}
           </div>
         </div>
       )}

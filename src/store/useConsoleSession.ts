@@ -39,6 +39,10 @@ import {
 import { appFetch, isDesktopApp } from '../utils/appApi.ts';
 import { saveLastActiveHardwareId } from '../utils/hardwareCacheDb.ts';
 import { liveAudioEngine } from '../audio/liveAudioEngine.ts';
+import {
+  sanitizeAndAutoNameChannels,
+  deriveAutoChannelNameAndRole,
+} from '../utils/audioNaming.ts';
 import QRCode from 'qrcode';
 
 interface UseConsoleSessionProps {
@@ -238,19 +242,8 @@ export function useConsoleSession({
             }
           }
           if (Array.isArray(data.channels) && data.channels.length > 0) {
-            // Cleanse any legacy cached mock channels (e.g. "USB Stereo Return") from previous versions
-            const cleaned = data.channels.map((ch: InputChannel) => {
-              if (ch.name?.includes('USB Stereo Return L')) {
-                return { ...ch, name: 'Main Preacher', role: 'Lead Speech' };
-              }
-              if (ch.name?.includes('USB Stereo Return R')) {
-                return { ...ch, name: 'Assistant Pastor', role: 'Wireless HH' };
-              }
-              if (ch.name?.includes('USB Stereo Ret')) {
-                return { ...ch, name: `Input ${ch.index}`, role: 'Dynamic Input' };
-              }
-              return ch;
-            });
+            // Cleanse any legacy mock names or template artifacts from previous versions
+            const cleaned = sanitizeAndAutoNameChannels(data.channels);
             setChannels(cleaned);
           }
           if (data.dsp && typeof data.dsp === 'object') setDsp(data.dsp);
@@ -261,7 +254,15 @@ export function useConsoleSession({
           if (data.broadcastDsp && typeof data.broadcastDsp === 'object') {
             setBroadcastDsp(data.broadcastDsp);
           }
-          if (Array.isArray(data.zones) && data.zones.length > 0) setZones(data.zones);
+          if (Array.isArray(data.zones) && data.zones.length > 0) {
+            const cleanZones = data.zones.map((z: SpeakerZone) => {
+              if (!z.hardwareOutput || /^(Out \d|Aux \d)/i.test(z.hardwareOutput)) {
+                return { ...z, hardwareOutput: 'System Default Output' };
+              }
+              return z;
+            });
+            setZones(cleanZones);
+          }
           if (data.obsStatus && typeof data.obsStatus === 'object') setObsStatus(data.obsStatus);
           if (data.measurement && typeof data.measurement === 'object') {
             setMeasurement(data.measurement);
@@ -691,9 +692,16 @@ export function useConsoleSession({
       const partnerIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
       const partner = partnerIdx >= 0 && partnerIdx < prev.length ? prev[partnerIdx] : null;
 
+      let resolvedPatch = { ...patch };
+      if (resolvedPatch.hardwareInputLabel && !resolvedPatch.name) {
+        const auto = deriveAutoChannelNameAndRole(resolvedPatch.hardwareInputLabel, target.index);
+        resolvedPatch.name = auto.name;
+        resolvedPatch.role = auto.role;
+      }
+
       return prev.map((c, i) => {
         if (i === idx) {
-          return { ...c, ...patch };
+          return { ...c, ...resolvedPatch };
         }
         if (partner && i === partnerIdx) {
           if (patch.stereoLinked !== undefined) {
@@ -889,6 +897,10 @@ export function useConsoleSession({
 
   const handleRemoveZone = useCallback((zoneId: string) => {
     setZones((prev) => (prev.length <= 1 ? prev : prev.filter((z) => z.id !== zoneId)));
+  }, []);
+
+  const handleUpdateZone = useCallback((id: string, patch: Partial<SpeakerZone>) => {
+    setZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)));
   }, []);
 
   const handleSaveAutomation = useCallback(
@@ -1102,6 +1114,7 @@ export function useConsoleSession({
     handleAddEqBand,
     handleRemoveEqBand,
     handleAddZone,
+    handleUpdateZone,
     handleRemoveZone,
     handleBatchMute,
     handleClearAllSolos,

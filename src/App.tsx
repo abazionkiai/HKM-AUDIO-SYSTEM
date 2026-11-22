@@ -454,6 +454,12 @@ export default function App() {
               onAddEqBand={session.handleAddEqBand}
               onRemoveEqBand={session.handleRemoveEqBand}
               inputDevices={hardware.inputDevices}
+              outputDevices={hardware.outputDevices}
+              preferredOutputDeviceId={hardware.preferredOutputDeviceId}
+              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+              onSelectOutputDevice={hardware.handleSelectOutputDevice}
+              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
+              onUpdateZone={session.handleUpdateZone}
               onScanAudioDevices={hardware.refreshAudioDevices}
             />
           ) : activeModule === 'dsp' ? (
@@ -475,6 +481,12 @@ export default function App() {
               onAddEqBand={session.handleAddEqBand}
               onRemoveEqBand={session.handleRemoveEqBand}
               inputDevices={hardware.inputDevices}
+              outputDevices={hardware.outputDevices}
+              preferredOutputDeviceId={hardware.preferredOutputDeviceId}
+              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+              onSelectOutputDevice={hardware.handleSelectOutputDevice}
+              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
+              onUpdateZone={session.handleUpdateZone}
               onScanAudioDevices={hardware.refreshAudioDevices}
             />
           ) : activeModule === 'feedback' ? (
