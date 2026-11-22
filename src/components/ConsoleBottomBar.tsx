@@ -55,7 +55,7 @@ export const ConsoleBottomBar: React.FC<ConsoleBottomBarProps> = ({
   return (
     <footer
       aria-label="Console Status & Hardware Safety Footer"
-      className="h-11 shrink-0 bg-gradient-to-b from-[#1B222B] to-[#11161C] border-t border-[#2A3543] px-3 flex items-center justify-between gap-3 select-none z-20"
+      className="h-11 shrink-0 bg-gradient-to-b from-[#1E2630] to-[#11161D] border-t border-[#46576B] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] px-3 flex items-center justify-between gap-3 select-none z-20"
     >
       {/* Left: SYSTEM STATUS Indicators */}
       <div className="flex flex-col justify-center gap-0.5 min-w-0">

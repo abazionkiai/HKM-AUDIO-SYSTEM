@@ -217,18 +217,16 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
   return (
     <aside
       aria-label="Live Console Inputs & Outputs Rack"
-      className="w-[236px] xl:w-[248px] shrink-0 h-full hw-panel rounded-lg flex flex-col overflow-hidden select-none"
+      className="w-[214px] 2xl:w-[248px] shrink-0 h-full hw-panel rounded-lg flex flex-col overflow-hidden select-none"
     >
       {/* Top Interchangeable Tab Header */}
-      <div className="h-8 shrink-0 px-1.5 border-b border-[#25303D] bg-[#141B23] flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1 flex-1 min-w-0 font-mono text-[9.5px] font-bold">
+      <div className="h-8 shrink-0 px-1 2xl:px-1.5 hw-card-header flex items-center justify-between gap-1">
+        <div className="flex items-center gap-0.5 2xl:gap-1 flex-1 min-w-0 font-mono text-[8.5px] 2xl:text-[9.5px] font-bold">
           <button
             type="button"
             onClick={() => setActiveTab('inputs')}
-            className={`flex-1 h-6 px-1.5 rounded border flex items-center justify-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
-              activeTab === 'inputs'
-                ? 'bg-[#0C1418] border-[#2DD4BF]/70 text-[#5EEAD4] shadow-[0_0_8px_rgba(45,212,191,0.22)]'
-                : 'bg-[#10161D] border-[#26303D] text-slate-400 hover:text-slate-200'
+            className={`flex-1 min-w-0 h-6 px-1 2xl:px-1.5 rounded flex items-center justify-center gap-0.5 2xl:gap-1 whitespace-nowrap cursor-pointer ${
+              activeTab === 'inputs' ? 'hw-top-btn-active' : 'hw-top-btn'
             }`}
           >
             <Mic className="w-2.5 h-2.5 shrink-0" />
@@ -237,10 +235,8 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('outputs')}
-            className={`flex-1 h-6 px-1.5 rounded border flex items-center justify-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
-              activeTab === 'outputs'
-                ? 'bg-[#0C1513] border-emerald-400/70 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.22)]'
-                : 'bg-[#10161D] border-[#26303D] text-slate-400 hover:text-slate-200'
+            className={`flex-1 min-w-0 h-6 px-1 2xl:px-1.5 rounded flex items-center justify-center gap-0.5 2xl:gap-1 whitespace-nowrap cursor-pointer ${
+              activeTab === 'outputs' ? 'hw-top-btn-active' : 'hw-top-btn'
             }`}
           >
             <Volume2 className="w-2.5 h-2.5 shrink-0" />
@@ -248,15 +244,15 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center gap-0.5 shrink-0 pl-0.5">
+        <div className="flex items-center gap-0.5 2xl:gap-1 shrink-0">
           <button
             type="button"
             disabled={scanning}
             onClick={() => void handleScan()}
             title="Re-Scan Live Audio Hardware & Virtual Ports"
-            className="p-1 rounded text-slate-400 hover:text-teal-300 hover:bg-[#1E2733] cursor-pointer disabled:opacity-40"
+            className="p-1 rounded hw-top-btn cursor-pointer disabled:opacity-40"
           >
-            <RefreshCw className={`w-3 h-3 ${scanning ? 'animate-spin text-teal-400' : ''}`} />
+            <RefreshCw className={`w-3 h-3 ${scanning ? 'animate-spin text-teal-300' : ''}`} />
           </button>
           {activeTab === 'inputs' && onAddChannel && (
             <button
@@ -267,7 +263,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                 setBankIdx(Math.floor(channels.length / 8));
               }}
               title="Add New Standalone Stereo Input Strip"
-              className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-[#1E2733] cursor-pointer disabled:opacity-40"
+              className="p-1 rounded hw-top-btn cursor-pointer disabled:opacity-40"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -276,7 +272,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             type="button"
             onClick={() => setCollapsed(true)}
             title="Collapse Left Panel"
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#1E2733] cursor-pointer"
+            className="p-1 rounded hw-top-btn cursor-pointer"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
@@ -295,10 +291,8 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                   key={i}
                   type="button"
                   onClick={() => setBankIdx(i)}
-                  className={`px-2 py-0.5 rounded border font-bold cursor-pointer whitespace-nowrap ${
-                    safeBankIdx === i
-                      ? 'bg-teal-500/20 border-teal-400/70 text-teal-200'
-                      : 'bg-[#0F141A] border-[#25303D] text-slate-400 hover:text-slate-200'
+                  className={`px-2 py-0.5 rounded font-bold cursor-pointer whitespace-nowrap ${
+                    safeBankIdx === i ? 'hw-top-btn-active' : 'hw-top-btn'
                   }`}
                 >
                   CH {i * 8 + 1}–{Math.min(channels.length, (i + 1) * 8)}
@@ -331,15 +325,15 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                   onClick={() => onSelectChannel(ch.id)}
                   className={`rounded-md border px-1.5 py-1 flex items-center gap-1.5 cursor-pointer transition-all shrink-0 ${
                     isHot
-                      ? 'border-amber-500/85 bg-gradient-to-b from-[#271E14] to-[#1A130D] shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                      ? 'border-amber-400 bg-gradient-to-b from-[#2A2015] to-[#1A130D] shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_0_10px_rgba(245,158,11,0.28)]'
                       : isSelected
-                        ? 'border-[#2DD4BF] bg-gradient-to-b from-[#17282D] to-[#111D22] shadow-[0_0_12px_rgba(45,212,191,0.28)]'
-                        : 'border-[#26303D] bg-gradient-to-b from-[#192029] to-[#12171E] hover:border-[#3B495B]'
+                        ? 'border-[#2DD4BF] ring-1 ring-[#2DD4BF]/35 bg-gradient-to-b from-[#17282D] to-[#111D22] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_0_12px_rgba(45,212,191,0.3)]'
+                        : 'border-[#4B5D72] bg-gradient-to-b from-[#1E2732] to-[#131921] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:border-[#687F99]'
                   }`}
                 >
                   {/* Column 1: Channel Number & Peak/Limit Indicator */}
                   <div className="w-4 shrink-0 flex flex-col items-center justify-between self-stretch py-0.5 font-mono">
-                    <span className={`text-[10px] font-bold ${isSelected ? 'text-[#5EEAD4]' : 'text-slate-400'}`}>
+                    <span className={`text-[10px] font-bold ${isSelected ? 'text-[#5EEAD4]' : 'text-slate-300'}`}>
                       {ch.index}
                     </span>
                     {isHot ? (
@@ -359,7 +353,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
 
                   {/* Column 2: Vertical 10-Segment Live LED Meter */}
                   <div
-                    className="w-2 h-11 rounded-[2px] bg-[#080C10] border border-[#1E2733] p-[1px] flex flex-col justify-between shrink-0"
+                    className="w-2 h-11 rounded-[2px] bg-[#080C10] border border-[#2F3E4F] p-[1px] flex flex-col justify-between shrink-0"
                     aria-label={`Channel ${ch.index} Level`}
                   >
                     {SEGMENTS_10.slice()
@@ -405,7 +399,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                           className={`w-3.5 h-3.5 rounded-[2px] border font-bold leading-none flex items-center justify-center cursor-pointer disabled:opacity-50 ${
                             ch.mute
                               ? 'bg-rose-600 border-rose-300 text-white'
-                              : 'bg-[#0F141B] border-[#2C3746] text-slate-400 hover:text-white'
+                              : 'hw-top-btn text-slate-200'
                           }`}
                         >
                           M
@@ -418,7 +412,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                           className={`w-3.5 h-3.5 rounded-[2px] border font-bold leading-none flex items-center justify-center cursor-pointer disabled:opacity-50 ${
                             ch.solo
                               ? 'bg-amber-400 border-amber-200 text-slate-950'
-                              : 'bg-[#0F141B] border-[#2C3746] text-slate-400 hover:text-white'
+                              : 'hw-top-btn text-slate-200'
                           }`}
                         >
                           S
@@ -432,7 +426,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                       onClick={(e) => e.stopPropagation()}
                       title={`Channel ${ch.index} Fader: ${ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb.toFixed(1)} dB`}
                     >
-                      <div className="w-full h-1.5 rounded-full bg-[#090D12] border border-[#222C38] overflow-hidden relative">
+                      <div className="w-full h-1.5 rounded-full bg-[#090D12] border border-[#2C394A] overflow-hidden relative">
                         <div
                           className={`h-full transition-all duration-75 ${
                             ch.mute
@@ -472,7 +466,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                               : `ST · ${ch.role}`}
                         </span>
                       )}
-                      <span className="text-slate-300 tabular-nums font-semibold">
+                      <span className="text-slate-200 tabular-nums font-semibold">
                         {ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb.toFixed(1)} dB
                       </span>
                     </div>
@@ -500,27 +494,27 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
           </div>
 
           {/* Collapsible Live Hardware Input Patch Tray (1-Click Route to Focused Channel) */}
-          <div className="shrink-0 border-t border-[#25303D] bg-[#10151B]">
+          <div className="shrink-0 border-t border-[#445568] bg-[#10151B]">
             <button
               type="button"
               onClick={() => setPatchTrayOpen((v) => !v)}
-              className="w-full px-2.5 py-1.5 flex items-center justify-between font-mono text-[9.5px] font-bold text-slate-300 hover:text-white cursor-pointer"
+              className="w-full px-2.5 py-1.5 hw-card-subheader flex items-center justify-between font-mono text-[9.5px] font-bold hover:text-white cursor-pointer"
             >
               <span className="flex items-center gap-1.5">
-                <Cable className="w-3 h-3 text-teal-400" />
+                <Cable className="w-3 h-3 text-teal-300" />
                 <span>HARDWARE INPUTS ({inputDevices.length})</span>
               </span>
               {patchTrayOpen ? (
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-300" />
               ) : (
-                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronUp className="w-3.5 h-3.5 text-slate-300" />
               )}
             </button>
 
             {patchTrayOpen && (
-              <div className="max-h-[124px] overflow-y-auto px-1.5 pb-1.5 space-y-1">
+              <div className="max-h-[124px] overflow-y-auto px-1.5 py-1.5 space-y-1">
                 {inputDevices.length === 0 ? (
-                  <div className="p-2 rounded border border-dashed border-[#273240] bg-[#0B1015] text-center font-mono text-[9px] text-slate-500">
+                  <div className="p-2 rounded border border-dashed border-[#344355] bg-[#0B1015] text-center font-mono text-[9px] text-slate-500">
                     No inputs detected. Click refresh to scan USB / soundcard inputs.
                   </div>
                 ) : (
@@ -533,8 +527,8 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                         key={`patch-in-${dev.deviceId}-${idx}`}
                         className={`px-2 py-1 rounded border flex items-center justify-between gap-1.5 font-mono text-[9px] ${
                           boundToSelected
-                            ? 'border-teal-400/70 bg-[#122226]'
-                            : 'border-[#232D3A] bg-[#0C1117]'
+                            ? 'border-teal-400/75 bg-[#122226]'
+                            : 'border-[#3C4B5E] bg-[#0E141C]'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -557,10 +551,10 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                               });
                             }}
                             title={`Assign "${label}" to CH${selectedChannel.index} (${selectedChannel.name}) as standalone stereo`}
-                            className={`px-1.5 py-0.5 rounded border text-[8.5px] font-bold shrink-0 flex items-center gap-0.5 cursor-pointer disabled:opacity-45 ${
+                            className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold shrink-0 flex items-center gap-0.5 cursor-pointer disabled:opacity-45 ${
                               boundToSelected
-                                ? 'bg-teal-500 text-slate-950 border-teal-300'
-                                : 'bg-[#17202B] border-[#2E3C4D] text-teal-300 hover:border-teal-400'
+                                ? 'bg-teal-500 text-slate-950 border border-teal-300'
+                                : 'hw-top-btn text-teal-200'
                             }`}
                           >
                             <span>CH{selectedChannel.index}</span>
@@ -584,7 +578,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1.5">
             {outputDevices.length === 0 ? (
-              <div className="p-3 rounded border border-dashed border-[#273240] bg-[#0B1015] text-center font-mono text-[10px] text-slate-500">
+              <div className="p-3 rounded border border-dashed border-[#344355] bg-[#0B1015] text-center font-mono text-[10px] text-slate-500">
                 No audio output endpoints detected. Click refresh or plug in speakers/headphones.
               </div>
             ) : (
@@ -602,10 +596,10 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                     key={`out-card-${dev.deviceId}-${idx}`}
                     className={`p-2 rounded-md border space-y-1.5 transition ${
                       isMasterOut
-                        ? 'border-emerald-500/70 bg-gradient-to-b from-[#13241F] to-[#0E1916]'
+                        ? 'border-emerald-400/80 bg-gradient-to-b from-[#13241F] to-[#0E1916] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
                         : isStreamOut
-                          ? 'border-violet-500/70 bg-gradient-to-b from-[#1C1628] to-[#13101B]'
-                          : 'border-[#26303D] bg-gradient-to-b from-[#181F28] to-[#12171E] hover:border-[#394759]'
+                          ? 'border-violet-400/80 bg-gradient-to-b from-[#1C1628] to-[#13101B] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
+                          : 'border-[#4B5D72] bg-gradient-to-b from-[#1D2631] to-[#131921] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:border-[#687F99]'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1">
@@ -657,7 +651,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                             {engineRunning ? `${fastPostDb.toFixed(1)} dBFS` : 'IDLE'}
                           </span>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-[#090D12] border border-[#1E2833] overflow-hidden">
+                        <div className="h-1.5 w-full rounded-full bg-[#090D12] border border-[#2C394A] overflow-hidden">
                           <div
                             className="h-full bg-gradient-to-r from-[#4ADE80] via-amber-400 to-rose-500 transition-all duration-75"
                             style={{ width: `${meterWidth}%` }}
@@ -671,10 +665,10 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                         type="button"
                         disabled={locked}
                         onClick={() => onSelectOutputDevice(dev.deviceId)}
-                        className={`py-1 rounded font-mono text-[8.5px] font-bold border cursor-pointer disabled:opacity-45 ${
+                        className={`py-1 rounded font-mono text-[8.5px] font-bold cursor-pointer disabled:opacity-45 ${
                           isMasterOut
-                            ? 'bg-emerald-600 text-white border-emerald-400'
-                            : 'bg-[#121820] border-[#2C3746] text-slate-300 hover:text-white hover:border-emerald-500/50'
+                            ? 'bg-emerald-600 text-white border border-emerald-300'
+                            : 'hw-top-btn'
                         }`}
                       >
                         {isMasterOut ? '✓ Master PA' : 'Set Master PA'}
@@ -683,10 +677,10 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                         type="button"
                         disabled={locked}
                         onClick={() => onSelectStreamOutputDevice(dev.deviceId)}
-                        className={`py-1 rounded font-mono text-[8.5px] font-bold border cursor-pointer disabled:opacity-45 ${
+                        className={`py-1 rounded font-mono text-[8.5px] font-bold cursor-pointer disabled:opacity-45 ${
                           isStreamOut
-                            ? 'bg-violet-600 text-white border-violet-400'
-                            : 'bg-[#121820] border-[#2C3746] text-slate-300 hover:text-white hover:border-violet-500/50'
+                            ? 'bg-violet-600 text-white border border-violet-300'
+                            : 'hw-top-btn'
                         }`}
                       >
                         {isStreamOut ? '✓ Stream OBS' : 'Set Stream OBS'}
@@ -698,7 +692,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             )}
           </div>
 
-          <div className="shrink-0 px-2.5 py-1.5 border-t border-[#25303D] bg-[#10151B] font-mono text-[9px] text-slate-400 flex items-center justify-between">
+          <div className="shrink-0 px-2.5 py-1.5 border-t border-[#445568] bg-[#10151B] font-mono text-[9px] text-slate-300 flex items-center justify-between">
             <span>PCIe Multi-Jack Ports</span>
             <span className="text-emerald-400 font-bold">DISCRETE L/R</span>
           </div>

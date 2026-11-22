@@ -634,6 +634,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           </span>
           {presets.length > 0 && onSelectPreset ? (
             <select
+              id="service-mode-preset-select"
+              name="servicePreset"
               aria-label="Active Service Preset"
               disabled={consoleLocked}
               value={activePreset.id}
@@ -641,7 +643,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 const found = presets.find((p) => p.id === e.target.value);
                 if (found) onSelectPreset(found);
               }}
-              className="h-7 px-2 rounded border border-[#2C3847] bg-[#0E1319] font-mono text-[10px] text-teal-300 font-semibold focus:outline-none focus:border-teal-400 max-w-[140px] truncate cursor-pointer disabled:opacity-50"
+              className="h-7 px-2 rounded border border-[#2C3847] bg-[#0E1319] font-mono text-[10px] text-teal-300 font-semibold focus:outline-none focus:border-teal-400 max-w-[185px] truncate cursor-pointer disabled:opacity-50"
             >
               {presets.map((p) => (
                 <option key={p.id} value={p.id} className="bg-[#0E1319] text-slate-100">

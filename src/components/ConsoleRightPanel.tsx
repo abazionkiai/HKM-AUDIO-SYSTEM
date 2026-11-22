@@ -307,18 +307,16 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
   return (
     <aside
       aria-label="System Telemetry, Preset Recall & Master Preview"
-      className="w-[238px] xl:w-[252px] shrink-0 h-full hw-panel rounded-lg flex flex-col overflow-hidden select-none"
+      className="w-[218px] 2xl:w-[252px] shrink-0 h-full hw-panel rounded-lg flex flex-col overflow-hidden select-none"
     >
       {/* Top Compact Switcher: SYSTEM (Reference 6 Cards) | MASTER (Live Preview) */}
-      <div className="h-8 shrink-0 px-2 border-b border-[#25303D] bg-[#141B23] flex items-center justify-between gap-1">
+      <div className="h-8 shrink-0 px-2 hw-card-header flex items-center justify-between gap-1.5">
         <div className="grid grid-cols-2 gap-1 flex-1 font-mono text-[10px] font-bold">
           <button
             type="button"
             onClick={() => setRightTab('system')}
-            className={`h-6 px-2 rounded border flex items-center justify-center gap-1 cursor-pointer ${
-              rightTab === 'system'
-                ? 'bg-[#0C1418] border-[#2DD4BF]/70 text-[#5EEAD4] shadow-[0_0_8px_rgba(45,212,191,0.22)]'
-                : 'bg-[#10161D] border-[#26303D] text-slate-400 hover:text-slate-200'
+            className={`h-6 px-2 rounded flex items-center justify-center gap-1 cursor-pointer ${
+              rightTab === 'system' ? 'hw-top-btn-active' : 'hw-top-btn'
             }`}
           >
             <Activity className="w-2.5 h-2.5" />
@@ -327,10 +325,8 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
           <button
             type="button"
             onClick={() => setRightTab('master')}
-            className={`h-6 px-2 rounded border flex items-center justify-center gap-1 cursor-pointer ${
-              rightTab === 'master'
-                ? 'bg-[#0C1513] border-emerald-400/70 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.22)]'
-                : 'bg-[#10161D] border-[#26303D] text-slate-400 hover:text-slate-200'
+            className={`h-6 px-2 rounded flex items-center justify-center gap-1 cursor-pointer ${
+              rightTab === 'master' ? 'hw-top-btn-active' : 'hw-top-btn'
             }`}
           >
             <Sliders className="w-2.5 h-2.5" />
@@ -342,7 +338,7 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
           type="button"
           onClick={() => setCollapsed(true)}
           title="Collapse Right Panel to Stereo Meter Rail"
-          className="p-1 rounded text-slate-400 hover:text-white hover:bg-[#1E2733] cursor-pointer"
+          className="p-1 rounded hw-top-btn cursor-pointer"
         >
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
@@ -352,96 +348,100 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
           TAB 1: SYSTEM TELEMETRY & PRESET RECALL (6 HARDWARE CARDS)
           ========================================================================= */}
       {rightTab === 'system' && (
-        <div className="flex-1 min-h-0 overflow-y-auto p-1.5 flex flex-col gap-1 font-mono">
+        <div className="flex-1 min-h-0 overflow-y-auto p-1.5 flex flex-col gap-1.5 font-mono">
           {/* Card 1: LATENCY */}
-          <div className="hw-card rounded-md p-1.5 space-y-0.5 shrink-0">
-            <div className="text-[9px] font-bold tracking-[0.1em] text-slate-300 uppercase">
+          <div className="hw-card rounded-md overflow-hidden shrink-0">
+            <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase">
               LATENCY
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-lg font-bold text-[#4ADE80] tabular-nums leading-none">
-                {latencyMs.toFixed(1)} <span className="text-[11px] font-medium text-slate-300">ms</span>
+            <div className="p-1.5 space-y-0.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-lg font-bold text-[#4ADE80] tabular-nums leading-none">
+                  {latencyMs.toFixed(1)} <span className="text-[11px] font-medium text-slate-300">ms</span>
+                </div>
+                <svg viewBox="0 0 96 36" className="w-20 2xl:w-24 h-7 shrink-0">
+                  <line x1="0" y1="18" x2="96" y2="18" stroke="rgba(74,222,128,0.18)" strokeWidth="1" />
+                  <path
+                    d={oscPath}
+                    fill="none"
+                    stroke="#4ADE80"
+                    strokeWidth="1.6"
+                    style={{ filter: 'drop-shadow(0 0 4px rgba(74,222,128,0.65))' }}
+                  />
+                </svg>
               </div>
-              <svg viewBox="0 0 96 36" className="w-24 h-7 shrink-0">
-                <line x1="0" y1="18" x2="96" y2="18" stroke="rgba(74,222,128,0.18)" strokeWidth="1" />
-                <path
-                  d={oscPath}
-                  fill="none"
-                  stroke="#4ADE80"
-                  strokeWidth="1.6"
-                  style={{ filter: 'drop-shadow(0 0 4px rgba(74,222,128,0.65))' }}
-                />
-              </svg>
-            </div>
-            <div className="flex items-center justify-between text-[8px] pt-0.5 border-t border-[#1F2833]">
-              <span className="text-slate-400">ROUND TRIP</span>
-              <span className="flex items-center gap-1">
-                <span className="text-slate-400">STATUS</span>
-                <span className={`font-bold ${latencyMs <= 15 ? 'text-[#4ADE80]' : 'text-amber-400'}`}>
-                  {latencyMs <= 15 ? 'GOOD' : 'HIGH'}
+              <div className="flex items-center justify-between text-[8px] pt-0.5 border-t border-[#273342]">
+                <span className="text-slate-400">ROUND TRIP</span>
+                <span className="flex items-center gap-1">
+                  <span className="text-slate-400">STATUS</span>
+                  <span className={`font-bold ${latencyMs <= 15 ? 'text-[#4ADE80]' : 'text-amber-400'}`}>
+                    {latencyMs <= 15 ? 'GOOD' : 'HIGH'}
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
           </div>
 
           {/* Card 2: CPU / DSP UTILIZATION */}
-          <div className="hw-card rounded-md p-1.5 space-y-1 shrink-0">
-            <div className="text-[9px] font-bold tracking-[0.1em] text-slate-300 uppercase">
+          <div className="hw-card rounded-md overflow-hidden shrink-0">
+            <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase">
               CPU / DSP UTILIZATION
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-3.5 bg-[#090D12] border border-[#1E2733] rounded-[3px] p-0.5 flex items-center gap-[2px]">
-                {Array.from({ length: CPU_SEGMENTS }).map((_, i) => {
-                  const lit = engineRunning && i < activeCpuSegs;
-                  const cls =
-                    i >= 14
-                      ? lit
-                        ? 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'
-                        : 'bg-[#1D1518]'
-                      : i >= 12
+            <div className="p-1.5 space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-3.5 bg-[#090D12] border border-[#2C394A] rounded-[3px] p-0.5 flex items-center gap-[2px]">
+                  {Array.from({ length: CPU_SEGMENTS }).map((_, i) => {
+                    const lit = engineRunning && i < activeCpuSegs;
+                    const cls =
+                      i >= 14
                         ? lit
-                          ? 'bg-amber-400'
-                          : 'bg-[#1D1B14]'
-                        : lit
-                          ? 'bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.65)]'
-                          : 'bg-[#111D18]';
-                  return <div key={i} className={`flex-1 h-full rounded-[1px] ${cls}`} />;
-                })}
-              </div>
-              <span className="text-[10.5px] font-bold text-slate-100 tabular-nums w-8 text-right">
-                {audioCpuPct}%
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-[8px]">
-              <span className="flex items-center gap-1 text-slate-300">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    engineRunning ? 'bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.85)]' : 'bg-slate-600'
-                  }`}
-                />
-                DSP
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="text-slate-400">STATUS</span>
-                <span
-                  className={`font-bold ${
-                    underrunRisk === 'critical'
-                      ? 'text-red-400'
-                      : underrunRisk === 'elevated'
-                        ? 'text-amber-400'
-                        : 'text-[#4ADE80]'
-                  }`}
-                >
-                  {underrunRisk === 'critical' ? 'XRUN' : underrunRisk === 'elevated' ? 'RISK' : 'GOOD'}
+                          ? 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'
+                          : 'bg-[#1D1518]'
+                        : i >= 12
+                          ? lit
+                            ? 'bg-amber-400'
+                            : 'bg-[#1D1B14]'
+                          : lit
+                            ? 'bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.65)]'
+                            : 'bg-[#111D18]';
+                    return <div key={i} className={`flex-1 h-full rounded-[1px] ${cls}`} />;
+                  })}
+                </div>
+                <span className="text-[10.5px] font-bold text-slate-100 tabular-nums w-8 text-right">
+                  {audioCpuPct}%
                 </span>
-              </span>
+              </div>
+              <div className="flex items-center justify-between text-[8px]">
+                <span className="flex items-center gap-1 text-slate-300">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      engineRunning ? 'bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.85)]' : 'bg-slate-600'
+                    }`}
+                  />
+                  DSP
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="text-slate-400">STATUS</span>
+                  <span
+                    className={`font-bold ${
+                      underrunRisk === 'critical'
+                        ? 'text-red-400'
+                        : underrunRisk === 'elevated'
+                          ? 'text-amber-400'
+                          : 'text-[#4ADE80]'
+                    }`}
+                  >
+                    {underrunRisk === 'critical' ? 'XRUN' : underrunRisk === 'elevated' ? 'RISK' : 'GOOD'}
+                  </span>
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Card 3: QUALITY & HEADROOM (Real Telemetry Semi-Circular Arc Gauge — Zero Mock Temps) */}
-          <div className="hw-card rounded-md p-1.5 space-y-0.5 shrink-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] font-bold tracking-[0.1em] text-slate-300 uppercase">
+          <div className="hw-card rounded-md overflow-hidden shrink-0">
+            <div className="hw-card-subheader px-2 py-1 flex items-center justify-between">
+              <span className="text-[9px] font-bold tracking-[0.1em] uppercase">
                 QUALITY &amp; HEADROOM
               </span>
               <button
@@ -449,105 +449,109 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
                 disabled={locked}
                 onClick={handleSmartOptimize}
                 title="Engage Smart Auto-Optimize (AGC + Quality Gate + HPF + Hum Protection)"
-                className="px-1.5 py-0.5 rounded bg-[#102124] border border-teal-500/40 text-teal-300 hover:bg-teal-500/20 text-[8px] font-bold flex items-center gap-0.5 cursor-pointer disabled:opacity-45"
+                className="px-1.5 py-0.5 rounded hw-top-btn-active text-[8px] font-bold flex items-center gap-0.5 cursor-pointer disabled:opacity-45"
               >
                 <Sparkles className="w-2.5 h-2.5" />
                 OPT
               </button>
             </div>
 
-            <div className="flex items-center justify-between gap-2">
-              <svg viewBox="0 0 92 54" className="w-[82px] h-[44px] shrink-0">
-                <defs>
-                  <linearGradient id={`qgrad-${uid}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#22C55E" />
-                    <stop offset="55%" stopColor="#FACC15" />
-                    <stop offset="100%" stopColor="#F97316" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d={`M ${arcCx - arcR} ${arcCy} A ${arcR} ${arcR} 0 0 1 ${arcCx + arcR} ${arcCy}`}
-                  fill="none"
-                  stroke="#1E2733"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                />
-                <path
-                  d={`M ${arcCx - arcR} ${arcCy} A ${arcR} ${arcR} 0 0 1 ${arcCx + arcR} ${arcCy}`}
-                  fill="none"
-                  stroke={`url(#${`qgrad-${uid}`})`}
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  strokeDasharray={`${arcCirc * arcPct} ${arcCirc}`}
-                />
-                <text
-                  x={arcCx}
-                  y={arcCy - 3}
-                  textAnchor="middle"
-                  fill="#F8FAFC"
-                  fontSize="12"
-                  fontWeight="700"
-                >
-                  {qualityScore}%
-                </text>
-              </svg>
+            <div className="p-1.5 space-y-0.5">
+              <div className="flex items-center justify-between gap-2">
+                <svg viewBox="0 0 92 54" className="w-[74px] 2xl:w-[82px] h-[44px] shrink-0">
+                  <defs>
+                    <linearGradient id={`qgrad-${uid}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#22C55E" />
+                      <stop offset="55%" stopColor="#FACC15" />
+                      <stop offset="100%" stopColor="#F97316" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d={`M ${arcCx - arcR} ${arcCy} A ${arcR} ${arcR} 0 0 1 ${arcCx + arcR} ${arcCy}`}
+                    fill="none"
+                    stroke="#1E2733"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d={`M ${arcCx - arcR} ${arcCy} A ${arcR} ${arcR} 0 0 1 ${arcCx + arcR} ${arcCy}`}
+                    fill="none"
+                    stroke={`url(#${`qgrad-${uid}`})`}
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray={`${arcCirc * arcPct} ${arcCirc}`}
+                  />
+                  <text
+                    x={arcCx}
+                    y={arcCy - 3}
+                    textAnchor="middle"
+                    fill="#F8FAFC"
+                    fontSize="12"
+                    fontWeight="700"
+                  >
+                    {qualityScore}%
+                  </text>
+                </svg>
 
-              <div className="flex-1 text-right space-y-0.5 text-[8.5px]">
-                <div className="text-slate-300 tabular-nums">
-                  HD <span className="text-teal-300 font-bold">+{headroomDb.toFixed(1)} dB</span>
-                </div>
-                <div className="text-slate-400 tabular-nums">
-                  LUFS{' '}
-                  <span className="text-slate-200 font-semibold">
-                    {engineRunning ? telemetry.estimatedLufs.toFixed(1) : '--'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400">STATUS </span>
-                  <span className={`font-bold ${qualityScore >= 80 ? 'text-[#4ADE80]' : 'text-amber-400'}`}>
-                    {qualityScore >= 80 ? 'GOOD' : 'GUARD'}
-                  </span>
+                <div className="flex-1 text-right space-y-0.5 text-[8.5px]">
+                  <div className="text-slate-300 tabular-nums">
+                    HD <span className="text-teal-300 font-bold">+{headroomDb.toFixed(1)} dB</span>
+                  </div>
+                  <div className="text-slate-400 tabular-nums">
+                    LUFS{' '}
+                    <span className="text-slate-200 font-semibold">
+                      {engineRunning ? telemetry.estimatedLufs.toFixed(1) : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">STATUS </span>
+                    <span className={`font-bold ${qualityScore >= 80 ? 'text-[#4ADE80]' : 'text-amber-400'}`}>
+                      {qualityScore >= 80 ? 'GOOD' : 'GUARD'}
+                    </span>
+                  </div>
                 </div>
               </div>
+
+              {(telemetry.feedbackRisk.detected || telemetry.humRisk.detected) && (
+                <div className="flex items-center gap-1 pt-0.5 text-[8px]">
+                  {telemetry.feedbackRisk.detected && (
+                    <span className="px-1.5 py-0.5 rounded bg-red-600/30 border border-red-400 text-red-200 font-bold">
+                      RING {telemetry.feedbackRisk.frequencyHz}Hz
+                    </span>
+                  )}
+                  {telemetry.humRisk.detected && (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-600/30 border border-amber-400 text-amber-200 font-bold">
+                      HUM {telemetry.humRisk.fundamentalHz}Hz
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
-
-            {(telemetry.feedbackRisk.detected || telemetry.humRisk.detected) && (
-              <div className="flex items-center gap-1 pt-0.5 text-[8px]">
-                {telemetry.feedbackRisk.detected && (
-                  <span className="px-1.5 py-0.5 rounded bg-red-600/30 border border-red-400 text-red-200 font-bold">
-                    RING {telemetry.feedbackRisk.frequencyHz}Hz
-                  </span>
-                )}
-                {telemetry.humRisk.detected && (
-                  <span className="px-1.5 py-0.5 rounded bg-amber-600/30 border border-amber-400 text-amber-200 font-bold">
-                    HUM {telemetry.humRisk.fundamentalHz}Hz
-                  </span>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Card 4: CLOCK STATUS */}
-          <div className="hw-card rounded-md p-1.5 space-y-1 shrink-0">
-            <div className="text-[9px] font-bold tracking-[0.1em] text-slate-300 uppercase">
+          <div className="hw-card rounded-md overflow-hidden shrink-0">
+            <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase">
               CLOCK STATUS
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="px-1.5 py-0.5 rounded bg-[#0E1319] border border-[#2B3746] text-[9px] font-bold text-slate-200 flex items-center gap-1">
-                <Lock className="w-2.5 h-2.5 text-teal-400" />
-                LOCKED
-              </span>
-              <span className="text-xs font-bold text-[#4ADE80] tabular-nums">
-                {(sampleRate / 1000).toFixed(1)} kHz
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-[8px] border-t border-[#1F2833] pt-0.5">
-              <span className="text-slate-400 truncate">
-                {driver} · {bufferSize} smp
-              </span>
-              <span className="text-[#4ADE80] font-bold shrink-0">
-                {engineRunning ? 'GOOD' : 'READY'}
-              </span>
+            <div className="p-1.5 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="px-1.5 py-0.5 rounded bg-[#0E1319] border border-[#48596D] text-[9px] font-bold text-slate-200 flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5 text-teal-400" />
+                  LOCKED
+                </span>
+                <span className="text-xs font-bold text-[#4ADE80] tabular-nums">
+                  {(sampleRate / 1000).toFixed(1)} kHz
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[8px] border-t border-[#273342] pt-0.5">
+                <span className="text-slate-400 truncate">
+                  {driver} · {bufferSize} smp
+                </span>
+                <span className="text-[#4ADE80] font-bold shrink-0">
+                  {engineRunning ? 'GOOD' : 'READY'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -556,30 +560,32 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
             type="button"
             onClick={() => onNavigateModule('hardware')}
             title="Click to inspect Hardware Diagnostics & Audio Drivers"
-            className="hw-card rounded-md p-1.5 space-y-0.5 shrink-0 text-left hover:border-[#3A4A5E] cursor-pointer"
+            className="hw-card rounded-md overflow-hidden shrink-0 text-left hover:border-[#687F99] cursor-pointer"
           >
-            <div className="text-[9px] font-bold tracking-[0.1em] text-slate-300 uppercase">
+            <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase">
               FIRMWARE / ENGINE
             </div>
-            <div className="flex items-center justify-between text-[9.5px]">
-              <span className="text-slate-200 font-semibold">v{appVersion}</span>
-              <span className="text-slate-400 uppercase">{platform} · {zones.length} ZONES</span>
-            </div>
-            <div className="flex items-center justify-between text-[8.5px] pt-0.5 border-t border-[#1F2833]">
-              <span className="text-slate-400 flex items-center gap-1">
-                <Radio className="w-2.5 h-2.5 text-teal-400" />
-                OBS: {obsStatus.streaming ? 'LIVE' : obsStatus.connected ? 'READY' : 'STANDBY'}
-              </span>
-              <span className="text-[#4ADE80] font-bold">STATUS OK</span>
+            <div className="p-1.5 space-y-0.5">
+              <div className="flex items-center justify-between text-[9.5px]">
+                <span className="text-slate-200 font-semibold">v{appVersion}</span>
+                <span className="text-slate-400 uppercase">{platform} · {zones.length} ZONES</span>
+              </div>
+              <div className="flex items-center justify-between text-[8.5px] pt-0.5 border-t border-[#273342]">
+                <span className="text-slate-400 flex items-center gap-1">
+                  <Radio className="w-2.5 h-2.5 text-teal-400" />
+                  OBS: {obsStatus.streaming ? 'LIVE' : obsStatus.connected ? 'READY' : 'STANDBY'}
+                </span>
+                <span className="text-[#4ADE80] font-bold">STATUS OK</span>
+              </div>
             </div>
           </button>
 
           {/* Card 6: PRESET RECALL */}
-          <div className="hw-card rounded-md p-1.5 flex-1 min-h-[140px] flex flex-col">
-            <div className="text-[9px] font-bold tracking-[0.1em] text-slate-300 uppercase mb-1 shrink-0">
+          <div className="hw-card rounded-md overflow-hidden flex-1 min-h-[140px] flex flex-col">
+            <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase shrink-0">
               PRESET RECALL
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1">
               {presets.map((preset) => {
                 const isActive = preset.id === activePreset.id;
                 const showWarn = isActive && hasDspWarning;
@@ -592,11 +598,11 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
                     className={`w-full px-2 py-1 rounded text-left text-[10px] font-sans flex items-center justify-between gap-1.5 transition cursor-pointer disabled:opacity-60 ${
                       isActive
                         ? 'hw-preset-active font-semibold'
-                        : 'bg-[#10151C] border border-[#222C38] text-slate-300 hover:border-[#374658] hover:text-white'
+                        : 'bg-[#131A23] border border-[#3B4B5E] text-slate-200 hover:border-[#5D738E] hover:text-white'
                     }`}
                   >
                     <span className="flex items-center gap-1.5 min-w-0">
-                      <ArrowLeftRight className={`w-2.5 h-2.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`} />
+                      <ArrowLeftRight className={`w-2.5 h-2.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                       <span className="truncate">{preset.name}</span>
                     </span>
                     {showWarn && (
@@ -771,9 +777,9 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
               type="button"
               disabled={locked}
               onClick={handleSmartOptimize}
-              className="w-full py-1 rounded border border-teal-500/45 bg-teal-500/15 hover:bg-teal-500/30 text-teal-200 font-bold text-[9px] flex items-center justify-center gap-1 cursor-pointer disabled:opacity-45"
+              className="w-full py-1 rounded hw-top-btn-active font-bold text-[9px] flex items-center justify-center gap-1 cursor-pointer disabled:opacity-45"
             >
-              <Sparkles className="w-3 h-3 text-teal-300" />
+              <Sparkles className="w-3 h-3 text-teal-200" />
               SMART AUTO-OPTIMIZE
             </button>
           </div>
