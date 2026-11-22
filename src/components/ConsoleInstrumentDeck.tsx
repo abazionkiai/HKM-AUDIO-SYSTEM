@@ -12,8 +12,7 @@ import { ConsolePushButton, RotaryKnob } from './StudioControls.tsx';
 import { StereoGraphicEqModule } from './StereoGraphicEqModule.tsx';
 import { ActiveCrossoverModule } from './ActiveCrossoverModule.tsx';
 import { PrecisionVerticalFader } from './PrecisionVerticalFader.tsx';
-import { InputSourcesDrawer } from './InputSourcesDrawer.tsx';
-import { OutputDestinationsDrawer } from './OutputDestinationsDrawer.tsx';
+import { LivePatchbayDrawer } from './LivePatchbayDrawer.tsx';
 
 export type ConsoleProcessingPhase =
   | 'phase-1-stage'
@@ -440,21 +439,31 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       </div>
 
       {/* =========================================================================
-          MIDDLE DECK + AVAILABLE INPUTS DOCK (UNIFIED REAL-WORLD SIGNAL FLOW)
+          MIDDLE DECK + LEFT INTERCHANGEABLE LIVE I/O PATCHBAY (INPUTS & OUTPUTS)
           ========================================================================= */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-row">
-        {/* Left Live Input Devices Dock */}
-        <InputSourcesDrawer
+        {/* Left Panel: Interchangeable Live I/O Patchbay (Live Inputs & Outputs Dock) */}
+        <LivePatchbayDrawer
+          side="left"
           inputDevices={inputDevices}
+          outputDevices={outputDevices}
           channels={channels}
-          onUpdateChannel={onUpdateChannel}
-          onAddChannel={onAddChannel}
-          onScanAudioDevices={onScanAudioDevices}
           selectedChannelId={selectedChannel.id}
+          preferredOutputDeviceId={preferredOutputDeviceId}
+          preferredStreamOutputDeviceId={preferredStreamOutputDeviceId}
+          zones={zones}
+          telemetry={telemetry}
+          onUpdateChannel={onUpdateChannel}
           onSelectChannel={(chId) => setSelectedChannelId(chId)}
+          onAddChannel={onAddChannel}
+          onSelectOutputDevice={onSelectOutputDevice}
+          onSelectStreamOutputDevice={onSelectStreamOutputDevice}
+          onUpdateZone={onUpdateZone}
+          onScanAudioDevices={onScanAudioDevices}
+          initialTab="inputs"
         />
 
-        {/* Focused Hardware Processing Deck (Zero Scroll) */}
+        {/* Focused Hardware Processing Deck (Zero Scroll Rack) */}
         <div className="flex-1 min-w-0 min-h-0 overflow-hidden p-1.5 bg-[#06080E] flex flex-col">
         {/* PHASE 1: STAGE PREAMP & GROUND HUM TRAPS */}
         {selectedPhase === 'phase-1-stage' && (
@@ -1183,19 +1192,6 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
           </div>
         )}
         </div>
-
-        {/* Right Live Outputs Dock (Selective Routing Matrix & Live Meters) */}
-        <OutputDestinationsDrawer
-          outputDevices={outputDevices}
-          preferredOutputDeviceId={preferredOutputDeviceId}
-          preferredStreamOutputDeviceId={preferredStreamOutputDeviceId}
-          onSelectOutputDevice={onSelectOutputDevice}
-          onSelectStreamOutputDevice={onSelectStreamOutputDevice}
-          zones={zones}
-          onUpdateZone={onUpdateZone}
-          telemetry={telemetry}
-          onScanAudioDevices={onScanAudioDevices}
-        />
       </div>
 
       {/* =========================================================================
