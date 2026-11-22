@@ -377,6 +377,12 @@ pub fn run() {
         .setup(|app| {
             let window_config = &app.config().app.windows[0];
             let mut builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
+            #[cfg(debug_assertions)]
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                let dev_webview_dir = app_data_dir.join("dev-webview");
+                let _ = fs::create_dir_all(&dev_webview_dir);
+                builder = builder.data_directory(dev_webview_dir);
+            }
             if let Some(icon) = app.default_window_icon() {
                 builder = builder.icon(icon.clone())?;
             }

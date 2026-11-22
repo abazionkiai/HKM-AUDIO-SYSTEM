@@ -679,14 +679,15 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
 
           {/* Output Patch Assignment Matrix */}
           <div className="space-y-2 font-mono text-[10px] bg-[#070912] p-2 rounded-lg border border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 flex items-center gap-1">
-                <Volume2 className="w-3 h-3 text-fuchsia-400" /> Output Patch:
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-slate-400 flex items-center gap-1 shrink-0">
+                <Volume2 className="w-3 h-3 text-fuchsia-400" /> Patch:
               </span>
               <select
+                aria-label="Subwoofer Band Output Patch"
                 value={activeSubBand.outputAssignment || 'sub-out'}
                 onChange={(e) => handleAssignOutput('sub', e.target.value)}
-                className="rounded border border-fuchsia-500/40 bg-[#120F1C] px-2 py-0.5 text-[10px] text-fuchsia-200 font-mono cursor-pointer"
+                className="flex-1 min-w-0 truncate rounded border border-fuchsia-500/40 bg-[#120F1C] px-1.5 py-0.5 text-[10px] text-fuchsia-200 font-mono cursor-pointer"
               >
                 <option value="sub-out">Aux 1 / Subwoofer Out (Dedicated)</option>
                 <option value="main-lr">Main Sanctuary L/R (Internal Sum)</option>
@@ -786,14 +787,15 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
 
           {/* Output Patch Assignment Matrix */}
           <div className="space-y-2 font-mono text-[10px] bg-[#070912] p-2 rounded-lg border border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 flex items-center gap-1">
-                <Volume2 className="w-3 h-3 text-emerald-400" /> Output Patch:
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-slate-400 flex items-center gap-1 shrink-0">
+                <Volume2 className="w-3 h-3 text-emerald-400" /> Patch:
               </span>
               <select
+                aria-label="Mid Vocal Band Output Patch"
                 value={activeMidBand.outputAssignment || 'main-lr'}
                 onChange={(e) => handleAssignOutput('mid', e.target.value)}
-                className="rounded border border-emerald-500/40 bg-[#0C1613] px-2 py-0.5 text-[10px] text-emerald-200 font-mono cursor-pointer"
+                className="flex-1 min-w-0 truncate rounded border border-emerald-500/40 bg-[#0C1613] px-1.5 py-0.5 text-[10px] text-emerald-200 font-mono cursor-pointer"
               >
                 <option value="main-lr">Main Sanctuary PA Array L/R</option>
                 <option value="aux-vocal">Aux 2 / Platform Vocal Cluster</option>
@@ -893,14 +895,15 @@ export const ActiveCrossoverModule: React.FC<ActiveCrossoverModuleProps> = ({
 
           {/* Output Patch Assignment Matrix */}
           <div className="space-y-2 font-mono text-[10px] bg-[#070912] p-2 rounded-lg border border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400 flex items-center gap-1">
-                <Volume2 className="w-3 h-3 text-sky-400" /> Output Patch:
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="text-slate-400 flex items-center gap-1 shrink-0">
+                <Volume2 className="w-3 h-3 text-sky-400" /> Patch:
               </span>
               <select
+                aria-label="High Horns Band Output Patch"
                 value={activeHighBand.outputAssignment || 'horn-out'}
                 onChange={(e) => handleAssignOutput('high', e.target.value)}
-                className="rounded border border-sky-500/40 bg-[#0C1522] px-2 py-0.5 text-[10px] text-sky-200 font-mono cursor-pointer"
+                className="flex-1 min-w-0 truncate rounded border border-sky-500/40 bg-[#0C1522] px-1.5 py-0.5 text-[10px] text-sky-200 font-mono cursor-pointer"
               >
                 <option value="horn-out">High Frequency Horns (Dedicated)</option>
                 <option value="main-lr">Main Sanctuary PA Array L/R</option>

@@ -107,16 +107,16 @@ const makeTab = (
 });
 
 const NAV_TABS: NavTab[] = [
-  makeTab('console', 'Console', 'Live Sound Console', Sliders, 'sky'),
-  makeTab('dsp', 'DSP', 'Audio DSP Engine', AudioWaveform, 'sky'),
-  makeTab('feedback', 'Feedback', 'Feedback Detection', Activity, 'emerald'),
+  makeTab('dsp', 'DSP', 'Audio DSP Engine & Signal Graph', AudioWaveform, 'sky'),
+  makeTab('console', 'Console', 'Motorized Fader Console Deck', Sliders, 'sky'),
+  makeTab('feedback', 'Feedback', 'Feedback Detection & RTA', Activity, 'emerald'),
   makeTab('acoustics', 'Acoustic', 'Acoustic & Room Analyzer', Radio, 'emerald'),
-  makeTab('speakers', 'Speakers', 'Speaker Management', MapPin, 'violet'),
+  makeTab('speakers', 'Speakers', 'Speaker Management Zones', MapPin, 'violet'),
   makeTab('routing', 'Matrix', 'Universal Routing & Virtual Patchbay', Cable, 'violet'),
   makeTab('microphones', 'Mics', 'Microphone Intelligence', Mic, 'amber'),
   makeTab('instruments', 'Band', 'Instrument & Music', Music, 'amber'),
   makeTab('virtual-di', 'Virt DI', 'Virtual DI & Bass', Zap, 'amber'),
-  makeTab('livestream', 'Stream', 'Livestream Studio', Video, 'rose'),
+  makeTab('livestream', 'Stream', 'Livestream Studio & OBS', Video, 'rose'),
   makeTab('recorder', 'Recorder', 'Multitrack Live Service Recorder', Radio, 'rose'),
   makeTab('soundcheck', 'Soundchk', 'Automated Sound Check', CheckSquare, 'fuchsia'),
   makeTab('presets', 'Presets', 'Presets & Service Profiles', Layers, 'fuchsia'),
@@ -188,8 +188,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   /* ==========================================================================
-     Single-Line Architectural Console Tab Strip (Top or Bottom)
-     Clear bordered tabs with spring-animated shared active surface & rail.
+     Single-Line Brushed-Gunmetal Console Module Strip (Top or Bottom)
+     Clear bordered tabs with restrained teal/cyan active rail & zero glare.
      ========================================================================== */
   if (isHorizontal) {
     const borderClass = dockPosition === 'top' ? 'border-b' : 'border-t';
@@ -198,11 +198,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <aside
           aria-label="Console Navigation Bar"
           data-dock={dockPosition}
-          className={`w-full shrink-0 ${borderClass} border-slate-300 bg-white h-10 px-2 flex items-center z-30 shadow-xs`}
+          className={`w-full shrink-0 ${borderClass} border-[#242E3B] bg-gradient-to-b from-[#141A22] to-[#0E1319] h-8 px-2 flex items-center z-30 shadow-[0_2px_8px_rgba(0,0,0,0.4)]`}
         >
           <nav
             aria-label="Console Modules"
-            className="flex items-center gap-1 w-full h-full py-1"
+            className="flex items-center gap-1 w-full h-full py-1 overflow-x-auto scrollbar-none"
           >
             {NAV_TABS.map((tab) => {
               const Icon = tab.icon;
@@ -218,15 +218,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   aria-current={active ? 'page' : undefined}
                   whileTap={{ scale: 0.96 }}
                   transition={{ duration: 0.12 }}
-                  className={`group relative flex-1 min-w-0 h-7 px-1 rounded-md border text-[10px] font-mono flex items-center justify-center gap-1 whitespace-nowrap overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 ${
-                    active ? `${tab.activeClass} font-bold` : `${tab.idleClass} font-medium`
+                  className={`group relative flex-1 min-w-[54px] h-6 px-1.5 rounded border text-[10px] font-mono flex items-center justify-center gap-1 whitespace-nowrap overflow-hidden transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-teal-400 ${
+                    active
+                      ? 'bg-[#0B1016] border-[#2DD4BF]/60 text-[#5EEAD4] font-bold shadow-[inset_0_1px_4px_rgba(0,0,0,0.65),0_0_8px_rgba(45,212,191,0.18)]'
+                      : 'bg-transparent border-transparent text-slate-400 hover:text-slate-100 hover:bg-[#1B232E] hover:border-[#2C3847] font-medium'
                   }`}
                 >
                   {active && (
                     <motion.span
                       layoutId="nav-tab-active-rail"
                       transition={TAB_SPRING}
-                      className={`${tab.railClass} absolute inset-x-1 h-[2.5px] rounded-full pointer-events-none ${
+                      className={`bg-[#2DD4BF] shadow-[0_0_8px_rgba(45,212,191,0.85)] absolute inset-x-1 h-[2px] rounded-full pointer-events-none ${
                         dockPosition === 'bottom' ? 'bottom-0' : 'top-0'
                       }`}
                       aria-hidden="true"
@@ -234,14 +236,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                   <span className="relative z-10 flex items-center gap-1 min-w-0">
                     {active && (
-                      <span className={`w-1.5 h-1.5 rounded-full ${tab.dotClass} animate-pulse shrink-0`} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.85)] animate-pulse shrink-0" />
                     )}
                     <Icon className="w-3 h-3 shrink-0 opacity-90" />
                     <span className="truncate">{tab.label}</span>
                   </span>
                   {alertCount > 0 && (
                     <span
-                      className="ml-0.5 px-1 rounded-full bg-amber-500/25 border border-amber-400/50 text-amber-200 font-mono text-[8px] font-bold tabular-nums leading-tight pointer-events-none shrink-0"
+                      className={`ml-0.5 px-1 rounded-full font-mono text-[8px] font-bold tabular-nums leading-tight pointer-events-none shrink-0 ${
+                        tab.id === 'feedback'
+                          ? 'bg-red-500/25 border border-red-400/60 text-red-200 animate-pulse'
+                          : 'bg-amber-500/25 border border-amber-400/50 text-amber-200'
+                      }`}
                       aria-label={`${alertCount} active alert`}
                     >
                       {alertCount}

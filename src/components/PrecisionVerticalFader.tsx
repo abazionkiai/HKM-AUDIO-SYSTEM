@@ -149,9 +149,9 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
 
   return (
     <div
-      className={`flex flex-col items-center select-none group w-6 sm:w-7 relative ${
-        disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-      }`}
+      className={`flex flex-col items-center select-none group relative ${
+        compact ? 'flex-1 min-w-[18px] max-w-[28px]' : 'w-6 sm:w-7'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
       onWheel={handleWheel}
       title={`${subLabel || label || ''}: ${clamped > 0 ? '+' : ''}${clamped.toFixed(1)} dB (Click/drag to slide, double-click to reset)`}
     >
@@ -171,7 +171,7 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
 
       {/* Real-time gain numeric display above fader */}
       <span
-        className={`font-mono text-[9px] ${compact ? 'mb-0.5 h-3.5' : 'mb-1 h-4'} font-semibold tabular-nums flex items-center justify-center transition-colors ${
+        className={`font-mono ${compact ? 'text-[8px] mb-0.5 h-3.5' : 'text-[9px] mb-1 h-4'} font-semibold tabular-nums flex items-center justify-center transition-colors ${
           isZero ? 'text-slate-500' : isBoost ? `${theme.text} font-bold drop-shadow-[0_0_4px_rgba(6,182,212,0.4)]` : 'text-amber-400 font-bold'
         }`}
       >
@@ -186,7 +186,9 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
         onDoubleClick={handleReset}
-        className={`relative ${trackHeightClass} w-5 sm:w-5.5 rounded-sm bg-[#04070D] border border-slate-800/90 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] flex items-center justify-center touch-none overflow-visible`}
+        className={`relative ${trackHeightClass} ${
+          compact ? 'w-4' : 'w-5 sm:w-5.5'
+        } rounded-sm bg-[#04070D] border border-slate-800/90 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] flex items-center justify-center touch-none overflow-visible`}
         style={{
           boxShadow: isBoost
             ? `inset 0 0 8px rgba(0,0,0,0.9), 0 0 ${Math.round(absGainRatio * 8)}px ${theme.glow}`

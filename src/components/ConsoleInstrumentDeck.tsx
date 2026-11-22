@@ -12,7 +12,6 @@ import { ConsolePushButton, RotaryKnob } from './StudioControls.tsx';
 import { StereoGraphicEqModule } from './StereoGraphicEqModule.tsx';
 import { ActiveCrossoverModule } from './ActiveCrossoverModule.tsx';
 import { PrecisionVerticalFader } from './PrecisionVerticalFader.tsx';
-import { LivePatchbayDrawer } from './LivePatchbayDrawer.tsx';
 
 export type ConsoleProcessingPhase =
   | 'phase-1-stage'
@@ -37,6 +36,9 @@ interface ConsoleInstrumentDeckProps {
   onToggleEmergencyMute?: () => void;
   zones?: SpeakerZone[];
   initialPhase?: ConsoleProcessingPhase;
+  selectedChannelId?: string;
+  onSelectChannel?: (id: string) => void;
+  locked?: boolean;
   onAddChannel?: (name?: string, role?: string) => void;
   onAddEqBand?: () => void;
   onRemoveEqBand?: (bandId: string) => void;
@@ -90,7 +92,6 @@ const PEQ_BAND_STYLES = [
 ];
 
 export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
-  device,
   channels,
   onUpdateChannel,
   dsp,
@@ -103,17 +104,11 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
   onToggleEmergencyMute,
   zones = [],
   initialPhase,
+  selectedChannelId: controlledChannelId,
+  onSelectChannel: onControlledSelectChannel,
+  locked = false,
   onAddChannel,
   onAddEqBand,
-  onRemoveEqBand,
-  inputDevices = [],
-  outputDevices = [],
-  preferredOutputDeviceId = '',
-  preferredStreamOutputDeviceId = '',
-  onSelectOutputDevice,
-  onSelectStreamOutputDevice,
-  onUpdateZone,
-  onScanAudioDevices,
 }) => {
   const [selectedPhase, setSelectedPhase] = useState<ConsoleProcessingPhase>(initialPhase ?? 'phase-3-peq');
 
@@ -123,12 +118,17 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
     }
   }, [initialPhase]);
 
-  const [selectedChannelId, setSelectedChannelId] = useState<string>(channels[0]?.id ?? 'ch-1');
+  const [localChannelId, setLocalChannelId] = useState<string>(channels[0]?.id ?? 'ch-1');
+  const activeChannelId = controlledChannelId ?? localChannelId;
+  const setSelectedChannelId = (id: string) => {
+    setLocalChannelId(id);
+    onControlledSelectChannel?.(id);
+  };
   const [bankIdx, setBankIdx] = useState<number>(0);
   const [peqPageOffset, setPeqPageOffset] = useState<number>(0);
 
   const selectedChannel: InputChannel =
-    channels.find((c) => c.id === selectedChannelId) ??
+    channels.find((c) => c.id === activeChannelId) ??
     channels[0] ?? {
       id: 'ch-1',
       index: 1,
@@ -439,32 +439,11 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       </div>
 
       {/* =========================================================================
-          MIDDLE DECK + LEFT INTERCHANGEABLE LIVE I/O PATCHBAY (INPUTS & OUTPUTS)
+          MIDDLE DECK: FOCUSED HARDWARE PROCESSING RACK (ZERO SCROLL)
           ========================================================================= */}
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-row">
-        {/* Left Panel: Interchangeable Live I/O Patchbay (Live Inputs & Outputs Dock) */}
-        <LivePatchbayDrawer
-          side="left"
-          inputDevices={inputDevices}
-          outputDevices={outputDevices}
-          channels={channels}
-          selectedChannelId={selectedChannel.id}
-          preferredOutputDeviceId={preferredOutputDeviceId}
-          preferredStreamOutputDeviceId={preferredStreamOutputDeviceId}
-          zones={zones}
-          telemetry={telemetry}
-          onUpdateChannel={onUpdateChannel}
-          onSelectChannel={(chId) => setSelectedChannelId(chId)}
-          onAddChannel={onAddChannel}
-          onSelectOutputDevice={onSelectOutputDevice}
-          onSelectStreamOutputDevice={onSelectStreamOutputDevice}
-          onUpdateZone={onUpdateZone}
-          onScanAudioDevices={onScanAudioDevices}
-          initialTab="inputs"
-        />
-
-        {/* Focused Hardware Processing Deck (Zero Scroll Rack) */}
-        <div className="flex-1 min-w-0 min-h-0 overflow-hidden p-1.5 bg-[#06080E] flex flex-col">
+      <div className={`flex-1 min-h-0 overflow-hidden flex flex-row ${locked ? 'opacity-90' : ''}`}>
+        {/* Focused Hardware Processing Deck */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden p-1.5 bg-[#0A0E13] flex flex-col">
         {/* PHASE 1: STAGE PREAMP & GROUND HUM TRAPS */}
         {selectedPhase === 'phase-1-stage' && (
           <div className="h-full min-h-0 flex flex-col justify-between p-3 rounded-lg border border-amber-500/40 bg-gradient-to-b from-[#16110A] via-[#0D0B07] to-[#080705] shadow-inner">

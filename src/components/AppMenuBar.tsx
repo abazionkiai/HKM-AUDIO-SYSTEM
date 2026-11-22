@@ -246,7 +246,7 @@ export const AppMenuBar: React.FC<AppMenuBarProps> = ({
       ref={barRef}
       role="menubar"
       aria-label="Application Menu Bar"
-      className="h-7 shrink-0 bg-[#05080E] border-b border-slate-800/90 px-2.5 flex items-center justify-between text-[11px] font-sans select-none z-40"
+      className="h-6 shrink-0 bg-[#0B1015] border-b border-[#1E2733] px-2.5 flex items-center justify-between text-[10.5px] font-sans select-none z-40"
     >
       {/* Left: Classic Desktop Menu Triggers */}
       <div className="flex items-center gap-0.5">

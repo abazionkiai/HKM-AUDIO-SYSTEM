@@ -15,6 +15,12 @@ import {
   Sliders,
   ShieldCheck,
   Mic,
+  Lock,
+  Unlock,
+  Wrench,
+  Clock,
+  Route,
+  Gauge,
 } from 'lucide-react';
 import type {
   AudioSourceSimulation,
@@ -36,6 +42,10 @@ interface TopBarProps {
   sampleRate: number;
   bufferSize: number;
   activePreset: ServicePreset;
+  presets?: ServicePreset[];
+  onSelectPreset?: (preset: ServicePreset) => void;
+  consoleLocked?: boolean;
+  onToggleLock?: () => void;
   engineRunning: boolean;
   onToggleEngine: () => void;
   monitorAudible: boolean;
@@ -68,26 +78,30 @@ interface TopBarProps {
   qualityGateEngaged?: boolean;
   qualityGateReason?: string | null;
   activeSurgicalFilters?: string[];
+  onOpenGainStaging?: () => void;
+  onOpenSignalJourney?: () => void;
 }
 
 const THEME_OPTIONS: { id: ConsoleThemeId; label: string }[] = [
-  { id: 'midnight-studio', label: 'Theme: Midnight Studio' },
-  { id: 'analog-amber', label: 'Theme: Warm Analog Console' },
-  { id: 'broadcast-emerald', label: 'Theme: Broadcast Emerald' },
-  { id: 'sanctuary-indigo', label: 'Theme: Sanctuary Indigo' },
-  { id: 'daylight-foh', label: 'Theme: Daylight FOH (Light)' },
-  { id: 'warm-daylight', label: 'Theme: Warm Daylight (Sand)' },
+  { id: 'midnight-studio', label: 'Brushed Gunmetal Studio' },
+  { id: 'analog-amber', label: 'Warm Analog Console' },
+  { id: 'broadcast-emerald', label: 'Broadcast Emerald' },
+  { id: 'sanctuary-indigo', label: 'Sanctuary Indigo' },
+  { id: 'daylight-foh', label: 'Daylight FOH (Light)' },
+  { id: 'warm-daylight', label: 'Warm Daylight (Sand)' },
 ];
 
 export const TopBar: React.FC<TopBarProps> = ({
   venueName,
   roomName,
-  activeDevice,
-  platform,
   driver,
   sampleRate,
   bufferSize,
   activePreset,
+  presets = [],
+  onSelectPreset,
+  consoleLocked = false,
+  onToggleLock,
   engineRunning,
   onToggleEngine,
   monitorAudible,
@@ -120,13 +134,42 @@ export const TopBar: React.FC<TopBarProps> = ({
   qualityGateEngaged = false,
   qualityGateReason = null,
   activeSurgicalFilters = [],
+  onOpenGainStaging,
+  onOpenSignalJourney,
 }) => {
-  const [showMasterOutput, setShowMasterOutput] = useState(false);
-  const platformLabel =
-    platform === 'windows' ? 'Windows' : platform === 'macos' ? 'macOS' : 'Linux';
-  const quantumMs = ((bufferSize / Math.max(8000, sampleRate)) * 1000).toFixed(1);
-  const activeSegments = Math.max(1, Math.min(8, Math.round((audioCpuPct / 100) * 8)));
+  const [showToolsPopover, setShowToolsPopover] = useState(false);
+  const toolsRef = React.useRef<HTMLDivElement | null>(null);
   const [tapFlash, setTapFlash] = useState(false);
+  const [clockStr, setClockStr] = useState(() =>
+    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
+  useEffect(() => {
+    if (!showToolsPopover) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) {
+        setShowToolsPopover(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowToolsPopover(false);
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showToolsPopover]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setClockStr(
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      );
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!tapTempo.lastTapAt) return;
@@ -136,502 +179,488 @@ export const TopBar: React.FC<TopBarProps> = ({
   }, [tapTempo.lastTapAt]);
 
   return (
-    <header className="h-12 shrink-0 border-b border-slate-800/90 bg-[#0B0F17] px-2.5 flex items-center justify-between gap-1.5 overflow-hidden">
-      {/* Zone 1: Brand & Hardware Context */}
-      <div className="flex items-center gap-2 min-w-0 shrink">
-        <AppLogo className="w-6 h-6 shrink-0 shadow-[0_0_12px_rgba(56,189,248,0.4)]" />
-        <span className="font-display font-semibold text-xs tracking-tight text-white whitespace-nowrap hidden 2xl:inline shrink-0">
-          Church Audio Intelligence
-        </span>
-        <span className="text-slate-700 hidden 2xl:inline shrink-0" aria-hidden="true">
-          /
-        </span>
-        <span className="text-xs text-slate-400 truncate hidden 2xl:inline">
-          {venueName} · {roomName}
-        </span>
-        <span className="text-slate-700 hidden 2xl:inline shrink-0" aria-hidden="true">
-          ·
-        </span>
-        <span className="text-xs font-mono text-sky-400 truncate hidden 2xl:inline">
-          {activeDevice.id === 'system-live-io'
-            ? `${(inputDevices[0]?.label || outputDevices[0]?.label || 'System Audio Endpoint').slice(0, 32)} (${platformLabel} · ${driver} · ${(sampleRate / 1000).toFixed(1)}k)`
-            : `${activeDevice.manufacturer} ${activeDevice.model} (${platformLabel} · ${driver} · ${(sampleRate / 1000).toFixed(1)}k)`} · {activePreset.name}
-        </span>
+    <header className="h-11 shrink-0 border-b border-[#26303D] bg-gradient-to-b from-[#1A212A] to-[#11161D] px-3 flex items-center justify-between gap-2 select-none relative z-40">
+      {/* Left Zone: Brushed Console Identity */}
+      <div
+        className="flex items-center gap-2.5 min-w-0 shrink"
+        title={`${venueName} · ${roomName} · ${driver} · ${(sampleRate / 1000).toFixed(1)} kHz (${bufferSize} smp)`}
+      >
+        <AppLogo className="w-7 h-7 shrink-0 rounded-md border border-[#324050] shadow-[0_0_12px_rgba(45,212,191,0.28)]" />
+        <div className="flex flex-col leading-tight min-w-0">
+          <span className="font-display font-bold text-sm tracking-[0.06em] text-slate-100 whitespace-nowrap truncate">
+            AUDIO DSP ENGINE
+          </span>
+          <span className="text-[10px] font-sans text-slate-400 tracking-wide whitespace-nowrap truncate">
+            Live Church Sound System
+          </span>
+        </div>
       </div>
 
-      {/* Zone 2: Real-Time Audio CPU Monitor, Tap Tempo, Hotkeys, Theme & Signal Source */}
-      <div className="flex items-center gap-1.5 min-w-0 flex-1">
-        {/* Real-Time Audio Engine DSP & Buffer Underrun Monitor */}
-        <button
-          type="button"
-          onClick={onOpenDiagnostics}
-          title={`Audio Engine DSP Load: ${audioCpuPct}% · Buffer ${bufferSize} samples @ ${(sampleRate / 1000).toFixed(1)} kHz (${quantumMs} ms quantum) · Underrun Risk: ${underrunRisk.toUpperCase()} · Host OS CPU: <2% (Click for Audio Diagnostics)`}
-          className={`h-8 w-[142px] sm:w-[172px] px-2 rounded border font-mono text-[11px] flex items-center justify-between gap-1 transition-colors whitespace-nowrap shrink-0 ${
-            underrunRisk === 'critical'
-              ? 'border-red-500/80 bg-red-950/60 text-red-200 shadow-[0_0_12px_rgba(239,68,68,0.35)]'
-              : underrunRisk === 'elevated'
-                ? 'border-amber-500/70 bg-amber-950/40 text-amber-200'
-                : 'border-slate-700 bg-[#121824] text-slate-200 hover:border-slate-500'
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            {underrunRisk === 'low' ? (
-              <Cpu className={`w-3.5 h-3.5 shrink-0 ${engineRunning ? 'text-emerald-400' : 'text-slate-400'}`} />
-            ) : (
-              <AlertTriangle
-                className={`w-3.5 h-3.5 shrink-0 ${
-                  underrunRisk === 'critical' ? 'text-red-400' : 'text-amber-400'
-                }`}
-              />
-            )}
-            <span className="w-[7.2ch] text-left tabular-nums font-semibold">
-              DSP {audioCpuPct}%
-            </span>
-          </span>
-
-          {/* 8-segment miniature CPU load meter */}
-          <span className="hidden sm:flex items-center gap-0.5 shrink-0" aria-hidden="true">
-            {Array.from({ length: 8 }, (_, idx) => {
-              const lit = engineRunning && idx < activeSegments;
-              const segColor =
-                idx >= 6
-                  ? lit
-                    ? 'bg-red-500'
-                    : 'bg-red-950/40'
-                  : idx >= 4
-                    ? lit
-                      ? 'bg-amber-400'
-                      : 'bg-amber-950/40'
-                    : lit
-                      ? 'bg-emerald-400'
-                      : 'bg-emerald-950/30';
-              return <span key={idx} className={`w-1 h-3 rounded-[1px] ${segColor}`} />;
-            })}
-          </span>
-
-          {/* Reserved fixed-width status slot so label transitions never resize the bar */}
-          <span
-            className={`w-[4.5ch] text-right text-[10px] font-bold tracking-tight shrink-0 ${
-              underrunRisk === 'critical'
-                ? 'text-red-300'
-                : underrunRisk === 'elevated'
-                  ? 'text-amber-300'
-                  : engineRunning
-                    ? 'text-emerald-400'
-                    : 'text-slate-500'
-            }`}
-          >
-            {underrunRisk === 'critical'
-              ? 'XRUN'
-              : underrunRisk === 'elevated'
-                ? 'RISK'
-                : engineRunning
-                  ? 'LIVE'
-                  : 'IDLE'}
-          </span>
-        </button>
-
-        {/* Live Tap Tempo Trigger */}
-        <button
-          type="button"
-          onClick={onTapTempo}
-          title={`Tap Tempo (Quarter: ${tapTempo.quarterMs} ms · Dotted 1/8: ${tapTempo.dottedEighthMs} ms) — Click or press bound shortcut`}
-          className={`h-8 w-[76px] px-1.5 rounded border font-mono text-[11px] flex items-center justify-between gap-1 whitespace-nowrap shrink-0 ${
-            tapFlash
-              ? 'border-sky-400 bg-sky-500/25 text-sky-200 shadow-[0_0_10px_rgba(56,189,248,0.4)]'
-              : 'border-slate-700 bg-[#121824] text-slate-200 hover:border-slate-500'
-          }`}
-        >
-          <Activity className={`w-3.5 h-3.5 shrink-0 ${tapFlash ? 'text-sky-300' : 'text-sky-400'}`} />
-          <span className="tabular-nums font-semibold text-right flex-1">{tapTempo.bpm} BPM</span>
-        </button>
-
-        {/* Global Keyboard Shortcuts Modal Trigger */}
-        <button
-          type="button"
-          onClick={onOpenShortcuts}
-          title="Configure Global Keyboard Shortcuts (Mute All, Tap Tempo, Save Snapshot, etc.)"
-          className={`h-8 px-2 rounded border font-mono text-[11px] flex items-center gap-1 whitespace-nowrap shrink-0 ${
-            shortcutsArmed
-              ? 'border-slate-700 bg-[#121824] text-slate-200 hover:border-sky-500/50'
-              : 'border-amber-500/50 bg-amber-950/30 text-amber-300'
-          }`}
-        >
-          <Keyboard className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-          <span className="hidden 2xl:inline">KEYS</span>
-        </button>
-
-        <div className="flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[148px]">
-          <Palette className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-          <select
-            aria-label="Console Color Theme"
-            value={consoleTheme}
-            onChange={(e) => onThemeChange(e.target.value as ConsoleThemeId)}
-            className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
-          >
-            {THEME_OPTIONS.map((t) => (
-              <option key={t.id} value={t.id} className="bg-[#0E131C] text-slate-100">
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Real Live Physical Input Selection */}
-        <div className="hidden lg:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[190px]">
-          <Mic className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-          <select
-            aria-label="Audio Input Source"
-            value={audioSource === 'live-mic' ? (activeInputDeviceId || '') : audioSource}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val === 'desktop-audio' || val === 'pink-noise') {
-                onSourceChange(val as AudioSourceSimulation);
-              } else {
-                onSourceChange('live-mic');
-                if (onSelectInputDevice) onSelectInputDevice(val);
-              }
-            }}
-            className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
-          >
-            {inputDevices.length === 0 ? (
-              <option value="" className="bg-[#0E131C] text-slate-100">
-                In: System Live Mic
-              </option>
-            ) : (
-              inputDevices.map((d, idx) => (
-                <option key={`in-${d.deviceId}-${idx}`} value={d.deviceId} className="bg-[#0E131C] text-slate-100">
-                  In: {d.label || `Audio Input ${idx + 1}`}
-                </option>
-              ))
-            )}
-            <option value="desktop-audio" className="bg-[#0E131C] text-sky-300">
-              In: Desktop Loopback (OBS/App)
-            </option>
-            <option value="pink-noise" className="bg-[#0E131C] text-amber-300">
-              In: Pink Noise Ref (-20dB)
-            </option>
-          </select>
-        </div>
-
-        {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
-          <div
-            title="Multi-Output Bus Engine: System Master Audio Sink (Front PA / Master Speaker)"
-            className="hidden xl:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[170px]"
-          >
-            <Volume2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <select
-              aria-label="Master Speaker Destination (Front PA)"
-              value={activeOutputDeviceId || ''}
-              onChange={(e) => onSelectOutputDevice(e.target.value)}
-              className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
-            >
-              <option value="" className="bg-[#0E131C] text-slate-100">
-                Master PA: Default Device
-              </option>
-              {outputDevices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId} className="bg-[#0E131C] text-slate-100">
-                  Master: {d.label || `Port (${d.deviceId.slice(0, 6)})`}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Zone 3: Engine Transport & High-Priority Live Safety Controls */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      {/* Right Zone: Engine Transport, Tools Popover, Lock Pill, Service Mode & Live Clock */}
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        {/* Live Audio Engine Start/Stop */}
         <button
           type="button"
           onClick={onToggleEngine}
           title={engineRunning ? 'Stop Live Audio Engine' : 'Start Live Audio Engine'}
-          className={`h-8 w-[80px] px-2 rounded text-[11px] font-mono font-semibold flex items-center justify-center gap-1 border transition-colors whitespace-nowrap shrink-0 ${
+          className={`h-7 px-2.5 rounded border font-mono text-[10px] font-bold flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
             engineRunning
-              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
-              : 'bg-sky-600 border-sky-400/50 text-white hover:bg-sky-500'
+              ? 'bg-emerald-500/20 border-emerald-400/70 text-emerald-300 shadow-[0_0_10px_rgba(34,197,94,0.3)]'
+              : 'hw-bevel-btn text-slate-200 hover:text-white'
           }`}
         >
-          {engineRunning ? <Square className="w-3.5 h-3.5 shrink-0" /> : <Play className="w-3.5 h-3.5 shrink-0" />}
-          <span>{engineRunning ? 'STOP' : 'START'}</span>
+          {engineRunning ? (
+            <Square className="w-3 h-3 fill-current" />
+          ) : (
+            <Play className="w-3 h-3 fill-current text-emerald-400" />
+          )}
+          <span>{engineRunning ? 'ENGINE ON' : 'START'}</span>
         </button>
 
+        {/* Audition Monitor Switch */}
         <button
           type="button"
           onClick={onToggleMonitor}
           disabled={!engineRunning}
-          title="Audition processed console output in local speakers/headphones"
-          className={`h-8 px-2 rounded text-[11px] font-mono font-medium flex items-center gap-1 border transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 ${
+          title="Audition processed console mix in local monitor speakers/headphones"
+          className={`h-7 px-2 rounded border font-mono text-[10px] font-semibold flex items-center gap-1 whitespace-nowrap disabled:opacity-40 cursor-pointer ${
             monitorAudible && !emergencyMuted
-              ? 'bg-sky-500/20 border-sky-400/60 text-sky-300'
-              : 'border-slate-700 bg-[#121824] text-slate-300 hover:bg-slate-800'
+              ? 'bg-teal-500/20 border-teal-400/70 text-teal-200'
+              : 'bg-[#10151C] border-[#293442] text-slate-300 hover:border-[#3D4D61]'
           }`}
         >
           {monitorAudible && !emergencyMuted ? (
-            <Volume2 className="w-3.5 h-3.5 shrink-0" />
+            <Volume2 className="w-3.5 h-3.5 text-teal-300" />
           ) : (
-            <VolumeX className="w-3.5 h-3.5 shrink-0" />
+            <VolumeX className="w-3.5 h-3.5 text-slate-400" />
           )}
-          <span className="hidden 2xl:inline">MONITOR</span>
+          <span className="hidden lg:inline">MON</span>
         </button>
 
-        {/* Smart Auto-Level Guard (AGC) 1-Click Toggle */}
-        {dsp && onUpdateDsp && (
+        {/* Quick Hardware DSP CPU Pill (opens Hardware Diagnostics) */}
+        <button
+          type="button"
+          onClick={onOpenDiagnostics}
+          title={`DSP Load: ${audioCpuPct}% · Risk: ${underrunRisk.toUpperCase()} (Click for Hardware Diagnostics)`}
+          className={`hidden md:flex h-7 px-2 rounded border font-mono text-[10px] items-center gap-1.5 cursor-pointer ${
+            underrunRisk === 'critical'
+              ? 'border-red-500/70 bg-red-950/60 text-red-200'
+              : underrunRisk === 'elevated'
+                ? 'border-amber-500/70 bg-amber-950/50 text-amber-200'
+                : 'bg-[#0D1218] border-[#26313E] text-slate-300 hover:border-[#3A4A5E]'
+          }`}
+        >
+          <Cpu className={`w-3 h-3 ${engineRunning ? 'text-emerald-400' : 'text-slate-500'}`} />
+          <span className="tabular-nums font-bold">{audioCpuPct}%</span>
+        </button>
+
+        {/* Compact TOOLS & OUTPUTS Popover Trigger (preserves 100% of secondary TopBar tools) */}
+        <div className="relative" ref={toolsRef}>
           <button
             type="button"
-            onClick={() =>
-              onUpdateDsp({
-                smartAgc: {
-                  enabled: !(dsp.smartAgc?.enabled ?? true),
-                  targetRmsDb: dsp.smartAgc?.targetRmsDb ?? -18,
-                  maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
-                  maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
-                  gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
-                },
-              })
-            }
-            title="Smart Auto-Level Guard (AGC): lifts quiet sources & tames loud inputs automatically"
-            className={`h-8 px-2 rounded text-[11px] font-mono font-bold flex items-center gap-1 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              dsp.smartAgc?.enabled
-                ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
-                : 'border-slate-700 bg-[#121824] text-slate-400 hover:text-white'
+            onClick={() => setShowToolsPopover((v) => !v)}
+            title="Console Tools: Theme, Tap Tempo, Input/Output Devices, Master Gain, Limiter, Quality Gate & Shortcuts"
+            className={`h-7 px-2.5 rounded border font-mono text-[10px] font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              showToolsPopover || qualityGateEngaged || emergencyMuted || totalBypassed
+                ? 'border-teal-400/70 bg-[#14232A] text-teal-200'
+                : 'hw-bevel-btn'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              {qualityGateEngaged
-                ? 'GATE'
-                : `AGC ${dsp.smartAgc?.enabled ? (agcGainDb !== 0 ? `${agcGainDb > 0 ? '+' : ''}${agcGainDb.toFixed(1)}` : 'ON') : 'OFF'}`}
-            </span>
+            <Wrench className="w-3 h-3 text-teal-300" />
+            <span className="tabular-nums hidden sm:inline">TOOLS · {tapTempo.bpm} BPM</span>
+            <span className="sm:hidden">TOOLS</span>
           </button>
-        )}
 
-        {/* Direct Always-Accessible Final Output Control */}
-        {dsp && onUpdateDsp && (
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowMasterOutput((v) => !v)}
-              title="Direct Final Output Level, Limiter Ceiling & Master Delay"
-              className={`h-8 px-2 rounded text-[11px] font-mono font-bold flex items-center gap-1 border transition-colors whitespace-nowrap cursor-pointer ${
-                showMasterOutput
-                  ? 'bg-sky-500/25 border-sky-400 text-sky-200'
-                  : 'border-sky-500/40 bg-[#101827] text-sky-300 hover:bg-sky-500/15'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5 shrink-0" />
-              <span>OUT {(dsp.masterOutputGainDb ?? 0) >= 0 ? '+' : ''}{(dsp.masterOutputGainDb ?? 0).toFixed(1)}dB</span>
-            </button>
+          {showToolsPopover && (
+            <div className="fixed right-3 top-[68px] z-50 w-80 max-h-[82vh] overflow-y-auto rounded-lg border border-[#324152] bg-[#10161D] p-3.5 shadow-2xl space-y-3 font-mono text-[11px] text-slate-200">
+              <div className="flex items-center justify-between border-b border-[#25303D] pb-2">
+                <span className="font-bold text-white uppercase tracking-wider text-[11px]">
+                  Console Tools &amp; I/O Quick Strip
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowToolsPopover(false)}
+                  className="text-slate-400 hover:text-white text-[10px] px-1.5 py-0.5 rounded bg-[#18202B] border border-[#2C3949] cursor-pointer"
+                >
+                  CLOSE
+                </button>
+              </div>
 
-            {showMasterOutput && (
-              <div className="fixed right-4 top-22 z-50 w-80 rounded-xl border border-sky-500/50 bg-[#0A0F18] p-4 shadow-2xl space-y-3 font-mono text-xs text-slate-200">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="font-bold text-white uppercase tracking-wider">
-                    Final Output &amp; Safety Guard
-                  </span>
+              {/* Quick Input & Master Output Selectors */}
+              <div className="space-y-2">
+                <div>
+                  <label className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase mb-1">
+                    <Mic className="w-3 h-3 text-teal-400" />
+                    <span>Primary Audio Input Source</span>
+                  </label>
+                  <select
+                    aria-label="Audio Input Source"
+                    value={audioSource === 'live-mic' ? (activeInputDeviceId || '') : audioSource}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'desktop-audio' || val === 'pink-noise') {
+                        onSourceChange(val as AudioSourceSimulation);
+                      } else {
+                        onSourceChange('live-mic');
+                        if (onSelectInputDevice) onSelectInputDevice(val);
+                      }
+                    }}
+                    className="w-full h-8 px-2 rounded border border-[#293544] bg-[#090D12] text-slate-200 text-[11px] focus:outline-none focus:border-teal-400"
+                  >
+                    {inputDevices.length === 0 ? (
+                      <option value="">System Default Live Mic</option>
+                    ) : (
+                      inputDevices.map((d, idx) => (
+                        <option key={`in-pop-${d.deviceId}-${idx}`} value={d.deviceId}>
+                          {d.label || `Audio Input ${idx + 1}`}
+                        </option>
+                      ))
+                    )}
+                    <option value="desktop-audio">Desktop Loopback (OBS/App)</option>
+                    <option value="pink-noise">Pink Noise Ref (-20dB)</option>
+                  </select>
+                </div>
+
+                {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
+                  <div>
+                    <label className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase mb-1">
+                      <Volume2 className="w-3 h-3 text-emerald-400" />
+                      <span>Master PA Speaker Destination</span>
+                    </label>
+                    <select
+                      aria-label="Master Speaker Destination (Front PA)"
+                      value={activeOutputDeviceId || ''}
+                      onChange={(e) => onSelectOutputDevice(e.target.value)}
+                      className="w-full h-8 px-2 rounded border border-[#293544] bg-[#090D12] text-slate-200 text-[11px] focus:outline-none focus:border-teal-400"
+                    >
+                      <option value="">Default System Output</option>
+                      {outputDevices.map((d, idx) => (
+                        <option key={`out-pop-${d.deviceId}-${idx}`} value={d.deviceId}>
+                          {d.label || `Output Port (${d.deviceId.slice(0, 6)})`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Theme, Tap Tempo & Keyboard Shortcuts */}
+              <div className="space-y-2 pt-2 border-t border-[#25303D]">
+                <div>
+                  <label className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase mb-1">
+                    <Palette className="w-3 h-3 text-teal-400" />
+                    <span>Console Theme</span>
+                  </label>
+                  <select
+                    aria-label="Console Color Theme"
+                    value={consoleTheme}
+                    onChange={(e) => onThemeChange(e.target.value as ConsoleThemeId)}
+                    className="w-full h-8 px-2 rounded border border-[#293544] bg-[#090D12] text-slate-200 text-[11px] focus:outline-none focus:border-teal-400"
+                  >
+                    {THEME_OPTIONS.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setShowMasterOutput(false)}
-                    className="text-slate-400 hover:text-white text-[11px] cursor-pointer"
+                    onClick={onTapTempo}
+                    className={`h-8 px-2 rounded border flex items-center justify-center gap-1.5 cursor-pointer ${
+                      tapFlash
+                        ? 'border-teal-400 bg-teal-500/25 text-teal-200'
+                        : 'border-[#293544] bg-[#0B1016] text-slate-200 hover:border-slate-500'
+                    }`}
                   >
-                    CLOSE
+                    <Activity className="w-3.5 h-3.5 text-teal-400" />
+                    <span>TAP {tapTempo.bpm} BPM</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowToolsPopover(false);
+                      onOpenShortcuts();
+                    }}
+                    className={`h-8 px-2 rounded border flex items-center justify-center gap-1.5 cursor-pointer ${
+                      shortcutsArmed
+                        ? 'border-[#293544] bg-[#0B1016] text-slate-200 hover:border-slate-500'
+                        : 'border-amber-500/50 bg-amber-950/40 text-amber-200'
+                    }`}
+                  >
+                    <Keyboard className="w-3.5 h-3.5 text-teal-400" />
+                    <span>SHORTCUTS</span>
                   </button>
                 </div>
 
-                {/* Master Output Gain */}
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Master Output Gain</span>
-                    <span className="text-sky-300 font-bold">
-                      {(dsp.masterOutputGainDb ?? 0) >= 0 ? '+' : ''}
-                      {(dsp.masterOutputGainDb ?? 0).toFixed(1)} dB
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={-36}
-                    max={6}
-                    step={0.5}
-                    value={dsp.masterOutputGainDb ?? 0}
-                    onChange={(e) => onUpdateDsp({ masterOutputGainDb: parseFloat(e.target.value) })}
-                    className="w-full accent-sky-400 cursor-pointer"
-                  />
-                </div>
-
-                {/* Brickwall Limiter Ceiling */}
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Safety Limiter Ceiling</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateDsp({ limiter: { ...dsp.limiter, enabled: !dsp.limiter.enabled } })
-                      }
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
-                        dsp.limiter.enabled
-                          ? 'bg-amber-500 text-slate-950 border-amber-300'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {dsp.limiter.enabled ? `${dsp.limiter.ceilingDb.toFixed(1)} dBFS` : 'OPEN'}
-                    </button>
-                  </div>
-                  <input
-                    type="range"
-                    min={-12}
-                    max={0}
-                    step={0.5}
-                    value={dsp.limiter.ceilingDb}
-                    onChange={(e) =>
-                      onUpdateDsp({
-                        limiter: { ...dsp.limiter, ceilingDb: parseFloat(e.target.value), enabled: true },
-                      })
-                    }
-                    className="w-full accent-amber-400 cursor-pointer"
-                  />
-                </div>
-
-                {/* Smart AGC Target */}
-                <div className="space-y-1.5 pt-1 border-t border-slate-800">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Smart AGC Target RMS</span>
-                    <span className="text-emerald-300 font-bold">
-                      {dsp.smartAgc?.targetRmsDb ?? -18} dBFS ({agcGainDb >= 0 ? '+' : ''}{agcGainDb.toFixed(1)} dB)
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {[-20, -18, -14].map((t) => (
+                {(onOpenGainStaging || onOpenSignalJourney) && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {onOpenGainStaging && (
                       <button
-                        key={t}
                         type="button"
+                        onClick={() => {
+                          setShowToolsPopover(false);
+                          onOpenGainStaging();
+                        }}
+                        className="h-8 px-2 rounded border border-[#293544] bg-[#0B1016] text-slate-300 hover:text-white flex items-center justify-center gap-1 cursor-pointer text-[10px]"
+                      >
+                        <Gauge className="w-3 h-3 text-emerald-400" />
+                        <span>GAIN STAGE</span>
+                      </button>
+                    )}
+                    {onOpenSignalJourney && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowToolsPopover(false);
+                          onOpenSignalJourney();
+                        }}
+                        className="h-8 px-2 rounded border border-[#293544] bg-[#0B1016] text-slate-300 hover:text-white flex items-center justify-center gap-1 cursor-pointer text-[10px]"
+                      >
+                        <Route className="w-3 h-3 text-cyan-400" />
+                        <span>SIGNAL TRACE</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Master Output, Limiter, Smart AGC & Quality Gate */}
+              {dsp && onUpdateDsp && (
+                <div className="space-y-2.5 pt-2 border-t border-[#25303D]">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <Sliders className="w-3 h-3 text-teal-400" />
+                        Master Output Gain
+                      </span>
+                      <span className="text-teal-300 font-bold tabular-nums">
+                        {(dsp.masterOutputGainDb ?? 0) >= 0 ? '+' : ''}
+                        {(dsp.masterOutputGainDb ?? 0).toFixed(1)} dB
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={-36}
+                      max={6}
+                      step={0.5}
+                      disabled={consoleLocked}
+                      value={dsp.masterOutputGainDb ?? 0}
+                      onChange={(e) =>
+                        onUpdateDsp({ masterOutputGainDb: parseFloat(e.target.value) })
+                      }
+                      className="w-full accent-teal-400 cursor-pointer disabled:opacity-40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-slate-400">Safety Limiter Ceiling</span>
+                      <button
+                        type="button"
+                        disabled={consoleLocked}
+                        onClick={() =>
+                          onUpdateDsp({ limiter: { ...dsp.limiter, enabled: !dsp.limiter.enabled } })
+                        }
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer disabled:opacity-40 ${
+                          dsp.limiter.enabled
+                            ? 'bg-amber-500 text-slate-950 border-amber-300'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {dsp.limiter.enabled ? `${dsp.limiter.ceilingDb.toFixed(1)} dBFS` : 'OPEN'}
+                      </button>
+                    </div>
+                    <input
+                      type="range"
+                      min={-12}
+                      max={0}
+                      step={0.5}
+                      disabled={consoleLocked}
+                      value={dsp.limiter.ceilingDb}
+                      onChange={(e) =>
+                        onUpdateDsp({
+                          limiter: { ...dsp.limiter, ceilingDb: parseFloat(e.target.value), enabled: true },
+                        })
+                      }
+                      className="w-full accent-amber-400 cursor-pointer disabled:opacity-40"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5 pt-1 border-t border-[#222B37]">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-slate-400">Smart AGC Target RMS</span>
+                      <span className="text-emerald-300 font-bold tabular-nums">
+                        {dsp.smartAgc?.targetRmsDb ?? -18} dBFS ({agcGainDb >= 0 ? '+' : ''}
+                        {agcGainDb.toFixed(1)} dB)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {[-20, -18, -14].map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          disabled={consoleLocked}
+                          onClick={() =>
+                            onUpdateDsp({
+                              smartAgc: {
+                                enabled: true,
+                                targetRmsDb: t,
+                                maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
+                                maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
+                                gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
+                              },
+                            })
+                          }
+                          className={`py-1 rounded border text-[9px] font-bold cursor-pointer disabled:opacity-40 ${
+                            (dsp.smartAgc?.targetRmsDb ?? -18) === t
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                              : 'bg-[#090E13] border-[#26313E] text-slate-400'
+                          }`}
+                        >
+                          {t} dBFS
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1.5 border-t border-[#222B37]">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                        Quality Gate ({qualityScorePct}%)
+                      </span>
+                      <button
+                        type="button"
+                        disabled={consoleLocked}
                         onClick={() =>
                           onUpdateDsp({
-                            smartAgc: {
-                              enabled: true,
-                              targetRmsDb: t,
-                              maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
-                              maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
-                              gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
+                            qualityGate: {
+                              enabled: !(dsp.qualityGate?.enabled ?? true),
+                              minQualityScorePct: dsp.qualityGate?.minQualityScorePct ?? 80,
+                              autoProtectOnFeedback: true,
+                              autoProtectOnClip: true,
                             },
                           })
                         }
-                        className={`py-1 rounded border text-[10px] font-bold cursor-pointer ${
-                          (dsp.smartAgc?.targetRmsDb ?? -18) === t
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer disabled:opacity-40 ${
+                          (dsp.qualityGate?.enabled ?? true)
                             ? 'bg-emerald-500 text-slate-950 border-emerald-300'
-                            : 'bg-slate-900 border-slate-700 text-slate-400'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
                         }`}
                       >
-                        {t} dBFS
+                        {(dsp.qualityGate?.enabled ?? true) ? 'ENFORCED' : 'OFF'}
                       </button>
-                    ))}
-                  </div>
-                </div>
-                {/* Persisted Output Quality Gate */}
-                <div className="space-y-1.5 pt-2 border-t border-slate-800">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Output Quality Gate</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateDsp({
-                          qualityGate: {
-                            enabled: !(dsp.qualityGate?.enabled ?? true),
-                            minQualityScorePct: dsp.qualityGate?.minQualityScorePct ?? 80,
-                            autoProtectOnFeedback: true,
-                            autoProtectOnClip: true,
-                          },
-                          smartAgc: {
-                            enabled: true,
-                            targetRmsDb: dsp.smartAgc?.targetRmsDb ?? -18,
-                            maxBoostDb: dsp.smartAgc?.maxBoostDb ?? 14,
-                            maxCutDb: dsp.smartAgc?.maxCutDb ?? 18,
-                            gateFloorDb: dsp.smartAgc?.gateFloorDb ?? -52,
-                          },
-                          limiter: { ...dsp.limiter, enabled: true },
-                        })
-                      }
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
-                        (dsp.qualityGate?.enabled ?? true)
-                          ? 'bg-emerald-500 text-slate-950 border-emerald-300'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {(dsp.qualityGate?.enabled ?? true) ? 'ENFORCED (PERSISTED)' : 'OFF'}
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-slate-400">Live Signal Score:</span>
-                    <span
-                      className={`font-bold ${
-                        qualityScorePct >= 80
-                          ? 'text-emerald-400'
-                          : qualityScorePct >= 60
-                            ? 'text-amber-400'
-                            : 'text-rose-400'
-                      }`}
-                    >
-                      {qualityScorePct}% {qualityGateEngaged ? '· PROTECTING PA/STREAM' : '· CLEAN'}
-                    </span>
-                  </div>
-                  {qualityGateReason && (
-                    <div className="text-[10px] text-amber-300 bg-amber-950/40 px-2 py-1 rounded border border-amber-500/30">
-                      {qualityGateReason}
                     </div>
-                  )}
-                  {activeSurgicalFilters.length > 0 && (
-                    <div className="space-y-1 pt-1">
-                      <span className="text-[9px] text-sky-300 uppercase font-bold">
-                        Auto-Filtered Harmful Frequencies:
-                      </span>
+                    {qualityGateReason && (
+                      <div className="text-[9px] text-amber-300 bg-amber-950/40 px-2 py-1 rounded border border-amber-500/30 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>{qualityGateReason}</span>
+                      </div>
+                    )}
+                    {activeSurgicalFilters.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {activeSurgicalFilters.map((f) => (
                           <span
                             key={f}
-                            className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/40 text-sky-200 text-[9px]"
+                            className="px-1.5 py-0.5 rounded bg-teal-500/20 border border-teal-400/40 text-teal-200 text-[9px]"
                           >
                             {f}
                           </span>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={onToggleTotalBypass}
+                      className={`h-7 rounded border text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer ${
+                        totalBypassed
+                          ? 'bg-amber-500 text-slate-950 border-amber-300'
+                          : 'bg-[#0C1219] border-[#2A3646] text-amber-300 hover:border-amber-500/50'
+                      }`}
+                    >
+                      <GitBranch className="w-3 h-3" />
+                      <span>{totalBypassed ? 'BYP ON' : 'BYPASS'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onToggleEmergencyMute}
+                      className={`h-7 rounded border text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer ${
+                        emergencyMuted
+                          ? 'bg-red-600 text-white border-red-300'
+                          : 'bg-red-950/40 border-red-500/50 text-red-300 hover:bg-red-600/25'
+                      }`}
+                    >
+                      <ShieldAlert className="w-3 h-3" />
+                      <span>{emergencyMuted ? 'MUTED' : 'SAFE MUTE'}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Reference-Styled Hardware LOCKED / UNLOCKED Status Pill */}
+        {onToggleLock && (
+          <button
+            type="button"
+            onClick={onToggleLock}
+            title={consoleLocked ? 'Console Controls Locked (Click to unlock)' : 'Console Unlocked (Click to lock controls against accidental edits)'}
+            className={`h-7 px-2.5 rounded border font-mono text-[10px] font-bold flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              consoleLocked
+                ? 'bg-[#211C13] border-amber-500/70 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                : 'bg-[#10151C] border-[#2D3846] text-slate-300 hover:border-slate-500 hover:text-white'
+            }`}
+          >
+            {consoleLocked ? (
+              <Lock className="w-3 h-3 text-amber-400" />
+            ) : (
+              <Unlock className="w-3 h-3 text-teal-400" />
             )}
-          </div>
+            <span>{consoleLocked ? 'LOCKED' : 'UNLOCKED'}</span>
+          </button>
         )}
 
-        {/* Total Signal Bypass Toggle */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={totalBypassed}
-          onClick={onToggleTotalBypass}
-          title="Bypass all software EQ, HPF, compression, and limiting immediately (passes dry signal)"
-          className={`h-8 px-2 rounded text-[11px] font-mono font-semibold flex items-center justify-center gap-1 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-            totalBypassed
-              ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]'
-              : 'border-amber-500/40 bg-[#121824] text-amber-300 hover:bg-amber-500/10'
-          }`}
-        >
-          <GitBranch className="w-3.5 h-3.5 shrink-0" />
-          <span>{totalBypassed ? 'BYP:ON' : 'BYPASS'}</span>
-        </button>
+        {/* SERVICE MODE Preset Quick Pill */}
+        <div className="hidden sm:flex items-center gap-1.5 pl-1">
+          <span className="font-mono text-[10px] tracking-[0.1em] text-slate-400 uppercase hidden lg:inline">
+            SERVICE MODE
+          </span>
+          {presets.length > 0 && onSelectPreset ? (
+            <select
+              aria-label="Active Service Preset"
+              disabled={consoleLocked}
+              value={activePreset.id}
+              onChange={(e) => {
+                const found = presets.find((p) => p.id === e.target.value);
+                if (found) onSelectPreset(found);
+              }}
+              className="h-7 px-2 rounded border border-[#2C3847] bg-[#0E1319] font-mono text-[10px] text-teal-300 font-semibold focus:outline-none focus:border-teal-400 max-w-[140px] truncate cursor-pointer disabled:opacity-50"
+            >
+              {presets.map((p) => (
+                <option key={p.id} value={p.id} className="bg-[#0E1319] text-slate-100">
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="h-7 px-2 rounded border border-[#2C3847] bg-[#0E1319] font-mono text-[10px] text-teal-300 flex items-center max-w-[130px] truncate">
+              {activePreset.name}
+            </span>
+          )}
+        </div>
 
-        {/* Dedicated Global Emergency Mute */}
-        <button
-          type="button"
-          aria-pressed={emergencyMuted}
-          onClick={onToggleEmergencyMute}
-          title="Immediate global emergency mute for all live PA & monitor outputs"
-          className={`h-8 px-2 rounded text-[11px] font-mono font-bold flex items-center justify-center gap-1 border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-            emergencyMuted
-              ? 'bg-red-600 border-red-300 text-white shadow-[0_0_16px_rgba(239,68,68,0.65)]'
-              : 'border-red-500/60 bg-red-950/40 text-red-300 hover:bg-red-600/25'
-          }`}
-        >
-          <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-          <span>{emergencyMuted ? 'MUTED' : 'SAFE MUTE'}</span>
-        </button>
+        {/* Live Tabular Clock */}
+        <div className="hidden sm:flex items-center gap-1.5 pl-2 border-l border-[#283340] font-mono text-xs font-semibold text-slate-200 tabular-nums whitespace-nowrap">
+          <Clock className="w-3 h-3 text-slate-400 hidden xl:inline" />
+          <span>{clockStr}</span>
+        </div>
       </div>
     </header>
   );

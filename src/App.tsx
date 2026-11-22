@@ -10,8 +10,10 @@ import { checkDesktopUpdate } from './utils/appUpdater.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { ConsoleInstrumentDeck } from './components/ConsoleInstrumentDeck.tsx';
-import { LiveConsoleModule } from './components/LiveConsoleModule.tsx';
-import { DspEngineModule } from './components/DspEngineModule.tsx';
+import { CentralDspChainView } from './components/CentralDspChainView.tsx';
+import { ConsoleLeftPanel } from './components/ConsoleLeftPanel.tsx';
+import { ConsoleRightPanel } from './components/ConsoleRightPanel.tsx';
+import { ConsoleBottomBar } from './components/ConsoleBottomBar.tsx';
 import { FeedbackAnalyzerModule } from './components/FeedbackAnalyzerModule.tsx';
 import { AcousticAnalyzerModule } from './components/AcousticAnalyzerModule.tsx';
 import { SpeakerZonesModule } from './components/SpeakerZonesModule.tsx';
@@ -33,7 +35,7 @@ import { GlobalSearchModal } from './components/GlobalSearchModal.tsx';
 import { SignalJourneyModal } from './components/SignalJourneyModal.tsx';
 import { MultitrackRecorderModule } from './components/MultitrackRecorderModule.tsx';
 import { UniversalRoutingModule } from './components/UniversalRoutingModule.tsx';
-import { MasterPreviewDock } from './components/MasterPreviewDock.tsx';
+import { validateDspConfig } from './utils/camillaDsp.ts';
 
 export default function App() {
   const [remoteCompanionToken, setRemoteCompanionToken] = useState<string | null>(() => {
@@ -50,7 +52,9 @@ export default function App() {
     return null;
   });
 
-  const [activeModule, setActiveModule] = useState<ModuleId>('console');
+  const [activeModule, setActiveModule] = useState<ModuleId>('dsp');
+  const [selectedChannelId, setSelectedChannelId] = useState<string>('ch-1');
+  const [consoleLocked, setConsoleLocked] = useState<boolean>(false);
   const [appVersion, setAppVersion] = useState<string>(APP_VERSION);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -243,10 +247,77 @@ export default function App() {
   };
 
   const pendingFindingsCount = session.findings.filter((f) => f.status === 'pending').length;
-  const activeDspPlugins = useMemo(
-    () => session.plugins.filter((p) => p.kind === 'dsp-processor' && p.status === 'active'),
-    [session.plugins]
+
+  const selectedChannel = useMemo(
+    () => session.channels.find((c) => c.id === selectedChannelId) ?? session.channels[0],
+    [selectedChannelId, session.channels]
   );
+
+  const guardedUpdateChannel = useCallback(
+    (id: string, patch: Parameters<typeof session.handleUpdateChannel>[1]) => {
+      if (consoleLocked) return;
+      session.handleUpdateChannel(id, patch);
+    },
+    [consoleLocked, session]
+  );
+
+  const guardedUpdateDsp = useCallback(
+    (patch: Parameters<typeof session.handleUpdateDsp>[0]) => {
+      if (consoleLocked) return;
+      session.handleUpdateDsp(patch);
+    },
+    [consoleLocked, session]
+  );
+
+  const guardedSelectPreset = useCallback(
+    (preset: Parameters<typeof session.handleSelectPreset>[0]) => {
+      if (consoleLocked) return;
+      session.handleSelectPreset(preset);
+    },
+    [consoleLocked, session]
+  );
+
+  const guardedAddChannel = useCallback(
+    (name?: string, role?: string) => {
+      if (consoleLocked) return;
+      session.handleAddChannel(name, role);
+    },
+    [consoleLocked, session]
+  );
+
+  const guardedAddEqBand = useCallback(() => {
+    if (consoleLocked) return;
+    session.handleAddEqBand();
+  }, [consoleLocked, session]);
+
+  const handleResetAll = useCallback(() => {
+    if (consoleLocked) return;
+    session.handleResetDsp();
+    session.handleClearAllSolos();
+  }, [consoleLocked, session]);
+
+  const handleUpdateObs = useCallback(
+    (patch: Partial<typeof session.obsStatus>) => {
+      session.setObsStatus((prev) => ({ ...prev, ...patch }));
+    },
+    [session.setObsStatus]
+  );
+
+  const dspValidation = useMemo(
+    () => validateDspConfig(session.dsp, session.sampleRate, session.zones),
+    [session.dsp, session.sampleRate, session.zones]
+  );
+  const consoleHasWarning =
+    !dspValidation.valid ||
+    dspValidation.warnings.length > 0 ||
+    audio.telemetry.feedbackRisk.detected ||
+    audio.telemetry.humRisk.detected ||
+    pendingFindingsCount > 0 ||
+    audio.underrunRisk !== 'low';
+  const consoleIsLimiting =
+    Boolean(audio.telemetry.qualityGateEngaged) ||
+    (audio.engineRunning && audio.telemetry.postPeakDb >= session.dsp.limiter.ceilingDb - 0.8);
+  const consoleHasSignal = audio.engineRunning && audio.telemetry.postRmsDb > -56;
 
   if (remoteCompanionToken) {
     return (
@@ -258,7 +329,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#080B10] text-slate-100 overflow-hidden">
+    <div className="h-screen flex flex-col hw-chassis text-slate-100 overflow-hidden">
       <AppMenuBar
         appVersion={appVersion}
         isDesktop={isDesktopApp()}
@@ -274,7 +345,7 @@ export default function App() {
         onSaveSnapshot={() => session.handleSaveVersion('Manual Menu Snapshot')}
         onUndoLastDsp={session.handleUndoLastDsp}
         onResetEqFlat={() =>
-          session.handleUpdateDsp({
+          guardedUpdateDsp({
             eqBands: session.dsp.eqBands.map((b) => ({ ...b, gainDb: 0 })),
           })
         }
@@ -289,7 +360,7 @@ export default function App() {
         onOpenAbout={() => setShowAboutModal(true)}
         onOpenGlobalSearch={() => setShowGlobalSearch(true)}
         onOpenGainStaging={() => setShowGainStaging(true)}
-        onOpenSignalJourney={() => setSignalJourneyChannelId(session.channels[0]?.id ?? 'ch-1')}
+        onOpenSignalJourney={() => setSignalJourneyChannelId(selectedChannel?.id ?? 'ch-1')}
       />
       <TopBar
         venueName={session.venueName}
@@ -300,6 +371,10 @@ export default function App() {
         sampleRate={session.sampleRate}
         bufferSize={session.bufferSize}
         activePreset={session.activePreset}
+        presets={session.presets}
+        onSelectPreset={guardedSelectPreset}
+        consoleLocked={consoleLocked}
+        onToggleLock={() => setConsoleLocked((v) => !v)}
         engineRunning={audio.engineRunning}
         onToggleEngine={audio.handleToggleEngine}
         monitorAudible={audio.monitorAudible}
@@ -326,17 +401,30 @@ export default function App() {
         activeOutputDeviceId={hardware.preferredOutputDeviceId}
         onSelectOutputDevice={hardware.handleSelectOutputDevice}
         dsp={session.dsp}
-        onUpdateDsp={session.handleUpdateDsp}
+        onUpdateDsp={guardedUpdateDsp}
         agcGainDb={audio.telemetry.agcGainDb ?? 0}
         qualityScorePct={audio.telemetry.qualityScorePct ?? 100}
         qualityGateEngaged={audio.telemetry.qualityGateEngaged ?? false}
         qualityGateReason={audio.telemetry.qualityGateReason ?? null}
         activeSurgicalFilters={audio.telemetry.activeSurgicalFilters ?? []}
+        onOpenGainStaging={() => setShowGainStaging(true)}
+        onOpenSignalJourney={() => setSignalJourneyChannelId(selectedChannel?.id ?? 'ch-1')}
       />
+
+      {session.navDockPosition === 'top' && (
+        <Sidebar
+          activeModule={activeModule}
+          onSelectModule={setActiveModule}
+          telemetry={audio.telemetry}
+          pendingFindingsCount={pendingFindingsCount}
+          dockPosition={session.navDockPosition}
+          onChangeDockPosition={session.setNavDockPosition}
+        />
+      )}
 
       {(session.emergencyMuted || session.dsp.bypassed) && (
         <div
-          className={`shrink-0 px-4 py-1.5 border-b font-mono text-xs flex flex-wrap items-center justify-between gap-2 ${
+          className={`shrink-0 px-4 py-1 border-b font-mono text-[11px] flex flex-wrap items-center justify-between gap-2 ${
             session.emergencyMuted
               ? 'bg-red-950/80 border-red-500/60 text-red-200'
               : 'bg-amber-950/70 border-amber-500/50 text-amber-200'
@@ -354,7 +442,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={session.handleToggleTotalBypass}
-                className="px-2 py-0.5 rounded border border-amber-400/60 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 text-[11px] font-semibold cursor-pointer"
+                className="px-2 py-0.5 rounded border border-amber-400/60 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 text-[10px] font-semibold cursor-pointer"
               >
                 RESTORE DSP
               </button>
@@ -363,7 +451,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={session.handleToggleEmergencyMute}
-                className="px-2 py-0.5 rounded border border-red-400/60 bg-red-600 text-white hover:bg-red-500 text-[11px] font-semibold cursor-pointer"
+                className="px-2 py-0.5 rounded border border-red-400/60 bg-red-600 text-white hover:bg-red-500 text-[10px] font-semibold cursor-pointer"
               >
                 UNMUTE PA
               </button>
@@ -373,7 +461,7 @@ export default function App() {
       )}
 
       {hardware.hotPlugEndpoint && (
-        <div className="shrink-0 px-4 py-1.5 border-b border-sky-500/50 bg-sky-950/75 text-sky-100 font-mono text-xs flex flex-wrap items-center justify-between gap-2">
+        <div className="shrink-0 px-4 py-1 border-b border-teal-500/50 bg-[#0D2126] text-teal-100 font-mono text-[11px] flex flex-wrap items-center justify-between gap-2">
           <span>
             NEW AUDIO HARDWARE DETECTED: <strong>{hardware.hotPlugEndpoint.name}</strong> → Auto-matched{' '}
             <strong>{hardware.hotPlugEndpoint.matchedLabel}</strong> ({hardware.hotPlugEndpoint.recommendedDriver} ·{' '}
@@ -383,14 +471,14 @@ export default function App() {
             <button
               type="button"
               onClick={() => void hardware.handleBindDetectedEndpoint(hardware.hotPlugEndpoint!)}
-              className="px-2.5 py-0.5 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-[11px] cursor-pointer"
+              className="px-2.5 py-0.5 rounded bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold text-[10px] cursor-pointer"
             >
               AUTO-BIND &amp; RECALL
             </button>
             <button
               type="button"
               onClick={hardware.dismissHotPlug}
-              className="px-2 py-0.5 rounded border border-sky-400/40 text-sky-200 hover:bg-sky-500/20 text-[11px] cursor-pointer"
+              className="px-2 py-0.5 rounded border border-teal-400/40 text-teal-200 hover:bg-teal-500/20 text-[10px] cursor-pointer"
             >
               DISMISS
             </button>
@@ -398,16 +486,11 @@ export default function App() {
         </div>
       )}
 
-      <div
-        className={`flex-1 flex min-h-0 ${
-          session.navDockPosition === 'top' || session.navDockPosition === 'bottom' ? 'flex-col' : 'flex-row'
-        }`}
-      >
-        <div
-          className={`flex min-h-0 min-w-0 shrink-0 ${
-            session.navDockPosition === 'right' || session.navDockPosition === 'bottom' ? 'order-2' : 'order-1'
-          }`}
-        >
+      {/* =========================================================================
+          FIXED 3-COLUMN HARDWARE CONSOLE WORKBENCH (LEFT I/O | CENTER MODULE | RIGHT TELEMETRY)
+          ========================================================================= */}
+      <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
+        {session.navDockPosition === 'left' && (
           <Sidebar
             activeModule={activeModule}
             onSelectModule={setActiveModule}
@@ -416,318 +499,378 @@ export default function App() {
             dockPosition={session.navDockPosition}
             onChangeDockPosition={session.setNavDockPosition}
           />
+        )}
+
+        <div className="flex-1 min-w-0 min-h-0 flex flex-row gap-1.5 p-1.5 overflow-hidden">
+          {/* FIXED LEFT PANEL: LIVE INPUTS & OUTPUTS */}
+          <ConsoleLeftPanel
+            inputDevices={hardware.inputDevices}
+            outputDevices={hardware.outputDevices}
+            channels={session.channels}
+            selectedChannelId={selectedChannel?.id ?? 'ch-1'}
+            preferredOutputDeviceId={hardware.preferredOutputDeviceId}
+            preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+            zones={session.zones}
+            telemetry={audio.telemetry}
+            engineRunning={audio.engineRunning}
+            locked={consoleLocked}
+            onSelectChannel={setSelectedChannelId}
+            onUpdateChannel={guardedUpdateChannel}
+            onAddChannel={guardedAddChannel}
+            onSelectOutputDevice={(devId) => {
+              if (!consoleLocked) void hardware.handleSelectOutputDevice(devId);
+            }}
+            onSelectStreamOutputDevice={(devId) => {
+              if (!consoleLocked) void hardware.handleSelectStreamOutputDevice(devId);
+            }}
+            onScanAudioDevices={hardware.refreshAudioDevices}
+          />
+
+          {/* CENTER PANEL: ALL 16 MODULES DELIVER THEIR CONTENT HERE */}
+          <main className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
+            {audio.audioError && (
+              <div className="mb-1.5 p-2.5 rounded-md border border-red-500/45 bg-red-500/10 text-xs text-red-300 shrink-0">
+                {audio.audioError}
+              </div>
+            )}
+
+            {activeModule === 'dsp' && selectedChannel ? (
+              <CentralDspChainView
+                dsp={session.dsp}
+                onUpdateDsp={guardedUpdateDsp}
+                selectedChannel={selectedChannel}
+                onUpdateChannel={guardedUpdateChannel}
+                device={session.activeDevice}
+                platform={session.platform}
+                driver={session.driver}
+                sampleRate={session.sampleRate}
+                bufferSize={session.bufferSize}
+                zones={session.zones}
+                telemetry={audio.telemetry}
+                engineRunning={audio.engineRunning}
+                monitorAudible={audio.monitorAudible}
+                onToggleMonitor={audio.handleToggleMonitor}
+                emergencyMuted={session.emergencyMuted}
+                locked={consoleLocked}
+                onAddEqBand={guardedAddEqBand}
+              />
+            ) : activeModule === 'console' ? (
+              <ConsoleInstrumentDeck
+                device={session.activeDevice}
+                channels={session.channels}
+                onUpdateChannel={guardedUpdateChannel}
+                dsp={session.dsp}
+                onUpdateDsp={guardedUpdateDsp}
+                telemetry={audio.telemetry}
+                presets={session.presets}
+                activePreset={session.activePreset}
+                onSelectPreset={guardedSelectPreset}
+                emergencyMuted={session.emergencyMuted}
+                onToggleEmergencyMute={session.handleToggleEmergencyMute}
+                zones={session.zones}
+                initialPhase="phase-1-stage"
+                selectedChannelId={selectedChannel?.id ?? 'ch-1'}
+                onSelectChannel={setSelectedChannelId}
+                locked={consoleLocked}
+                onAddChannel={guardedAddChannel}
+                onAddEqBand={guardedAddEqBand}
+                onRemoveEqBand={session.handleRemoveEqBand}
+              />
+            ) : (
+              <div className="flex-1 min-h-0 overflow-y-auto hw-panel rounded-lg p-3.5">
+                {activeModule === 'feedback' ? (
+                  <FeedbackAnalyzerModule
+                    telemetry={audio.telemetry}
+                    spectrum={audio.spectrum}
+                    dsp={session.dsp}
+                    onUpdateDsp={guardedUpdateDsp}
+                    onLogVerification={(summary) =>
+                      session.logAudit('Verified DSP Correction', summary, 'operator')
+                    }
+                  />
+                ) : activeModule === 'acoustics' ? (
+                  <AcousticAnalyzerModule
+                    measurement={session.measurement}
+                    onUpdateMeasurement={session.setMeasurement}
+                    onExportRoomModeCut={(freqHz) => {
+                      guardedUpdateDsp({
+                        bypassed: false,
+                        eqBands: session.dsp.eqBands.map((b, idx) =>
+                          idx === 0
+                            ? { ...b, label: 'Room Mode Cut', enabled: true, frequency: freqHz, gainDb: -3.5, q: 4.5 }
+                            : b
+                        ),
+                      });
+                      session.logAudit('Exported Room Mode Cut', `Applied -3.5 dB modal cut @ ${freqHz} Hz from REW Analyzer`, 'operator');
+                    }}
+                  />
+                ) : activeModule === 'speakers' ? (
+                  <SpeakerZonesModule
+                    zones={session.zones}
+                    onUpdateZone={(id, patch) => {
+                      if (!consoleLocked) session.handleUpdateZone(id, patch);
+                    }}
+                    onAddZone={session.handleAddZone}
+                    onRemoveZone={session.handleRemoveZone}
+                    outputDevices={hardware.outputDevices}
+                    onScanAudioDevices={hardware.refreshAudioDevices}
+                    telemetry={audio.telemetry}
+                    emergencyMuted={session.emergencyMuted}
+                    onToggleEmergencyMute={session.handleToggleEmergencyMute}
+                  />
+                ) : activeModule === 'microphones' ? (
+                  <MicrophoneIntelligenceModule
+                    device={session.activeDevice}
+                    dsp={session.dsp}
+                    onUpdateDsp={guardedUpdateDsp}
+                    channels={session.channels}
+                    onUpdateChannel={guardedUpdateChannel}
+                    telemetry={audio.telemetry}
+                    onLogAction={(detail) => session.logAudit('Microphone Intelligence', detail, 'operator')}
+                  />
+                ) : activeModule === 'instruments' ? (
+                  <InstrumentIntelligenceModule
+                    device={session.activeDevice}
+                    dsp={session.dsp}
+                    onUpdateDsp={guardedUpdateDsp}
+                    channels={session.channels}
+                    onUpdateChannel={guardedUpdateChannel}
+                    telemetry={audio.telemetry}
+                    onLogAction={(detail) => session.logAudit('Instrument & Music Intelligence', detail, 'operator')}
+                  />
+                ) : activeModule === 'livestream' ? (
+                  <LivestreamObsModule
+                    broadcastDsp={session.broadcastDsp}
+                    onUpdateBroadcastDsp={(patch) => {
+                      if (!consoleLocked) session.setBroadcastDsp((prev) => ({ ...prev, ...patch }));
+                    }}
+                    obsStatus={session.obsStatus}
+                    onUpdateObs={handleUpdateObs}
+                    telemetry={audio.telemetry}
+                    device={session.activeDevice}
+                    outputDevices={hardware.outputDevices}
+                    preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+                    onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
+                  />
+                ) : activeModule === 'soundcheck' ? (
+                  <AutomatedSoundCheckModule
+                    device={session.activeDevice}
+                    channels={session.channels}
+                    onUpdateChannel={guardedUpdateChannel}
+                    dsp={session.dsp}
+                    onUpdateDsp={guardedUpdateDsp}
+                    broadcastDsp={session.broadcastDsp}
+                    telemetry={audio.telemetry}
+                    obsStatus={session.obsStatus}
+                    measurement={session.measurement}
+                    onStartEngine={audio.handleToggleEngine}
+                    onLogAction={(detail) => session.logAudit('Automated Sound Check', detail, 'operator')}
+                  />
+                ) : activeModule === 'presets' ? (
+                  <PresetsServiceModule
+                    device={session.activeDevice}
+                    dsp={session.dsp}
+                    obsStatus={session.obsStatus}
+                    onUpdateObs={handleUpdateObs}
+                    presets={session.presets}
+                    activePreset={session.activePreset}
+                    onSelectPreset={guardedSelectPreset}
+                    versions={session.versions}
+                    onSaveVersion={session.handleSaveVersion}
+                    onRollbackVersion={session.handleRollbackVersion}
+                    onImportPresetJson={(imported) => {
+                      session.setPresets((prev) => [imported, ...prev]);
+                      guardedSelectPreset(imported);
+                    }}
+                  />
+                ) : activeModule === 'virtual-di' ? (
+                  <VirtualDiBassModule
+                    device={session.activeDevice}
+                    bassDi={session.bassDi}
+                    onUpdateBassDi={(patch) => {
+                      if (!consoleLocked) session.setBassDi((prev) => ({ ...prev, ...patch }));
+                    }}
+                    dsp={session.dsp}
+                    onUpdateDsp={guardedUpdateDsp}
+                    telemetry={audio.telemetry}
+                    spectrum={audio.spectrum}
+                    onLogAction={(detail) => session.logAudit('Virtual DI & Bass Processor', detail, 'operator')}
+                  />
+                ) : activeModule === 'ai-engineer' ? (
+                  <AiEngineerModule
+                    device={session.activeDevice}
+                    platform={session.platform}
+                    driver={session.driver}
+                    dsp={session.dsp}
+                    telemetry={audio.telemetry}
+                    findings={session.findings}
+                    onAddFinding={(f) => session.setFindings((prev) => [f, ...prev])}
+                    onApproveFinding={handleApproveFinding}
+                    onDismissFinding={(id) =>
+                      session.setFindings((prev) =>
+                        prev.map((f) => (f.id === id ? { ...f, status: 'dismissed' } : f))
+                      )
+                    }
+                  />
+                ) : activeModule === 'midi' ? (
+                  <MidiMappingModule
+                    platform={session.platform}
+                    midiDevices={midi.midiDevices}
+                    midiConnected={midi.midiConnected}
+                    midiError={midi.midiError}
+                    onRequestMidiAccess={midi.handleRequestMidiAccess}
+                    mappings={midi.midiMappings}
+                    onUpdateMappings={midi.updateAndPersistMidiMappings}
+                    learningId={midi.midiLearningId}
+                    onSetLearningId={midi.setMidiLearningId}
+                    lastPacket={midi.lastMidiPacket}
+                    dsp={session.dsp}
+                    emergencyMuted={session.emergencyMuted}
+                    shortcuts={shortcuts.keyboardShortcuts}
+                    onUpdateShortcuts={shortcuts.updateAndPersistShortcuts}
+                    shortcutsGlobalEnabled={shortcuts.shortcutsGlobalEnabled}
+                    onToggleShortcutsGlobalEnabled={() => shortcuts.setShortcutsGlobalEnabled((v) => !v)}
+                    capturingShortcutId={shortcuts.capturingShortcutId}
+                    onSetCapturingShortcutId={shortcuts.setCapturingShortcutId}
+                    onTriggerShortcutAction={shortcuts.executeShortcutAction}
+                    lastTriggeredShortcut={shortcuts.lastTriggeredShortcut}
+                    shortcutConflictNotice={shortcuts.shortcutConflictNotice}
+                    tapTempo={shortcuts.tapTempo}
+                  />
+                ) : activeModule === 'routing' ? (
+                  <UniversalRoutingModule
+                    channels={session.channels}
+                    onUpdateChannel={guardedUpdateChannel}
+                    onAddChannel={guardedAddChannel}
+                    onRemoveChannel={session.handleRemoveChannel}
+                    onAddZone={session.handleAddZone}
+                    onUpdateZone={session.handleUpdateZone}
+                    onRemoveZone={session.handleRemoveZone}
+                    inputDevices={hardware.inputDevices}
+                    outputDevices={hardware.outputDevices}
+                    preferredOutputDeviceId={hardware.preferredOutputDeviceId}
+                    preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+                    onSelectOutputDevice={hardware.handleSelectOutputDevice}
+                    onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
+                    onScanAudioDevices={hardware.refreshAudioDevices}
+                    zones={session.zones}
+                    dsp={session.dsp}
+                    onOpenSignalJourney={(chId) => setSignalJourneyChannelId(chId)}
+                  />
+                ) : activeModule === 'recorder' ? (
+                  <MultitrackRecorderModule
+                    channels={session.channels}
+                    telemetry={audio.telemetry}
+                    engineRunning={audio.engineRunning}
+                  />
+                ) : (
+                  <HardwareDiagnosticsModule
+                    devices={session.devices}
+                    desktopBuild={isDesktopApp()}
+                    activeDevice={session.activeDevice}
+                    onSelectDevice={session.handleSelectDevice}
+                    platform={session.platform}
+                    onSelectPlatform={session.handleSelectPlatform}
+                    driver={session.driver}
+                    onSelectDriver={session.handleSelectDriver}
+                    sampleRate={session.sampleRate}
+                    onSelectSampleRate={session.handleSelectSampleRate}
+                    bufferSize={session.bufferSize}
+                    onSelectBufferSize={session.handleSelectBufferSize}
+                    plugins={session.plugins}
+                    onTogglePlugin={session.handleTogglePlugin}
+                    onLoadCustomPlugin={session.handleLoadCustomPlugin}
+                    onUnloadPlugin={session.handleUnloadPlugin}
+                    telemetry={audio.telemetry}
+                    audioCpuPct={audio.audioCpuPct}
+                    auditEvents={session.auditEvents}
+                    remoteAccess={session.remoteAccess}
+                    remoteClients={session.remoteClients}
+                    lanInterfaces={session.lanInterfaces}
+                    onUpdateRemoteAccess={session.handleUpdateRemoteAccess}
+                    onRotateRemoteToken={session.handleRotateRemoteToken}
+                    onDisconnectRemoteClient={session.handleDisconnectRemoteClient}
+                    onOpenRemoteCompanion={(tok) => setRemoteCompanionToken(tok)}
+                    detectedEndpoints={hardware.detectedEndpoints}
+                    scanningHardware={hardware.scanningHardware}
+                    onScanHardware={(reqPerm) => void hardware.runHardwareScan(Boolean(reqPerm), false)}
+                    onBindDetectedEndpoint={(ep) => void hardware.handleBindDetectedEndpoint(ep)}
+                    onClearHardwareCache={() => void hardware.handleClearHardwareCache()}
+                    audioSource={audio.audioSource}
+                    onSelectAudioSource={audio.handleSourceChange}
+                    engineRunning={audio.engineRunning}
+                    onToggleEngine={audio.handleToggleEngine}
+                  />
+                )}
+              </div>
+            )}
+          </main>
+
+          {/* FIXED RIGHT PANEL: SYSTEM TELEMETRY, PRESET RECALL & MASTER PREVIEW */}
+          <ConsoleRightPanel
+            dsp={session.dsp}
+            onUpdateDsp={guardedUpdateDsp}
+            telemetry={audio.telemetry}
+            spectrum={audio.spectrum}
+            audioCpuPct={audio.audioCpuPct}
+            underrunRisk={audio.underrunRisk}
+            bufferSize={session.bufferSize}
+            sampleRate={session.sampleRate}
+            driver={session.driver}
+            platform={session.platform}
+            appVersion={appVersion}
+            engineRunning={audio.engineRunning}
+            emergencyMuted={session.emergencyMuted}
+            locked={consoleLocked}
+            onToggleEmergencyMute={session.handleToggleEmergencyMute}
+            onToggleTotalBypass={session.handleToggleTotalBypass}
+            obsStatus={session.obsStatus}
+            presets={session.presets}
+            activePreset={session.activePreset}
+            onSelectPreset={guardedSelectPreset}
+            zones={session.zones}
+            onNavigateModule={setActiveModule}
+          />
         </div>
 
-        <div
-          className={`flex-1 min-h-0 min-w-0 flex flex-row ${
-            session.navDockPosition === 'right' || session.navDockPosition === 'bottom' ? 'order-1' : 'order-2'
-          }`}
-        >
-        <main
-          className={`flex-1 min-h-0 min-w-0 ${
-            activeModule === 'console' || activeModule === 'dsp'
-              ? 'overflow-hidden p-1.5'
-              : 'overflow-y-auto p-4 lg:p-5'
-          } bg-[#080B10] flex flex-col`}
-        >
-          {audio.audioError && (
-            <div className="mb-4 p-3 rounded-md border border-red-500/40 bg-red-500/10 text-xs text-red-300">
-              {audio.audioError}
-            </div>
-          )}
-
-          {activeModule === 'console' ? (
-            <ConsoleInstrumentDeck
-              device={session.activeDevice}
-              channels={session.channels}
-              onUpdateChannel={session.handleUpdateChannel}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              telemetry={audio.telemetry}
-              presets={session.presets}
-              activePreset={session.activePreset}
-              onSelectPreset={session.handleSelectPreset}
-              emergencyMuted={session.emergencyMuted}
-              onToggleEmergencyMute={session.handleToggleEmergencyMute}
-              zones={session.zones}
-              initialPhase="phase-1-stage"
-              onAddChannel={session.handleAddChannel}
-              onAddEqBand={session.handleAddEqBand}
-              onRemoveEqBand={session.handleRemoveEqBand}
-              inputDevices={hardware.inputDevices}
-              outputDevices={hardware.outputDevices}
-              preferredOutputDeviceId={hardware.preferredOutputDeviceId}
-              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
-              onSelectOutputDevice={hardware.handleSelectOutputDevice}
-              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
-              onUpdateZone={session.handleUpdateZone}
-              onScanAudioDevices={hardware.refreshAudioDevices}
-            />
-          ) : activeModule === 'dsp' ? (
-            <ConsoleInstrumentDeck
-              device={session.activeDevice}
-              channels={session.channels}
-              onUpdateChannel={session.handleUpdateChannel}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              telemetry={audio.telemetry}
-              presets={session.presets}
-              activePreset={session.activePreset}
-              onSelectPreset={session.handleSelectPreset}
-              emergencyMuted={session.emergencyMuted}
-              onToggleEmergencyMute={session.handleToggleEmergencyMute}
-              zones={session.zones}
-              initialPhase="phase-5-geq"
-              onAddChannel={session.handleAddChannel}
-              onAddEqBand={session.handleAddEqBand}
-              onRemoveEqBand={session.handleRemoveEqBand}
-              inputDevices={hardware.inputDevices}
-              outputDevices={hardware.outputDevices}
-              preferredOutputDeviceId={hardware.preferredOutputDeviceId}
-              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
-              onSelectOutputDevice={hardware.handleSelectOutputDevice}
-              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
-              onUpdateZone={session.handleUpdateZone}
-              onScanAudioDevices={hardware.refreshAudioDevices}
-            />
-          ) : activeModule === 'feedback' ? (
-            <FeedbackAnalyzerModule
-              telemetry={audio.telemetry}
-              spectrum={audio.spectrum}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              onLogVerification={(summary) =>
-                session.logAudit('Verified DSP Correction', summary, 'operator')
-              }
-            />
-          ) : activeModule === 'acoustics' ? (
-            <AcousticAnalyzerModule
-              measurement={session.measurement}
-              onUpdateMeasurement={session.setMeasurement}
-              onExportRoomModeCut={(freqHz) => {
-                session.handleUpdateDsp({
-                  bypassed: false,
-                  eqBands: session.dsp.eqBands.map((b, idx) =>
-                    idx === 0
-                      ? { ...b, label: 'Room Mode Cut', enabled: true, frequency: freqHz, gainDb: -3.5, q: 4.5 }
-                      : b
-                  ),
-                });
-                session.logAudit('Exported Room Mode Cut', `Applied -3.5 dB modal cut @ ${freqHz} Hz from REW Analyzer`, 'operator');
-              }}
-            />
-          ) : activeModule === 'speakers' ? (
-            <SpeakerZonesModule
-              zones={session.zones}
-              onUpdateZone={(id, patch) =>
-                session.setZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)))
-              }
-              onAddZone={session.handleAddZone}
-              onRemoveZone={session.handleRemoveZone}
-              outputDevices={hardware.outputDevices}
-              onScanAudioDevices={hardware.refreshAudioDevices}
-              telemetry={audio.telemetry}
-              emergencyMuted={session.emergencyMuted}
-              onToggleEmergencyMute={session.handleToggleEmergencyMute}
-            />
-          ) : activeModule === 'microphones' ? (
-            <MicrophoneIntelligenceModule
-              device={session.activeDevice}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              channels={session.channels}
-              onUpdateChannel={session.handleUpdateChannel}
-              telemetry={audio.telemetry}
-              onLogAction={(detail) => session.logAudit('Microphone Intelligence', detail, 'operator')}
-            />
-          ) : activeModule === 'instruments' ? (
-            <InstrumentIntelligenceModule
-              device={session.activeDevice}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              channels={session.channels}
-              onUpdateChannel={session.handleUpdateChannel}
-              telemetry={audio.telemetry}
-              onLogAction={(detail) => session.logAudit('Instrument & Music Intelligence', detail, 'operator')}
-            />
-          ) : activeModule === 'livestream' ? (
-            <LivestreamObsModule
-              broadcastDsp={session.broadcastDsp}
-              onUpdateBroadcastDsp={(patch) =>
-                session.setBroadcastDsp((prev) => ({ ...prev, ...patch }))
-              }
-              obsStatus={session.obsStatus}
-              onUpdateObs={(patch) => session.setObsStatus((prev) => ({ ...prev, ...patch }))}
-              telemetry={audio.telemetry}
-              device={session.activeDevice}
-              outputDevices={hardware.outputDevices}
-              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
-              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
-            />
-          ) : activeModule === 'soundcheck' ? (
-            <AutomatedSoundCheckModule
-              device={session.activeDevice}
-              channels={session.channels}
-              onUpdateChannel={session.handleUpdateChannel}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              broadcastDsp={session.broadcastDsp}
-              telemetry={audio.telemetry}
-              obsStatus={session.obsStatus}
-              measurement={session.measurement}
-              onStartEngine={audio.handleToggleEngine}
-              onLogAction={(detail) => session.logAudit('Automated Sound Check', detail, 'operator')}
-            />
-          ) : activeModule === 'presets' ? (
-            <PresetsServiceModule
-              device={session.activeDevice}
-              dsp={session.dsp}
-              obsStatus={session.obsStatus}
-              onUpdateObs={(patch) => session.setObsStatus((prev) => ({ ...prev, ...patch }))}
-              presets={session.presets}
-              activePreset={session.activePreset}
-              onSelectPreset={session.handleSelectPreset}
-              versions={session.versions}
-              onSaveVersion={session.handleSaveVersion}
-              onRollbackVersion={session.handleRollbackVersion}
-              onImportPresetJson={(imported) => {
-                session.setPresets((prev) => [imported, ...prev]);
-                session.handleSelectPreset(imported);
-              }}
-            />
-          ) : activeModule === 'virtual-di' ? (
-            <VirtualDiBassModule
-              device={session.activeDevice}
-              bassDi={session.bassDi}
-              onUpdateBassDi={(patch) => session.setBassDi((prev) => ({ ...prev, ...patch }))}
-              dsp={session.dsp}
-              onUpdateDsp={session.handleUpdateDsp}
-              telemetry={audio.telemetry}
-              spectrum={audio.spectrum}
-              onLogAction={(detail) => session.logAudit('Virtual DI & Bass Processor', detail, 'operator')}
-            />
-          ) : activeModule === 'ai-engineer' ? (
-            <AiEngineerModule
-              device={session.activeDevice}
-              platform={session.platform}
-              driver={session.driver}
-              dsp={session.dsp}
-              telemetry={audio.telemetry}
-              findings={session.findings}
-              onAddFinding={(f) => session.setFindings((prev) => [f, ...prev])}
-              onApproveFinding={handleApproveFinding}
-              onDismissFinding={(id) =>
-                session.setFindings((prev) =>
-                  prev.map((f) => (f.id === id ? { ...f, status: 'dismissed' } : f))
-                )
-              }
-            />
-          ) : activeModule === 'midi' ? (
-            <MidiMappingModule
-              platform={session.platform}
-              midiDevices={midi.midiDevices}
-              midiConnected={midi.midiConnected}
-              midiError={midi.midiError}
-              onRequestMidiAccess={midi.handleRequestMidiAccess}
-              mappings={midi.midiMappings}
-              onUpdateMappings={midi.updateAndPersistMidiMappings}
-              learningId={midi.midiLearningId}
-              onSetLearningId={midi.setMidiLearningId}
-              lastPacket={midi.lastMidiPacket}
-              dsp={session.dsp}
-              emergencyMuted={session.emergencyMuted}
-              shortcuts={shortcuts.keyboardShortcuts}
-              onUpdateShortcuts={shortcuts.updateAndPersistShortcuts}
-              shortcutsGlobalEnabled={shortcuts.shortcutsGlobalEnabled}
-              onToggleShortcutsGlobalEnabled={() => shortcuts.setShortcutsGlobalEnabled((v) => !v)}
-              capturingShortcutId={shortcuts.capturingShortcutId}
-              onSetCapturingShortcutId={shortcuts.setCapturingShortcutId}
-              onTriggerShortcutAction={shortcuts.executeShortcutAction}
-              lastTriggeredShortcut={shortcuts.lastTriggeredShortcut}
-              shortcutConflictNotice={shortcuts.shortcutConflictNotice}
-              tapTempo={shortcuts.tapTempo}
-            />
-          ) : activeModule === 'routing' ? (
-            <UniversalRoutingModule
-              channels={session.channels}
-              onUpdateChannel={session.handleUpdateChannel}
-              onAddChannel={session.handleAddChannel}
-              onRemoveChannel={session.handleRemoveChannel}
-              onAddZone={session.handleAddZone}
-              onUpdateZone={(id, patch) =>
-                session.setZones((prev) => prev.map((z) => (z.id === id ? { ...z, ...patch } : z)))
-              }
-              onRemoveZone={session.handleRemoveZone}
-              inputDevices={hardware.inputDevices}
-              outputDevices={hardware.outputDevices}
-              preferredOutputDeviceId={hardware.preferredOutputDeviceId}
-              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
-              onSelectOutputDevice={hardware.handleSelectOutputDevice}
-              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
-              onScanAudioDevices={hardware.refreshAudioDevices}
-              zones={session.zones}
-              dsp={session.dsp}
-              onOpenSignalJourney={(chId) => setSignalJourneyChannelId(chId)}
-            />
-          ) : activeModule === 'recorder' ? (
-            <MultitrackRecorderModule
-              channels={session.channels}
-              telemetry={audio.telemetry}
-              engineRunning={audio.engineRunning}
-            />
-          ) : (
-            <HardwareDiagnosticsModule
-              devices={session.devices}
-              desktopBuild={isDesktopApp()}
-              activeDevice={session.activeDevice}
-              onSelectDevice={session.handleSelectDevice}
-              platform={session.platform}
-              onSelectPlatform={session.handleSelectPlatform}
-              driver={session.driver}
-              onSelectDriver={session.handleSelectDriver}
-              sampleRate={session.sampleRate}
-              onSelectSampleRate={session.handleSelectSampleRate}
-              bufferSize={session.bufferSize}
-              onSelectBufferSize={session.handleSelectBufferSize}
-              plugins={session.plugins}
-              onTogglePlugin={session.handleTogglePlugin}
-              onLoadCustomPlugin={session.handleLoadCustomPlugin}
-              onUnloadPlugin={session.handleUnloadPlugin}
-              telemetry={audio.telemetry}
-              audioCpuPct={audio.audioCpuPct}
-              auditEvents={session.auditEvents}
-              remoteAccess={session.remoteAccess}
-              remoteClients={session.remoteClients}
-              lanInterfaces={session.lanInterfaces}
-              onUpdateRemoteAccess={session.handleUpdateRemoteAccess}
-              onRotateRemoteToken={session.handleRotateRemoteToken}
-              onDisconnectRemoteClient={session.handleDisconnectRemoteClient}
-              onOpenRemoteCompanion={(tok) => setRemoteCompanionToken(tok)}
-              detectedEndpoints={hardware.detectedEndpoints}
-              scanningHardware={hardware.scanningHardware}
-              onScanHardware={(reqPerm) => void hardware.runHardwareScan(Boolean(reqPerm), false)}
-              onBindDetectedEndpoint={(ep) => void hardware.handleBindDetectedEndpoint(ep)}
-              onClearHardwareCache={() => void hardware.handleClearHardwareCache()}
-              audioSource={audio.audioSource}
-              onSelectAudioSource={audio.handleSourceChange}
-              engineRunning={audio.engineRunning}
-              onToggleEngine={audio.handleToggleEngine}
-            />
-          )}
-        </main>
-        <MasterPreviewDock
-          dsp={session.dsp}
-          onUpdateDsp={session.handleUpdateDsp}
-          telemetry={audio.telemetry}
-          spectrum={audio.spectrum}
-          emergencyMuted={session.emergencyMuted}
-          onToggleEmergencyMute={session.handleToggleEmergencyMute}
-          onToggleTotalBypass={session.handleToggleTotalBypass}
-          obsStatus={session.obsStatus}
-          onNavigateModule={setActiveModule}
-        />
-        </div>
+        {session.navDockPosition === 'right' && (
+          <Sidebar
+            activeModule={activeModule}
+            onSelectModule={setActiveModule}
+            telemetry={audio.telemetry}
+            pendingFindingsCount={pendingFindingsCount}
+            dockPosition={session.navDockPosition}
+            onChangeDockPosition={session.setNavDockPosition}
+          />
+        )}
       </div>
+
+      {session.navDockPosition === 'bottom' && (
+        <Sidebar
+          activeModule={activeModule}
+          onSelectModule={setActiveModule}
+          telemetry={audio.telemetry}
+          pendingFindingsCount={pendingFindingsCount}
+          dockPosition={session.navDockPosition}
+          onChangeDockPosition={session.setNavDockPosition}
+        />
+      )}
+
+      {/* FIXED BOTTOM HARDWARE CONTROL BAR */}
+      <ConsoleBottomBar
+        engineRunning={audio.engineRunning}
+        dspBypassed={session.dsp.bypassed}
+        onToggleTotalBypass={session.handleToggleTotalBypass}
+        hasWarning={consoleHasWarning}
+        consoleLocked={consoleLocked}
+        onToggleLock={() => setConsoleLocked((v) => !v)}
+        emergencyMuted={session.emergencyMuted}
+        onToggleEmergencyMute={session.handleToggleEmergencyMute}
+        onResetAll={handleResetAll}
+        onOpenSystemInfo={() => setActiveModule('hardware')}
+        isLimiting={consoleIsLimiting}
+        hasSignal={consoleHasSignal}
+      />
 
       {/* Global Keyboard Shortcut Manager Modal */}
       {shortcuts.showShortcutsModal && (

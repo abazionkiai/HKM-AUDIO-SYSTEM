@@ -82,11 +82,14 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   });
   const [dismissedOfflineWarning, setDismissedOfflineWarning] = useState(false);
 
+  const onUpdateObsRef = useRef(onUpdateObs);
+  onUpdateObsRef.current = onUpdateObs;
+
   // Subscribe to live OBS WebSocket service
   useEffect(() => {
     const unsub = obsWsService.subscribe((next) => {
       setObsState(next);
-      onUpdateObs({
+      onUpdateObsRef.current({
         connected: next.connected,
         streaming: next.telemetry.streaming,
         recording: next.telemetry.recording,
@@ -99,7 +102,7 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
       });
     });
     return unsub;
-  }, [onUpdateObs, wsUrl]);
+  }, [wsUrl]);
 
   // 60fps fast VU meters + live broadcast waveform scope
   useEffect(() => {

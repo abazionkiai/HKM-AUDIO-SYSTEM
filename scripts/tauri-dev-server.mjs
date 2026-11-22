@@ -6,7 +6,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const tsxCli = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const child = spawn(process.execPath, [tsxCli, 'server.ts'], {
   cwd: projectRoot,
-  env: { ...process.env, HOST: '127.0.0.1' },
+  env: { ...process.env, HOST: '127.0.0.1', PORT: '3000' },
   stdio: 'inherit',
 });
 

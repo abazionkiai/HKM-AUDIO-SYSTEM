@@ -7,25 +7,25 @@
     --font-sans: 'DM Sans', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 
-    /* Default Theme Tokens (Midnight Studio) */
-    --theme-chassis: #070b13;
-    --theme-chrome: #0b101b;
-    --theme-chrome-deep: #080c15;
-    --theme-panel: #0e1524;
-    --theme-panel-alt: #111a2d;
-    --theme-control: #162138;
-    --theme-well: #050810;
-    --theme-border: #1f2d47;
-    --theme-border-strong: #2d4063;
-    --theme-accent: #38bdf8;
-    --theme-accent-strong: #0284c7;
-    --theme-accent-soft: rgba(56, 189, 248, 0.16);
-    --theme-accent-glow: rgba(56, 189, 248, 0.45);
+    /* Default Theme Tokens (Brushed Obsidian-Gunmetal Hardware Console) */
+    --theme-chassis: #0c1015;
+    --theme-chrome: #13181f;
+    --theme-chrome-deep: #0e1319;
+    --theme-panel: #161d25;
+    --theme-panel-alt: #1c242e;
+    --theme-control: #222b37;
+    --theme-well: #0a0e13;
+    --theme-border: #26313e;
+    --theme-border-strong: #374658;
+    --theme-accent: #2dd4bf;
+    --theme-accent-strong: #0d9488;
+    --theme-accent-soft: rgba(45, 212, 191, 0.16);
+    --theme-accent-glow: rgba(45, 212, 191, 0.45);
     --theme-heading: #f8fafc;
     --theme-text: #e2e8f0;
     --theme-muted: #94a3b8;
-    --theme-ambient: radial-gradient(circle at 18% 0%, rgba(56, 189, 248, 0.08), transparent 46%),
-      radial-gradient(circle at 86% 100%, rgba(14, 165, 233, 0.06), transparent 42%);
+    --theme-ambient: radial-gradient(circle at 50% 0%, rgba(45, 212, 191, 0.06), transparent 48%),
+      radial-gradient(circle at 86% 100%, rgba(34, 197, 94, 0.04), transparent 42%);
   }
 
   body {
@@ -870,5 +870,111 @@ input[type="range"].studio-slider::-webkit-slider-thumb:hover {
     transition: none;
   }
 }
+
+/* ============================================================================
+   Brushed-Gunmetal Hardware Audio Console Utility Surface & Control Classes
+   ============================================================================ */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.hw-chassis {
+  background: radial-gradient(circle at 50% 0%, #171e27 0%, #0c1015 65%);
+}
+
+.hw-panel {
+  background: linear-gradient(180deg, #1b232c 0%, #131920 100%);
+  border: 1px solid #283340;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.hw-card {
+  background: linear-gradient(180deg, #192029 0%, #12171e 100%);
+  border: 1px solid #26303d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.hw-well {
+  background: #0b1015;
+  border: 1px solid #1e2833;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.75);
+}
+
+.hw-pill-active {
+  background: linear-gradient(180deg, #4ade80 0%, #22c55e 55%, #15803d 100%);
+  border: 1px solid #86efac;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.hw-pill-bypass {
+  background: linear-gradient(180deg, #277887 0%, #1b5a68 58%, #13424e 100%);
+  border: 1px solid #5eead4;
+  color: #e2f8f5;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.hw-bevel-btn {
+  background: linear-gradient(180deg, #323c48 0%, #202730 52%, #171c23 100%);
+  border: 1px solid #475569;
+  color: #e2e8f0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.55);
+}
+
+.hw-bevel-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3b4756 0%, #252e39 52%, #1b222b 100%);
+  border-color: #64748b;
+  color: #ffffff;
+}
+
+.hw-preset-active {
+  background: linear-gradient(90deg, #0d8a7e 0%, #14b8a6 55%, #0f766e 100%);
+  border: 1px solid #5eead4;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(45, 212, 191, 0.35);
+}
+
+/* Light-Theme Compatibility Overrides for Hardware Console Surfaces */
+[data-console-theme="daylight-foh"] .hw-chassis,
+[data-console-theme="warm-daylight"] .hw-chassis {
+  background: var(--theme-chassis);
+}
+
+[data-console-theme="daylight-foh"] .hw-panel,
+[data-console-theme="warm-daylight"] .hw-panel {
+  background: linear-gradient(180deg, var(--theme-panel) 0%, var(--theme-chrome-deep) 100%);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+
+[data-console-theme="daylight-foh"] .hw-card,
+[data-console-theme="warm-daylight"] .hw-card {
+  background: linear-gradient(180deg, var(--theme-panel) 0%, var(--theme-panel-alt) 100%);
+  border-color: var(--theme-border);
+  color: var(--theme-text);
+  box-shadow: none;
+}
+
+[data-console-theme="daylight-foh"] .hw-bevel-btn,
+[data-console-theme="warm-daylight"] .hw-bevel-btn {
+  background: linear-gradient(180deg, #ffffff 0%, var(--theme-control) 100%);
+  border-color: var(--theme-border-strong);
+  color: var(--theme-heading);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+[data-console-theme="daylight-foh"] .hw-well,
+[data-console-theme="warm-daylight"] .hw-well {
+  background: #0b1015;
+  color: #f8fafc;
+}
+
 
 

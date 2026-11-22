@@ -134,6 +134,7 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={clamped}
+        aria-disabled={disabled || undefined}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

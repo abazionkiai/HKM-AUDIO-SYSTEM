@@ -792,7 +792,11 @@ export const StereoGraphicEqModule: React.FC<StereoGraphicEqModuleProps> = ({
           compactConsoleMode ? 'flex-1 min-h-0 p-1.5 flex items-center' : 'p-3'
         } shadow-inner overflow-x-auto`}
       >
-        <div className="flex items-end justify-between min-w-[850px] w-full gap-1 px-1">
+        <div
+          className={`flex items-end justify-between w-full ${
+            compactConsoleMode ? 'gap-0.5 px-0.5' : 'min-w-[850px] gap-1 px-1'
+          }`}
+        >
           {currentBands.map((band, idx) => {
             const isKeyFreq =
               band.hz === 63 ||
