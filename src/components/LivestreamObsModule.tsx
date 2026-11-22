@@ -39,6 +39,9 @@ interface LivestreamObsModuleProps {
   onUpdateObs: (patch: Partial<ObsStatus>) => void;
   telemetry: SignalTelemetry;
   device: HardwareDevice;
+  outputDevices?: MediaDeviceInfo[];
+  preferredStreamOutputDeviceId?: string;
+  onSelectStreamOutputDevice?: (deviceId: string) => void;
 }
 
 export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
@@ -48,6 +51,9 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   onUpdateObs,
   telemetry,
   device,
+  outputDevices = [],
+  preferredStreamOutputDeviceId = '',
+  onSelectStreamOutputDevice,
 }) => {
   const [obsState, setObsState] = useState<ObsConnectionState>(() => obsWsService.getState());
   const [speechStemDb, setSpeechStemDb] = useState<number>(0);
@@ -439,6 +445,49 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
           </div>
         </div>
       )}
+
+      {/* DEDICATED VIRTUAL BROADCAST AUDIO DRIVER SINK (SCAN-ABLE IN OBS) */}
+      <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-gradient-to-r from-[#081814] via-[#09141E] to-[#070B13] flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-start gap-3">
+          <div className="p-2.5 rounded-lg bg-emerald-500/20 border border-emerald-400/50 text-emerald-300">
+            <Radio className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
+                Dedicated Virtual Broadcast Audio Output (OBS Ingest Bus)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 border border-emerald-400 text-emerald-300">
+                PARALLEL 48 kHz SINK
+              </span>
+            </div>
+            <p className="font-mono text-[11px] text-slate-300 mt-0.5">
+              Outputs processed broadcast audio directly to your Virtual Cable or Loopback device. Select this device in OBS Studio under <span className="text-white font-semibold">Settings → Audio → Mic/Auxiliary Audio</span>.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <label className="flex items-center gap-2 font-mono text-xs bg-[#0B101A] border border-emerald-500/50 rounded-lg px-2.5 py-1.5 text-emerald-200">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Target Virtual Port:</span>
+            <select
+              aria-label="Dedicated Stream Virtual Output Port"
+              value={preferredStreamOutputDeviceId}
+              onChange={(e) => onSelectStreamOutputDevice?.(e.target.value)}
+              className="bg-transparent text-emerald-300 font-bold focus:outline-none cursor-pointer max-w-[220px] truncate"
+            >
+              <option value="" className="bg-[#0A0F18] text-slate-400">
+                Disabled (System Speakers Only)
+              </option>
+              {outputDevices.map((d, idx) => (
+                <option key={`obs-sink-${d.deviceId}-${idx}`} value={d.deviceId} className="bg-[#0A0F18] text-slate-100">
+                  {d.label || `Audio Output ${idx + 1}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
 
       {/* Stereo Bus Advisory Card (Dismissible & Clean) */}
       {!device.capabilities.perChannelCapture && (

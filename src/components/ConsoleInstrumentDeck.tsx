@@ -12,6 +12,7 @@ import { ConsolePushButton, RotaryKnob } from './StudioControls.tsx';
 import { StereoGraphicEqModule } from './StereoGraphicEqModule.tsx';
 import { ActiveCrossoverModule } from './ActiveCrossoverModule.tsx';
 import { PrecisionVerticalFader } from './PrecisionVerticalFader.tsx';
+import { InputSourcesDrawer } from './InputSourcesDrawer.tsx';
 
 export type ConsoleProcessingPhase =
   | 'phase-1-stage'
@@ -39,6 +40,8 @@ interface ConsoleInstrumentDeckProps {
   onAddChannel?: (name?: string, role?: string) => void;
   onAddEqBand?: () => void;
   onRemoveEqBand?: (bandId: string) => void;
+  inputDevices?: MediaDeviceInfo[];
+  onScanAudioDevices?: (requestPermission?: boolean) => Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }>;
 }
 
 const PEQ_BAND_STYLES = [
@@ -97,6 +100,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
   onAddChannel,
   onAddEqBand,
   onRemoveEqBand,
+  inputDevices = [],
+  onScanAudioDevices,
 }) => {
   const [selectedPhase, setSelectedPhase] = useState<ConsoleProcessingPhase>(initialPhase ?? 'phase-3-peq');
 
@@ -420,9 +425,22 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       </div>
 
       {/* =========================================================================
-          MIDDLE DECK: FOCUSED HARDWARE PROCESSING INSTRUMENT (ZERO SCROLL)
+          MIDDLE DECK + AVAILABLE INPUTS DOCK (UNIFIED REAL-WORLD SIGNAL FLOW)
           ========================================================================= */}
-      <div className="flex-1 min-h-0 overflow-hidden p-1.5 bg-[#06080E] flex flex-col">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-row">
+        {/* Left Live Input Devices Dock */}
+        <InputSourcesDrawer
+          inputDevices={inputDevices}
+          channels={channels}
+          onUpdateChannel={onUpdateChannel}
+          onAddChannel={onAddChannel}
+          onScanAudioDevices={onScanAudioDevices}
+          selectedChannelId={selectedChannel.id}
+          onSelectChannel={(chId) => setSelectedChannelId(chId)}
+        />
+
+        {/* Focused Hardware Processing Deck (Zero Scroll) */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden p-1.5 bg-[#06080E] flex flex-col">
         {/* PHASE 1: STAGE PREAMP & GROUND HUM TRAPS */}
         {selectedPhase === 'phase-1-stage' && (
           <div className="h-full min-h-0 flex flex-col justify-between p-3 rounded-lg border border-amber-500/40 bg-gradient-to-b from-[#16110A] via-[#0D0B07] to-[#080705] shadow-inner">
@@ -1149,6 +1167,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* =========================================================================

@@ -315,20 +315,23 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
-          <div className="hidden xl:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[160px]">
+          <div
+            title="Multi-Output Bus Engine: System Master Audio Sink (Front PA / Master Speaker)"
+            className="hidden xl:flex items-center gap-1 h-8 px-1.5 rounded border border-slate-700 bg-[#121824] min-w-0 flex-1 max-w-[170px]"
+          >
             <Volume2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <select
-              aria-label="Audio Output Destination"
+              aria-label="Master Speaker Destination (Front PA)"
               value={activeOutputDeviceId || ''}
               onChange={(e) => onSelectOutputDevice(e.target.value)}
               className="bg-transparent text-[11px] font-mono text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 truncate"
             >
               <option value="" className="bg-[#0E131C] text-slate-100">
-                Out: System Default
+                Master PA: Default Device
               </option>
               {outputDevices.map((d) => (
                 <option key={d.deviceId} value={d.deviceId} className="bg-[#0E131C] text-slate-100">
-                  Out: {d.label || `Speaker (${d.deviceId.slice(0, 6)})`}
+                  Master: {d.label || `Port (${d.deviceId.slice(0, 6)})`}
                 </option>
               ))}
             </select>

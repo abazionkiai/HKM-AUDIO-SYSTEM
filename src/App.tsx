@@ -453,6 +453,8 @@ export default function App() {
               onAddChannel={session.handleAddChannel}
               onAddEqBand={session.handleAddEqBand}
               onRemoveEqBand={session.handleRemoveEqBand}
+              inputDevices={hardware.inputDevices}
+              onScanAudioDevices={hardware.refreshAudioDevices}
             />
           ) : activeModule === 'dsp' ? (
             <ConsoleInstrumentDeck
@@ -472,6 +474,8 @@ export default function App() {
               onAddChannel={session.handleAddChannel}
               onAddEqBand={session.handleAddEqBand}
               onRemoveEqBand={session.handleRemoveEqBand}
+              inputDevices={hardware.inputDevices}
+              onScanAudioDevices={hardware.refreshAudioDevices}
             />
           ) : activeModule === 'feedback' ? (
             <FeedbackAnalyzerModule
@@ -543,6 +547,9 @@ export default function App() {
               onUpdateObs={(patch) => session.setObsStatus((prev) => ({ ...prev, ...patch }))}
               telemetry={audio.telemetry}
               device={session.activeDevice}
+              outputDevices={hardware.outputDevices}
+              preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
+              onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
             />
           ) : activeModule === 'soundcheck' ? (
             <AutomatedSoundCheckModule
