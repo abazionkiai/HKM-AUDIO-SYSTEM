@@ -172,11 +172,12 @@ export function sanitizeAndAutoNameChannels(
       return {
         ...ch,
         name: `Input ${ch.index}`,
-        role: `Live Input ${ch.index}`,
+        role: `Stereo Input ${ch.index}`,
+        stereoLinked: false,
       };
     }
 
-    return ch;
+    return { ...ch, stereoLinked: false };
   });
 }
 

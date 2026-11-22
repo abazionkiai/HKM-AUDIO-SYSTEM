@@ -78,6 +78,8 @@ class LiveAudioEngine {
   // Source & multichannel capture state
   private sourceNodes: AudioNode[] = [];
   private activeStream: MediaStream | null = null;
+  private channelSourceStreams: Map<number, { stream: MediaStream; node: AudioNode }> = new Map();
+  private lastAssignedInputs: Map<number, string> = new Map();
   private activeInputLabel: string | null = null;
   private capturedChannels = 0;
   private inputSplitter: ChannelSplitterNode | null = null;
@@ -805,15 +807,6 @@ class LiveAudioEngine {
     const nyquist = this.ctx.sampleRate * 0.48;
     const anySolo = channels.some((c) => c.solo);
 
-    // Preserve natural L/R stereo image for 2-channel desktop/pink-noise captures when strips sit at Center (0)
-    const ch1Center = (channels[0]?.pan ?? 0) === 0;
-    const ch2Center = (channels[1]?.pan ?? 0) === 0;
-    const preserveStereoPair =
-      this.capturedChannels === 2 &&
-      (this.sourceMode === 'desktop-audio' || this.sourceMode === 'pink-noise') &&
-      ch1Center &&
-      ch2Center;
-
     for (let i = 0; i < this.channelStrips.length; i++) {
       const strip = this.channelStrips[i];
       const ch = channels[i];
@@ -848,10 +841,8 @@ class LiveAudioEngine {
         0.02
       );
 
-      let panVal = Math.max(-1, Math.min(1, (ch.pan || 0) / 100));
-      if (preserveStereoPair && i < 2) {
-        panVal = i === 0 ? -1 : 1;
-      }
+      // Standalone stereo: pan operates as an independent channel balance control (-100 Left to +100 Right, 0 = Center Balance)
+      const panVal = Math.max(-1, Math.min(1, (ch.pan || 0) / 100));
       strip.pannerNode.pan.setTargetAtTime(panVal, now, 0.015);
 
       const isSuppressed = ch.mute || (anySolo && !ch.solo) || ch.faderDb <= -47.5;
@@ -1108,6 +1099,20 @@ class LiveAudioEngine {
     }
     this.sourceNodes = [];
 
+    for (const [_, entry] of this.channelSourceStreams) {
+      try {
+        entry.node.disconnect();
+        entry.stream.getTracks().forEach((t) => {
+          t.onended = null;
+          t.stop();
+        });
+      } catch {
+        // ignore
+      }
+    }
+    this.channelSourceStreams.clear();
+    this.lastAssignedInputs.clear();
+
     for (const strip of this.channelStrips) {
       try {
         strip.preampGain.disconnect();
@@ -1159,12 +1164,18 @@ class LiveAudioEngine {
   private attachPerChannelStrips(sourceNode: AudioNode, channelCount: number): void {
     if (!this.ctx || !this.busMixSum) return;
     const ctx = this.ctx;
-    const count = Math.max(1, Math.min(8, channelCount));
+    // Instantiate full 8 standalone stereo console strips
+    const count = 8;
     this.capturedChannels = count;
 
-    const splitter = ctx.createChannelSplitter(count);
-    sourceNode.connect(splitter);
-    this.inputSplitter = splitter;
+    if (this.inputSplitter) {
+      try {
+        this.inputSplitter.disconnect();
+      } catch {
+        // ignore
+      }
+      this.inputSplitter = null;
+    }
 
     this.channelAnalysers = [];
     this.channelTimeBufs = [];
@@ -1172,17 +1183,20 @@ class LiveAudioEngine {
     this.channelStrips = [];
 
     for (let ch = 0; ch < count; ch++) {
-      // Pre-fader hardware level analyser
+      // Pre-fader hardware level analyser (stereo-capable FFT)
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.68;
-      splitter.connect(analyser, ch);
       this.channelAnalysers.push(analyser);
       this.channelTimeBufs.push(new Float32Array(analyser.fftSize));
       this.channelNoiseFloors.push(-96);
 
-      // Per-channel strip DSP: Preamp -> HPF -> 3-Band EQ -> Compressor -> Panner -> Fader -> busMixSum
+      // Per-channel strip DSP: true standalone 2-channel stereo signal path
       const preampGain = ctx.createGain();
+      preampGain.channelCount = 2;
+      preampGain.channelCountMode = 'explicit';
+      preampGain.channelInterpretation = 'speakers';
+
       const hpfNode = ctx.createBiquadFilter();
       hpfNode.type = 'highpass';
       hpfNode.Q.value = 0.707;
@@ -1207,8 +1221,11 @@ class LiveAudioEngine {
 
       const pannerNode = ctx.createStereoPanner();
       const faderGain = ctx.createGain();
+      faderGain.channelCount = 2;
+      faderGain.channelCountMode = 'explicit';
+      faderGain.channelInterpretation = 'speakers';
 
-      splitter.connect(preampGain, ch);
+      preampGain.connect(analyser);
       preampGain.connect(hpfNode);
       hpfNode.connect(eqLowNode);
       eqLowNode.connect(eqMidNode);
@@ -1228,6 +1245,67 @@ class LiveAudioEngine {
         pannerNode,
         faderGain,
       });
+    }
+
+    // Connect sourceNode to Channel 1 (Strip 0) as full standalone stereo!
+    // Channel 1 receives both Left and Right channels without splitting.
+    // Channel 2 is completely independent and standalone.
+    sourceNode.connect(this.channelStrips[0].preampGain);
+  }
+
+  public async assignChannelHardwareInput(channelIndex: number, deviceId: string): Promise<void> {
+    if (!this.ctx || !this.channelStrips[channelIndex]) return;
+    const strip = this.channelStrips[channelIndex];
+
+    const existing = this.channelSourceStreams.get(channelIndex);
+    if (existing) {
+      try {
+        existing.node.disconnect();
+        existing.stream.getTracks().forEach((t) => {
+          t.onended = null;
+          t.stop();
+        });
+      } catch {
+        // ignore
+      }
+      this.channelSourceStreams.delete(channelIndex);
+    }
+
+    if (!deviceId || deviceId === 'none' || deviceId === 'default') {
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: { exact: deviceId },
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: { ideal: 2 },
+          sampleRate: { ideal: 48000 },
+        },
+      });
+      const node = this.ctx.createMediaStreamSource(stream);
+      node.connect(strip.preampGain);
+      this.channelSourceStreams.set(channelIndex, { stream, node });
+    } catch (err) {
+      console.warn(`Failed to open dedicated stereo stream for CH${channelIndex + 1}:`, err);
+    }
+  }
+
+  public syncChannelHardwareInputs(channels: InputChannel[]): void {
+    if (!this.ctx || this.channelStrips.length === 0 || !this.isRunning) return;
+    for (let i = 0; i < Math.min(this.channelStrips.length, channels.length); i++) {
+      const ch = channels[i];
+      const targetDevId = ch.hardwareInputId || '';
+      const currentDevId = this.lastAssignedInputs.get(i) || '';
+      if (targetDevId !== currentDevId) {
+        this.lastAssignedInputs.set(i, targetDevId);
+        if (targetDevId) {
+          void this.assignChannelHardwareInput(i, targetDevId);
+        }
+      }
     }
   }
 

@@ -1559,14 +1559,10 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                     }
                   />
                   <ConsolePushButton
-                    label={selectedChannel.stereoLinked ? 'LINK' : 'MONO'}
-                    active={selectedChannel.stereoLinked}
+                    label="STEREO"
+                    active={true}
                     tone="sky"
-                    onClick={() =>
-                      onUpdateChannel(selectedChannel.id, {
-                        stereoLinked: !selectedChannel.stereoLinked,
-                      })
-                    }
+                    onClick={() => {}}
                   />
                 </div>
                 <select

@@ -689,8 +689,6 @@ export function useConsoleSession({
       const idx = prev.findIndex((c) => c.id === id);
       if (idx < 0) return prev;
       const target = prev[idx];
-      const partnerIdx = idx % 2 === 0 ? idx + 1 : idx - 1;
-      const partner = partnerIdx >= 0 && partnerIdx < prev.length ? prev[partnerIdx] : null;
 
       let resolvedPatch = { ...patch };
       if (resolvedPatch.hardwareInputLabel && !resolvedPatch.name) {
@@ -699,29 +697,10 @@ export function useConsoleSession({
         resolvedPatch.role = auto.role;
       }
 
+      // Standalone channels: every strip is 100% independent with zero cross-channel partner mirroring
       return prev.map((c, i) => {
         if (i === idx) {
           return { ...c, ...resolvedPatch };
-        }
-        if (partner && i === partnerIdx) {
-          if (patch.stereoLinked !== undefined) {
-            return { ...c, stereoLinked: patch.stereoLinked };
-          }
-          if (target.stereoLinked && c.stereoLinked) {
-            const linkedPatch: Partial<InputChannel> = {};
-            if (patch.faderDb !== undefined) {
-              const delta = patch.faderDb - target.faderDb;
-              linkedPatch.faderDb = Math.max(-48, Math.min(10, Number((c.faderDb + delta).toFixed(1))));
-            }
-            if (patch.mute !== undefined) linkedPatch.mute = patch.mute;
-            if (patch.gainDb !== undefined) linkedPatch.gainDb = patch.gainDb;
-            if (patch.hpfHz !== undefined) linkedPatch.hpfHz = patch.hpfHz;
-            if (patch.compThresholdDb !== undefined) linkedPatch.compThresholdDb = patch.compThresholdDb;
-            if (patch.compRatio !== undefined) linkedPatch.compRatio = patch.compRatio;
-            if (Object.keys(linkedPatch).length > 0) {
-              return { ...c, ...linkedPatch };
-            }
-          }
         }
         return c;
       });

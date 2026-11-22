@@ -100,9 +100,10 @@ export function useAudioEngine({
     liveAudioEngine.applyDsp(effectiveDsp);
   }, [dsp, plugins]);
 
-  // Sync per-channel strip fader/gain/mute into Web Audio Engine
+  // Sync per-channel strip fader/gain/mute and dedicated stereo inputs into Web Audio Engine
   useEffect(() => {
     liveAudioEngine.applyChannels(channels);
+    liveAudioEngine.syncChannelHardwareInputs(channels);
   }, [channels]);
 
   // Sync speaker zone routing to multi-channel physical soundcard rear jacks
