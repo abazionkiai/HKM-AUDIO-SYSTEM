@@ -157,6 +157,7 @@ export default function App() {
   const audio = useAudioEngine({
     dsp: session.dsp,
     channels: session.channels,
+    zones: session.zones,
     activeDevice: session.activeDevice,
     bufferSize: session.bufferSize,
     sampleRate: session.sampleRate,

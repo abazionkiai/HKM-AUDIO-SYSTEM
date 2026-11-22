@@ -20,6 +20,7 @@ import {
   liveAudioEngine,
   subscribeHardwareChanges,
 } from '../audio/liveAudioEngine.ts';
+import { expandOutputEndpoints } from '../utils/audioNaming.ts';
 import { appFetch } from '../utils/appApi.ts';
 
 interface UseHardwareManagerProps {
@@ -103,10 +104,11 @@ export function useHardwareManager({
         // Proceed even if permission prompt dismissed
       }
     }
-    const [inputs, outputs] = await Promise.all([
+    const [inputs, rawOutputs] = await Promise.all([
       enumerateAudioInputs(),
       enumerateAudioOutputs(),
     ]);
+    const outputs = expandOutputEndpoints(rawOutputs);
     setInputDevices(inputs);
     setOutputDevices(outputs);
     // Auto-bind VB-Audio Virtual Cable ("CABLE Input") if not manually cleared
@@ -124,8 +126,9 @@ export function useHardwareManager({
   useEffect(() => {
     let active = true;
     const refreshPorts = () => {
-      Promise.all([enumerateAudioInputs(), enumerateAudioOutputs()]).then(([ins, outs]) => {
+      Promise.all([enumerateAudioInputs(), enumerateAudioOutputs()]).then(([ins, rawOuts]) => {
         if (!active) return;
+        const outs = expandOutputEndpoints(rawOuts);
         setInputDevices(ins);
         setOutputDevices(outs);
         const vbCableOut = outs.find((d) =>

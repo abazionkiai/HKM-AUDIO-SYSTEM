@@ -4,6 +4,7 @@ import {
   type DspConfig,
   type InputChannel,
   type SignalTelemetry,
+  type SpeakerZone,
   ISO_31_FREQUENCIES,
 } from '../types/audio.ts';
 
@@ -147,6 +148,12 @@ class LiveAudioEngine {
   private widthLRGain: GainNode | null = null;
 
   private monitorGain: GainNode | null = null;
+  private multiChannelMerger: ChannelMergerNode | null = null;
+  private jackFrontGain: GainNode | null = null;
+  private jackSubGain: GainNode | null = null;
+  private jackRearGain: GainNode | null = null;
+  private jackSideGain: GainNode | null = null;
+  private activeJackTarget = 'jack-1-2';
   private preferredOutputDeviceId: string | undefined = undefined;
   private preferredStreamOutputDeviceId: string | undefined = undefined;
   private streamOutputGain: GainNode | null = null;
@@ -225,16 +232,42 @@ class LiveAudioEngine {
 
   public async setOutputDevice(deviceId?: string): Promise<boolean> {
     this.preferredOutputDeviceId = deviceId || undefined;
+    const rawId = deviceId || '';
+    const [baseDeviceId, jackTarget] = rawId.includes('::')
+      ? rawId.split('::')
+      : [rawId, 'jack-1-2'];
+
+    this.activeJackTarget = jackTarget || 'jack-1-2';
+
     if (this.ctx && 'setSinkId' in this.ctx && typeof (this.ctx as any).setSinkId === 'function') {
       try {
-        await (this.ctx as any).setSinkId(deviceId || '');
+        await (this.ctx as any).setSinkId(baseDeviceId || '');
+        this.updateDiscreteJackGains();
         return true;
       } catch (err) {
         console.warn('AudioContext.setSinkId failed:', err);
         return false;
       }
     }
+    this.updateDiscreteJackGains();
     return false;
+  }
+
+  private updateDiscreteJackGains(): void {
+    if (!this.ctx || !this.jackFrontGain || !this.jackSubGain || !this.jackRearGain || !this.jackSideGain) return;
+    // Jack 1/2 is active for Front PA
+    this.jackFrontGain.gain.value = 1;
+    // Selective individual jack focus if designated
+    if (this.activeJackTarget === 'jack-3-4') {
+      this.jackFrontGain.gain.value = 0;
+      this.jackSubGain.gain.value = 1;
+    } else if (this.activeJackTarget === 'jack-5-6') {
+      this.jackFrontGain.gain.value = 0;
+      this.jackRearGain.gain.value = 1;
+    } else if (this.activeJackTarget === 'jack-7-8') {
+      this.jackFrontGain.gain.value = 0;
+      this.jackSideGain.gain.value = 1;
+    }
   }
 
   public getPreferredOutputDeviceId(): string {
@@ -686,7 +719,50 @@ class LiveAudioEngine {
     this.postSplitter.connect(this.postLAnalyser, 0);
     this.postSplitter.connect(this.postRAnalyser, 1);
     this.postAnalyser.connect(this.monitorGain);
-    this.monitorGain.connect(ctx.destination);
+
+    // Discrete Multi-Channel Destination Architecture (PCIe cards & motherboard 5.1/7.1 rear jacks)
+    const maxHwCh = Math.max(2, Math.min(8, ctx.destination.maxChannelCount || 2));
+    try {
+      ctx.destination.channelCount = maxHwCh;
+      ctx.destination.channelCountMode = 'explicit';
+      ctx.destination.channelInterpretation = 'discrete';
+    } catch (e) {
+      console.warn('Discrete multi-channel destination initialization warning:', e);
+    }
+
+    this.multiChannelMerger = ctx.createChannelMerger(maxHwCh);
+    this.jackFrontGain = ctx.createGain(); // Pins 0 & 1: Green Jack (Front L/R)
+    this.jackSubGain = ctx.createGain();   // Pins 2 & 3: Orange Jack (Center/Sub)
+    this.jackRearGain = ctx.createGain();  // Pins 4 & 5: Black Jack (Rear/Delay)
+    this.jackSideGain = ctx.createGain();  // Pins 6 & 7: Gray Jack (Side/Monitors)
+
+    // Master Sanctuary PA feeds Jack 1/2 (Green)
+    this.monitorGain.connect(this.jackFrontGain);
+    this.jackFrontGain.connect(this.multiChannelMerger, 0, 0);
+    this.jackFrontGain.connect(this.multiChannelMerger, 0, 1);
+
+    // Dedicated Sub crossover feeds Jack 3/4 (Orange)
+    if (maxHwCh >= 4) {
+      this.xoverSubDelay.connect(this.jackSubGain);
+      this.jackSubGain.connect(this.multiChannelMerger, 0, 2);
+      this.jackSubGain.connect(this.multiChannelMerger, 0, 3);
+    }
+
+    // Rear Delays / Overflows feed Jack 5/6 (Black)
+    if (maxHwCh >= 6) {
+      this.monitorGain.connect(this.jackRearGain);
+      this.jackRearGain.connect(this.multiChannelMerger, 0, 4);
+      this.jackRearGain.connect(this.multiChannelMerger, 0, 5);
+    }
+
+    // Side / Stage Foldback Wedges feed Jack 7/8 (Gray)
+    if (maxHwCh >= 8) {
+      this.monitorGain.connect(this.jackSideGain);
+      this.jackSideGain.connect(this.multiChannelMerger, 0, 6);
+      this.jackSideGain.connect(this.multiChannelMerger, 0, 7);
+    }
+
+    this.multiChannelMerger.connect(ctx.destination);
 
     // Secondary dedicated Virtual-Cable / OBS stream sink (runs in parallel with physical speakers)
     this.streamOutputGain = ctx.createGain();
@@ -703,6 +779,22 @@ class LiveAudioEngine {
     this.postFreqBuf = new Float32Array(binCount);
     this.preTimeBuf = new Float32Array(binCount);
     this.postTimeBuf = new Float32Array(binCount);
+  }
+
+  public applySpeakerZones(zones: SpeakerZone[]): void {
+    if (!this.ctx || !this.jackSubGain || !this.jackRearGain || !this.jackSideGain) return;
+    const subZone = zones.find((z) => z.role === 'sub' || z.hardwareOutputId?.includes('jack-3-4'));
+    if (subZone && this.jackSubGain) {
+      this.jackSubGain.gain.value = subZone.mute ? 0 : Math.pow(10, subZone.levelDb / 20);
+    }
+    const delayZone = zones.find((z) => z.role === 'rear-fill' || z.role === 'overflow' || z.hardwareOutputId?.includes('jack-5-6'));
+    if (delayZone && this.jackRearGain) {
+      this.jackRearGain.gain.value = delayZone.mute ? 0 : Math.pow(10, delayZone.levelDb / 20);
+    }
+    const monZone = zones.find((z) => z.role === 'stage-monitor' || z.hardwareOutputId?.includes('jack-7-8'));
+    if (monZone && this.jackSideGain) {
+      this.jackSideGain.gain.value = monZone.mute ? 0 : Math.pow(10, monZone.levelDb / 20);
+    }
   }
 
   public applyChannels(channels: InputChannel[]): void {

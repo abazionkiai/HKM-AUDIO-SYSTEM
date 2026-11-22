@@ -179,3 +179,84 @@ export function sanitizeAndAutoNameChannels(
     return ch;
   });
 }
+
+/**
+ * Detects multi-channel audio devices (e.g. PCIe cards or motherboard 5.1/7.1 rear clusters)
+ * and expands them into discrete physical rear-panel jack ports for independent zone routing.
+ */
+export function expandOutputEndpoints(devices: MediaDeviceInfo[]): MediaDeviceInfo[] {
+  const result: MediaDeviceInfo[] = [];
+
+  for (const dev of devices) {
+    const rawLabel = (dev.label || '').trim();
+    const lower = rawLabel.toLowerCase();
+
+    // Check if device represents a multi-channel soundcard or motherboard surround soundcard
+    const isMultiChannelCandidate =
+      lower.includes('speakers') ||
+      lower.includes('realtek') ||
+      lower.includes('sound blaster') ||
+      lower.includes('audigy') ||
+      lower.includes('ae-') ||
+      lower.includes('xonar') ||
+      lower.includes('high definition audio') ||
+      lower.includes('pci') ||
+      lower.includes('surround') ||
+      lower.includes('7.1') ||
+      lower.includes('5.1');
+
+    // Do not expand virtual cables, loopbacks, or explicit headphone devices
+    const isVirtualOrHeadphones =
+      lower.includes('cable') ||
+      lower.includes('virtual') ||
+      lower.includes('voicemeeter') ||
+      lower.includes('headphone') ||
+      lower.includes('buds') ||
+      lower.includes('bluetooth') ||
+      lower.includes('airpods');
+
+    if (isMultiChannelCandidate && !isVirtualOrHeadphones) {
+      const cleanBase = rawLabel
+        .replace(/^Default\s*-\s*/i, '')
+        .replace(/\s*\([0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)$/, '')
+        .trim();
+
+      // Create synthetic discrete MediaDeviceInfo-compatible representations for each rear jack pair
+      result.push({
+        deviceId: `${dev.deviceId}::jack-1-2`,
+        groupId: dev.groupId,
+        kind: 'audiooutput',
+        label: `${cleanBase} · Jack 1/2 [Green: Front PA L/R]`,
+        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
+      } as MediaDeviceInfo);
+
+      result.push({
+        deviceId: `${dev.deviceId}::jack-3-4`,
+        groupId: dev.groupId,
+        kind: 'audiooutput',
+        label: `${cleanBase} · Jack 3/4 [Orange: Center / Sub]`,
+        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
+      } as MediaDeviceInfo);
+
+      result.push({
+        deviceId: `${dev.deviceId}::jack-5-6`,
+        groupId: dev.groupId,
+        kind: 'audiooutput',
+        label: `${cleanBase} · Jack 5/6 [Black: Rear / Delay]`,
+        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
+      } as MediaDeviceInfo);
+
+      result.push({
+        deviceId: `${dev.deviceId}::jack-7-8`,
+        groupId: dev.groupId,
+        kind: 'audiooutput',
+        label: `${cleanBase} · Jack 7/8 [Gray: Side / Aux]`,
+        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
+      } as MediaDeviceInfo);
+    } else {
+      result.push(dev);
+    }
+  }
+
+  return result;
+}

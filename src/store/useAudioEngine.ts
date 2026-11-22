@@ -7,6 +7,7 @@ import type {
   HardwareDevice,
   InputChannel,
   SignalTelemetry,
+  SpeakerZone,
 } from '../types/audio.ts';
 import {
   liveAudioEngine,
@@ -50,6 +51,7 @@ export const INITIAL_SPECTRUM: SpectrumSnapshot = {
 interface UseAudioEngineProps {
   dsp: DspConfig;
   channels: InputChannel[];
+  zones?: SpeakerZone[];
   activeDevice: HardwareDevice;
   bufferSize: number;
   sampleRate: number;
@@ -63,6 +65,7 @@ interface UseAudioEngineProps {
 export function useAudioEngine({
   dsp,
   channels,
+  zones,
   activeDevice,
   bufferSize,
   sampleRate,
@@ -101,6 +104,13 @@ export function useAudioEngine({
   useEffect(() => {
     liveAudioEngine.applyChannels(channels);
   }, [channels]);
+
+  // Sync speaker zone routing to multi-channel physical soundcard rear jacks
+  useEffect(() => {
+    if (zones && zones.length > 0) {
+      liveAudioEngine.applySpeakerZones(zones);
+    }
+  }, [zones]);
 
   // Handle source stream unexpected ending (e.g., user clicked "Stop sharing" in browser)
   useEffect(() => {
