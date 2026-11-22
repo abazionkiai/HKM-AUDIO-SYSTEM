@@ -418,7 +418,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
 
       curChannels.forEach((ch, idx) => {
         const refs = channelRefs.current[ch.id];
-        const isSuppressed = ch.mute || (anySolo && !ch.solo);
+        const isSuppressed = !ch.hardwareInputId || ch.mute || (anySolo && !ch.solo);
         let targetRms = -96;
         let instantPeak = -96;
 
@@ -1778,10 +1778,13 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
               <div className="overflow-x-auto pb-1 flex-1 min-w-0">
                 <div className="flex gap-2.5 min-w-max">
                   {channels.map((ch, idx) => {
+                    const isAssigned = Boolean(ch.hardwareInputId);
                     const isLocked = ch.authority === 'observational';
+                    const stripDisabled = isLocked || !isAssigned;
                     const isSelected = selectedChannel?.id === ch.id;
-                    const isSuppressed = ch.mute || (activeSoloCount > 0 && !ch.solo);
+                    const isSuppressed = !isAssigned || ch.mute || (activeSoloCount > 0 && !ch.solo);
                     const chHasCapture =
+                      isAssigned &&
                       telemetry.isRunning &&
                       (idx < (telemetry.capturedChannels || 2) ||
                         (telemetry.channelLevels?.[idx]?.rmsDb ?? -96) > -62);
@@ -1798,7 +1801,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                         ? telemetry.gainReductionDb * compRatioFactor
                         : 0;
                     const chCompGrDb =
-                      !telemetry.isRunning || isSuppressed || dsp.bypassed
+                      !isAssigned || !telemetry.isRunning || isSuppressed || dsp.bypassed
                         ? 0
                         : Number(Math.min(24, Math.max(chCompStripGr, busSharedGr)).toFixed(1));
                     const chCompGrPct = Math.max(0, Math.min(100, (chCompGrDb / 24) * 100));
@@ -1807,18 +1810,24 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                       <div
                         key={ch.id}
                         onClick={() => setSelectedChannelId(ch.id)}
-                        className={`w-[154px] shrink-0 rounded-md border bg-gradient-to-b from-[#151C28] via-[#10151F] to-[#0B0F17] p-2.5 flex flex-col justify-between gap-2.5 shadow-inner cursor-pointer transition-colors ${
-                          isSelected
-                            ? 'border-sky-400/70 shadow-[0_0_12px_rgba(56,189,248,0.16)]'
-                            : 'border-slate-800 hover:border-slate-700'
+                        className={`w-[154px] shrink-0 rounded-md border p-2.5 flex flex-col justify-between gap-2.5 shadow-inner cursor-pointer transition-colors ${
+                          !isAssigned
+                            ? isSelected
+                              ? 'border-dashed border-slate-600 bg-[#0B0F16]/90 opacity-85'
+                              : 'border-dashed border-slate-800/80 bg-[#0B0F16]/75 opacity-60 hover:opacity-85'
+                            : isSelected
+                              ? 'bg-gradient-to-b from-[#151C28] via-[#10151F] to-[#0B0F17] border-sky-400/70 shadow-[0_0_12px_rgba(56,189,248,0.16)]'
+                              : 'bg-gradient-to-b from-[#151C28] via-[#10151F] to-[#0B0F17] border-slate-800 hover:border-slate-700'
                         }`}
                       >
                         {/* Scribble Strip */}
                         <div className="rounded-xs bg-[#070A0F] border border-slate-800 px-2 py-1.5 text-center">
                           <div className="flex items-center justify-between font-mono text-[9px] text-slate-400">
-                            <span>CH {String(ch.index).padStart(2, '0')}</span>
+                            <span className={!isAssigned ? 'text-slate-600' : ''}>
+                              CH {String(ch.index).padStart(2, '0')}
+                            </span>
                             <div className="flex items-center gap-1">
-                              {automatedChannelIds.has(ch.id) && (
+                              {isAssigned && automatedChannelIds.has(ch.id) && (
                                 <span
                                   className={`px-1 rounded-xs text-[8px] font-bold ${
                                     transportMode === 'recording'
@@ -1833,17 +1842,21 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                               )}
                               <span
                                 className={
-                                  ch.authority === 'hardware-linked'
-                                    ? 'text-emerald-400'
-                                    : 'text-sky-400'
+                                  !isAssigned
+                                    ? 'text-slate-600'
+                                    : ch.authority === 'hardware-linked'
+                                      ? 'text-emerald-400'
+                                      : 'text-sky-400'
                                 }
                               >
-                                {ch.authority === 'hardware-linked' ? 'HW-LINK' : 'SW-DSP'}
+                                {!isAssigned ? 'OPEN' : ch.authority === 'hardware-linked' ? 'HW-LINK' : 'SW-DSP'}
                               </span>
                             </div>
                           </div>
                           <div
-                            className="text-xs font-semibold text-slate-100 truncate mt-0.5"
+                            className={`text-xs font-semibold truncate mt-0.5 ${
+                              isAssigned ? 'text-slate-100' : 'text-slate-500'
+                            }`}
                             title={ch.name}
                           >
                             {ch.name}
@@ -1857,28 +1870,30 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                             <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
                               <RotaryKnob
                                 label="GAIN"
-                                value={ch.gainDb}
+                                value={isAssigned ? ch.gainDb : -12}
                                 min={-12}
                                 max={54}
                                 step={1}
                                 defaultValue={24}
                                 unit="dB"
                                 size={42}
-                                accent="sky"
-                                disabled={isLocked}
+                                accent={isAssigned ? 'sky' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) => onUpdateChannel(ch.id, { gainDb: next })}
                               />
                               <RotaryKnob
                                 label="HPF"
-                                value={ch.hpfHz}
+                                value={isAssigned ? ch.hpfHz : 20}
                                 min={20}
                                 max={300}
                                 step={5}
                                 defaultValue={100}
                                 unit="Hz"
                                 size={42}
-                                accent="amber"
-                                disabled={isLocked}
+                                accent={isAssigned ? 'amber' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) => onUpdateChannel(ch.id, { hpfHz: next })}
                               />
                             </div>
@@ -1886,37 +1901,40 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                             <div className="flex items-center justify-between gap-1 px-0.5">
                               <RotaryKnob
                                 label="PAN"
-                                value={ch.pan}
+                                value={isAssigned ? ch.pan : 0}
                                 min={-100}
                                 max={100}
                                 step={5}
                                 defaultValue={0}
                                 size={38}
-                                accent="emerald"
-                                disabled={isLocked}
+                                accent={isAssigned ? 'emerald' : 'slate'}
+                                disabled={stripDisabled}
                                 formatValue={(v) =>
-                                  v === 0
-                                    ? 'C'
-                                    : v < 0
-                                      ? `L${Math.abs(Math.round(v))}`
-                                      : `R${Math.round(v)}`
+                                  !isAssigned
+                                    ? '--'
+                                    : v === 0
+                                      ? 'C'
+                                      : v < 0
+                                        ? `L${Math.abs(Math.round(v))}`
+                                        : `R${Math.round(v)}`
                                 }
                                 onChange={(next) => onUpdateChannel(ch.id, { pan: next })}
                               />
                               <div className="flex flex-col gap-1.5 flex-1">
                                 <ConsolePushButton
                                   label="+48V"
-                                  active={ch.phantom48v}
+                                  active={isAssigned && ch.phantom48v}
                                   tone="amber"
-                                  disabled={!device.capabilities.phantomPowerControl}
+                                  disabled={!isAssigned || !device.capabilities.phantomPowerControl}
                                   onClick={() =>
                                     onUpdateChannel(ch.id, { phantom48v: !ch.phantom48v })
                                   }
                                 />
                                 <ConsolePushButton
-                                  label={ch.solo ? 'SOLO' : 'PFL'}
-                                  active={ch.solo}
+                                  label={isAssigned && ch.solo ? 'SOLO' : 'PFL'}
+                                  active={isAssigned && ch.solo}
                                   tone="amber"
+                                  disabled={stripDisabled}
                                   onClick={() => onUpdateChannel(ch.id, { solo: !ch.solo })}
                                 />
                               </div>
@@ -1929,54 +1947,61 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                             <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
                               <RotaryKnob
                                 label="EQ LOW"
-                                value={ch.eqLowDb}
+                                value={isAssigned ? ch.eqLowDb : 0}
                                 min={-12}
                                 max={12}
                                 step={0.5}
                                 defaultValue={0}
                                 unit="dB"
                                 size={40}
-                                accent="sky"
+                                accent={isAssigned ? 'sky' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) => onUpdateChannel(ch.id, { eqLowDb: next })}
                               />
                               <RotaryKnob
                                 label="EQ HI"
-                                value={ch.eqHighDb}
+                                value={isAssigned ? ch.eqHighDb : 0}
                                 min={-12}
                                 max={12}
                                 step={0.5}
                                 defaultValue={0}
                                 unit="dB"
                                 size={40}
-                                accent="sky"
+                                accent={isAssigned ? 'sky' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) => onUpdateChannel(ch.id, { eqHighDb: next })}
                               />
                             </div>
                             <div className="grid grid-cols-2 gap-1 pb-1 border-b border-slate-800/80">
                               <RotaryKnob
                                 label="COMP THR"
-                                value={ch.compThresholdDb}
+                                value={isAssigned ? ch.compThresholdDb : -40}
                                 min={-40}
                                 max={0}
                                 step={1}
                                 defaultValue={-18}
                                 unit="dB"
                                 size={38}
-                                accent="emerald"
+                                accent={isAssigned ? 'emerald' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) =>
                                   onUpdateChannel(ch.id, { compThresholdDb: next })
                                 }
                               />
                               <RotaryKnob
                                 label="RATIO"
-                                value={ch.compRatio}
+                                value={isAssigned ? ch.compRatio : 1}
                                 min={1}
                                 max={12}
                                 step={0.5}
                                 defaultValue={3}
                                 size={38}
-                                accent="amber"
-                                formatValue={(v) => `${v.toFixed(1)}:1`}
+                                accent={isAssigned ? 'amber' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={(v) => (!isAssigned ? '--' : `${v.toFixed(1)}:1`)}
                                 onChange={(next) =>
                                   onUpdateChannel(ch.id, { compRatio: next })
                                 }
@@ -1990,14 +2015,16 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                             <div className="grid grid-cols-2 gap-1 py-1 border-y border-slate-800/80">
                               <RotaryKnob
                                 label="MON 1"
-                                value={ch.auxSends.stageMon1Db}
+                                value={isAssigned ? ch.auxSends.stageMon1Db : -48}
                                 min={-48}
                                 max={6}
                                 step={1}
                                 defaultValue={-12}
                                 unit="dB"
                                 size={40}
-                                accent="emerald"
+                                accent={isAssigned ? 'emerald' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) =>
                                   onUpdateChannel(ch.id, {
                                     auxSends: { ...ch.auxSends, stageMon1Db: next },
@@ -2006,14 +2033,16 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                               />
                               <RotaryKnob
                                 label="MON 2"
-                                value={ch.auxSends.stageMon2Db}
+                                value={isAssigned ? ch.auxSends.stageMon2Db : -48}
                                 min={-48}
                                 max={6}
                                 step={1}
                                 defaultValue={-12}
                                 unit="dB"
                                 size={40}
-                                accent="emerald"
+                                accent={isAssigned ? 'emerald' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) =>
                                   onUpdateChannel(ch.id, {
                                     auxSends: { ...ch.auxSends, stageMon2Db: next },
@@ -2024,14 +2053,16 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                             <div className="grid grid-cols-2 gap-1 pb-1 border-b border-slate-800/80">
                               <RotaryKnob
                                 label="STREAM"
-                                value={ch.auxSends.streamBusDb}
+                                value={isAssigned ? ch.auxSends.streamBusDb : -48}
                                 min={-48}
                                 max={6}
                                 step={1}
                                 defaultValue={0}
                                 unit="dB"
                                 size={38}
-                                accent="sky"
+                                accent={isAssigned ? 'sky' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) =>
                                   onUpdateChannel(ch.id, {
                                     auxSends: { ...ch.auxSends, streamBusDb: next },
@@ -2040,14 +2071,16 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                               />
                               <RotaryKnob
                                 label="SUBS"
-                                value={ch.auxSends.subsDb}
+                                value={isAssigned ? ch.auxSends.subsDb : -48}
                                 min={-48}
                                 max={6}
                                 step={1}
                                 defaultValue={-48}
                                 unit="dB"
                                 size={38}
-                                accent="amber"
+                                accent={isAssigned ? 'amber' : 'slate'}
+                                disabled={stripDisabled}
+                                formatValue={!isAssigned ? () => '--' : undefined}
                                 onChange={(next) =>
                                   onUpdateChannel(ch.id, {
                                     auxSends: { ...ch.auxSends, subsDb: next },
@@ -2163,23 +2196,24 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
 
                           <VerticalFader
                             label={`${ch.name} Fader`}
-                            value={ch.faderDb}
+                            value={isAssigned ? ch.faderDb : -48}
                             min={-48}
                             max={10}
                             step={0.5}
                             defaultValue={0}
                             height={166}
-                            disabled={isLocked}
-                            accent={ch.mute ? 'amber' : 'sky'}
+                            disabled={stripDisabled}
+                            accent={!isAssigned ? 'slate' : ch.mute ? 'amber' : 'sky'}
                             onChange={(next) => onUpdateChannel(ch.id, { faderDb: next })}
                           />
                         </div>
 
                         {/* Mute Switch */}
                         <ConsolePushButton
-                          label={ch.mute ? 'MUTED' : 'ON / LIVE'}
-                          active={ch.mute}
+                          label={!isAssigned ? 'OPEN SLOT' : ch.mute ? 'MUTED' : 'ON / LIVE'}
+                          active={isAssigned && ch.mute}
                           tone="red"
+                          disabled={stripDisabled}
                           onClick={() => onUpdateChannel(ch.id, { mute: !ch.mute })}
                         />
                       </div>

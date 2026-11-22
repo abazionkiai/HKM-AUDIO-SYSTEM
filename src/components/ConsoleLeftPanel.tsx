@@ -305,37 +305,51 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             {bankChannels.map((ch, idx) => {
               const globalIdx = bankStart + idx;
               const isSelected = ch.id === selectedChannel?.id;
+              const isAssigned = Boolean(ch.hardwareInputId);
               const rmsDb =
-                engineRunning && !ch.mute
+                isAssigned && engineRunning && !ch.mute
                   ? fastChRms[globalIdx] ?? telemetry.channelLevels?.[globalIdx]?.rmsDb ?? ch.levelDb
                   : -96;
               const peakDb =
-                engineRunning && !ch.mute
+                isAssigned && engineRunning && !ch.mute
                   ? fastChPeak[globalIdx] ?? telemetry.channelLevels?.[globalIdx]?.peakDb ?? ch.peakDb
                   : -96;
-              const isHot = (engineRunning && !ch.mute && peakDb > -2.5) || ch.faderDb > 4.5 || ch.gainDb > 46;
-              const normMeter = engineRunning && !ch.mute ? Math.max(0, Math.min(1, (rmsDb + 54) / 54)) : 0;
-              const litSegments = engineRunning && !ch.mute && rmsDb > -53 ? Math.max(1, Math.round(normMeter * 10)) : 0;
-              const faderPct = Math.max(0, Math.min(100, ((ch.faderDb + 48) / 58) * 100));
+              const isHot =
+                isAssigned && ((engineRunning && !ch.mute && peakDb > -2.5) || ch.faderDb > 4.5 || ch.gainDb > 46);
+              const normMeter =
+                isAssigned && engineRunning && !ch.mute ? Math.max(0, Math.min(1, (rmsDb + 54) / 54)) : 0;
+              const litSegments =
+                isAssigned && engineRunning && !ch.mute && rmsDb > -53 ? Math.max(1, Math.round(normMeter * 10)) : 0;
+              const faderPct = isAssigned ? Math.max(0, Math.min(100, ((ch.faderDb + 48) / 58) * 100)) : 0;
 
               return (
                 <div
                   key={ch.id}
                   onClick={() => onSelectChannel(ch.id)}
                   className={`rounded-md border px-1.5 py-1 flex items-center gap-1.5 cursor-pointer transition-all shrink-0 ${
-                    isHot
-                      ? 'border-amber-400 bg-gradient-to-b from-[#2A2015] to-[#1A130D] shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_0_10px_rgba(245,158,11,0.28)]'
-                      : isSelected
-                        ? 'border-[#2DD4BF] ring-1 ring-[#2DD4BF]/35 bg-gradient-to-b from-[#17282D] to-[#111D22] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_0_12px_rgba(45,212,191,0.3)]'
-                        : 'border-[#4B5D72] bg-gradient-to-b from-[#1E2732] to-[#131921] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:border-[#687F99]'
+                    !isAssigned
+                      ? isSelected
+                        ? 'border-dashed border-[#4B5D72] bg-[#121922] opacity-85'
+                        : 'border-dashed border-[#2A3544] bg-[#0D1219]/75 opacity-60 hover:opacity-85 hover:border-[#3D4D61]'
+                      : isHot
+                        ? 'border-amber-400 bg-gradient-to-b from-[#2A2015] to-[#1A130D] shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_0_10px_rgba(245,158,11,0.28)]'
+                        : isSelected
+                          ? 'border-[#2DD4BF] ring-1 ring-[#2DD4BF]/35 bg-gradient-to-b from-[#17282D] to-[#111D22] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_0_12px_rgba(45,212,191,0.3)]'
+                          : 'border-[#4B5D72] bg-gradient-to-b from-[#1E2732] to-[#131921] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:border-[#687F99]'
                   }`}
                 >
                   {/* Column 1: Channel Number & Peak/Limit Indicator */}
                   <div className="w-4 shrink-0 flex flex-col items-center justify-between self-stretch py-0.5 font-mono">
-                    <span className={`text-[10px] font-bold ${isSelected ? 'text-[#5EEAD4]' : 'text-slate-300'}`}>
+                    <span
+                      className={`text-[10px] font-bold ${
+                        !isAssigned ? 'text-slate-600' : isSelected ? 'text-[#5EEAD4]' : 'text-slate-300'
+                      }`}
+                    >
                       {ch.index}
                     </span>
-                    {isHot ? (
+                    {!isAssigned ? (
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#1B232E]" />
+                    ) : isHot ? (
                       <AlertTriangle className="w-3 h-3 text-amber-400 animate-pulse" />
                     ) : (
                       <span
@@ -352,12 +366,17 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
 
                   {/* Column 2: Vertical 10-Segment Live LED Meter */}
                   <div
-                    className="w-2 h-11 rounded-[2px] bg-[#080C10] border border-[#2F3E4F] p-[1px] flex flex-col justify-between shrink-0"
+                    className={`w-2 h-11 rounded-[2px] bg-[#080C10] border p-[1px] flex flex-col justify-between shrink-0 ${
+                      !isAssigned ? 'border-[#1F2937]' : 'border-[#2F3E4F]'
+                    }`}
                     aria-label={`Channel ${ch.index} Level`}
                   >
                     {SEGMENTS_10.slice()
                       .reverse()
                       .map((segIdx) => {
+                        if (!isAssigned) {
+                          return <div key={segIdx} className="w-full h-[3px] rounded-[0.5px] bg-[#0E131A]" />;
+                        }
                         const lit = segIdx < litSegments;
                         const color =
                           segIdx >= 8
@@ -381,8 +400,14 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                   <div className="flex-1 min-w-0 flex flex-col justify-between gap-1 py-0.5">
                     <div className="flex items-center justify-between gap-1">
                       <span
-                        className="text-[11px] font-semibold text-slate-100 truncate leading-none"
-                        title={`${ch.name} (${ch.hardwareInputLabel || ch.role})`}
+                        className={`text-[11px] truncate leading-none ${
+                          isAssigned ? 'font-semibold text-slate-100' : 'font-medium text-slate-500'
+                        }`}
+                        title={
+                          isAssigned
+                            ? `${ch.name} (${ch.hardwareInputLabel || ch.role})`
+                            : `${ch.name} — Open Slot (Unassigned)`
+                        }
                       >
                         {ch.name}
                       </span>
@@ -392,26 +417,34 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                       >
                         <button
                           type="button"
-                          disabled={locked}
+                          disabled={locked || !isAssigned}
                           onClick={() => onUpdateChannel(ch.id, { mute: !ch.mute })}
-                          title={ch.mute ? 'Unmute Channel' : 'Mute Channel'}
-                          className={`w-3.5 h-3.5 rounded-[2px] border font-bold leading-none flex items-center justify-center cursor-pointer disabled:opacity-50 ${
-                            ch.mute
-                              ? 'bg-rose-600 border-rose-300 text-white'
-                              : 'hw-top-btn text-slate-200'
+                          title={
+                            !isAssigned ? 'Open Slot — Unassigned' : ch.mute ? 'Unmute Channel' : 'Mute Channel'
+                          }
+                          className={`w-3.5 h-3.5 rounded-[2px] border font-bold leading-none flex items-center justify-center ${
+                            !isAssigned
+                              ? 'bg-[#0A0E14] border-[#1F2937] text-slate-600 opacity-45 cursor-not-allowed'
+                              : ch.mute
+                                ? 'bg-rose-600 border-rose-300 text-white cursor-pointer disabled:opacity-50'
+                                : 'hw-top-btn text-slate-200 cursor-pointer disabled:opacity-50'
                           }`}
                         >
                           M
                         </button>
                         <button
                           type="button"
-                          disabled={locked}
+                          disabled={locked || !isAssigned}
                           onClick={() => onUpdateChannel(ch.id, { solo: !ch.solo })}
-                          title={ch.solo ? 'Clear Solo' : 'Solo Channel'}
-                          className={`w-3.5 h-3.5 rounded-[2px] border font-bold leading-none flex items-center justify-center cursor-pointer disabled:opacity-50 ${
-                            ch.solo
-                              ? 'bg-amber-400 border-amber-200 text-slate-950'
-                              : 'hw-top-btn text-slate-200'
+                          title={
+                            !isAssigned ? 'Open Slot — Unassigned' : ch.solo ? 'Clear Solo' : 'Solo Channel'
+                          }
+                          className={`w-3.5 h-3.5 rounded-[2px] border font-bold leading-none flex items-center justify-center ${
+                            !isAssigned
+                              ? 'bg-[#0A0E14] border-[#1F2937] text-slate-600 opacity-45 cursor-not-allowed'
+                              : ch.solo
+                                ? 'bg-amber-400 border-amber-200 text-slate-950 cursor-pointer disabled:opacity-50'
+                                : 'hw-top-btn text-slate-200 cursor-pointer disabled:opacity-50'
                           }`}
                         >
                           S
@@ -423,18 +456,30 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                     <div
                       className="relative h-2.5 flex items-center"
                       onClick={(e) => e.stopPropagation()}
-                      title={`Channel ${ch.index} Fader: ${ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb.toFixed(1)} dB`}
+                      title={
+                        !isAssigned
+                          ? `Channel ${ch.index}: Open Slot (Unassigned)`
+                          : `Channel ${ch.index} Fader: ${ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb.toFixed(1)} dB`
+                      }
                     >
-                      <div className="w-full h-1.5 rounded-full bg-[#090D12] border border-[#2C394A] overflow-hidden relative">
+                      <div
+                        className={`w-full h-1.5 rounded-full overflow-hidden relative border ${
+                          !isAssigned
+                            ? 'bg-[#070A0E] border-[#1F2937]'
+                            : 'bg-[#090D12] border-[#2C394A]'
+                        }`}
+                      >
                         <div
                           className={`h-full transition-all duration-75 ${
-                            ch.mute
-                              ? 'bg-slate-600'
-                              : isHot
-                                ? 'bg-amber-400'
-                                : isSelected
-                                  ? 'bg-[#2DD4BF]'
-                                  : 'bg-[#4ADE80]'
+                            !isAssigned
+                              ? 'bg-transparent'
+                              : ch.mute
+                                ? 'bg-slate-600'
+                                : isHot
+                                  ? 'bg-amber-400'
+                                  : isSelected
+                                    ? 'bg-[#2DD4BF]'
+                                    : 'bg-[#4ADE80]'
                           }`}
                           style={{ width: `${faderPct}%` }}
                         />
@@ -445,8 +490,8 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                         min={-48}
                         max={10}
                         step={0.5}
-                        disabled={locked}
-                        value={ch.faderDb}
+                        disabled={locked || !isAssigned}
+                        value={isAssigned ? ch.faderDb : -48}
                         onChange={(e) => onUpdateChannel(ch.id, { faderDb: parseFloat(e.target.value) })}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize disabled:cursor-not-allowed"
                       />
@@ -454,20 +499,22 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
 
                     {/* Subline: LIMIT badge or standalone stereo + dB */}
                     <div className="flex items-center justify-between font-mono text-[8.5px] leading-none">
-                      {isHot ? (
+                      {!isAssigned ? (
+                        <span className="text-slate-500 italic truncate max-w-[78px]">Open Slot</span>
+                      ) : isHot ? (
                         <span className="text-amber-400 font-bold tracking-wider">LIMIT</span>
                       ) : (
                         <span className="text-slate-400 truncate max-w-[78px]">
-                          {ch.hardwareInputLabel
-                            ? ch.role
-                            : ch.role === 'Open Slot'
-                              ? 'Open Slot'
-                              : ch.role}
+                          {ch.hardwareInputLabel ? ch.role : ch.role}
                         </span>
                       )}
-                      <span className="text-slate-200 tabular-nums font-semibold">
-                        {ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb.toFixed(1)} dB
-                      </span>
+                      {!isAssigned ? (
+                        <span className="text-slate-600 tabular-nums">--</span>
+                      ) : (
+                        <span className="text-slate-200 tabular-nums font-semibold">
+                          {ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb.toFixed(1)} dB
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -475,15 +522,16 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                   <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                     <RotaryKnob
                       label=""
-                      value={ch.gainDb}
+                      value={isAssigned ? ch.gainDb : 0}
                       min={0}
                       max={60}
                       step={1}
                       defaultValue={24}
                       unit="dB"
                       size={32}
-                      disabled={locked}
-                      accent={isHot ? 'amber' : isSelected ? 'sky' : 'emerald'}
+                      disabled={locked || !isAssigned}
+                      accent={!isAssigned ? 'slate' : isHot ? 'amber' : isSelected ? 'sky' : 'emerald'}
+                      formatValue={!isAssigned ? () => '--' : undefined}
                       onChange={(next) => onUpdateChannel(ch.id, { gainDb: next })}
                     />
                   </div>

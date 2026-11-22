@@ -739,6 +739,38 @@ export function useConsoleSession({
         resolvedPatch.hardwareInputLabel = undefined;
       }
 
+      const isExplicitUnassign =
+        'hardwareInputId' in resolvedPatch && !resolvedPatch.hardwareInputId;
+      if (isExplicitUnassign) {
+        resolvedPatch = {
+          ...resolvedPatch,
+          name: `Input ${target.index}`,
+          role: 'Open Slot',
+          gainDb: 0,
+          faderDb: -48,
+          mute: false,
+          solo: false,
+          phantom48v: false,
+          padDb: false,
+          polarityInverted: false,
+          levelDb: -96,
+          peakDb: -96,
+          hardwareInputId: undefined,
+          hardwareInputLabel: undefined,
+          stereoLinked: false,
+        };
+      } else if (!target.hardwareInputId && resolvedPatch.hardwareInputId) {
+        if (patch.faderDb === undefined && target.faderDb <= -47.5) {
+          resolvedPatch.faderDb = 0;
+        }
+        if (patch.gainDb === undefined && target.gainDb === 0) {
+          resolvedPatch.gainDb = 24;
+        }
+        if (patch.mute === undefined) {
+          resolvedPatch.mute = false;
+        }
+      }
+
       // Enforce 1-to-1 physical input uniqueness: move input away from any other slot if reassigned
       const claimedDeviceId = resolvedPatch.hardwareInputId;
       return prev.map((c, i) => {
@@ -750,6 +782,15 @@ export function useConsoleSession({
             ...c,
             name: `Input ${c.index}`,
             role: 'Open Slot',
+            gainDb: 0,
+            faderDb: -48,
+            mute: false,
+            solo: false,
+            phantom48v: false,
+            padDb: false,
+            polarityInverted: false,
+            levelDb: -96,
+            peakDb: -96,
             hardwareInputId: undefined,
             hardwareInputLabel: undefined,
             stereoLinked: false,

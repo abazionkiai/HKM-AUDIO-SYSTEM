@@ -10,7 +10,7 @@ interface RotaryKnobProps {
   defaultValue?: number;
   unit?: string;
   size?: number;
-  accent?: 'sky' | 'emerald' | 'amber' | 'red' | 'fuchsia';
+  accent?: 'sky' | 'emerald' | 'amber' | 'red' | 'fuchsia' | 'slate';
   disabled?: boolean;
   formatValue?: (val: number) => string;
   onChange: (next: number) => void;
@@ -22,6 +22,7 @@ const ACCENT_COLORS = {
   amber: { stroke: '#F59E0B', glow: 'rgba(245,158,11,0.45)', text: 'text-amber-400' },
   red: { stroke: '#EF4444', glow: 'rgba(239,68,68,0.45)', text: 'text-red-400' },
   fuchsia: { stroke: '#D946EF', glow: 'rgba(217,70,239,0.45)', text: 'text-fuchsia-400' },
+  slate: { stroke: '#334155', glow: 'transparent', text: 'text-slate-600' },
 };
 
 export const RotaryKnob: React.FC<RotaryKnobProps> = ({
@@ -169,25 +170,27 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
           <path
             d={describeArc(startAngle, endAngle, ringRadius)}
             fill="none"
-            stroke="rgba(148,163,184,0.18)"
+            stroke={accent === 'slate' ? 'rgba(100,116,139,0.14)' : 'rgba(148,163,184,0.18)'}
             strokeWidth={3.2}
             strokeLinecap="round"
           />
 
-          {/* Active Glowing LED Arc */}
-          <path
-            d={describeArc(startAngle, currentAngle, ringRadius)}
-            fill="none"
-            stroke={accent === 'sky' ? 'var(--theme-accent, #38BDF8)' : colors.stroke}
-            strokeWidth={3.2}
-            strokeLinecap="round"
-            style={{
-              filter:
-                accent === 'sky'
-                  ? 'drop-shadow(0 0 4px var(--theme-accent-glow, rgba(56,189,248,0.45)))'
-                  : `drop-shadow(0 0 4px ${colors.glow})`,
-            }}
-          />
+          {/* Active Glowing LED Arc (omitted when dormant slate) */}
+          {accent !== 'slate' && (
+            <path
+              d={describeArc(startAngle, currentAngle, ringRadius)}
+              fill="none"
+              stroke={accent === 'sky' ? 'var(--theme-accent, #38BDF8)' : colors.stroke}
+              strokeWidth={3.2}
+              strokeLinecap="round"
+              style={{
+                filter:
+                  accent === 'sky'
+                    ? 'drop-shadow(0 0 4px var(--theme-accent-glow, rgba(56,189,248,0.45)))'
+                    : `drop-shadow(0 0 4px ${colors.glow})`,
+              }}
+            />
+          )}
 
           {/* Tick notches */}
           {[-135, -67.5, 0, 67.5, 135].map((deg) => {
@@ -200,7 +203,7 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
                 y1={p1.y}
                 x2={p2.x}
                 y2={p2.y}
-                stroke="rgba(148,163,184,0.35)"
+                stroke={accent === 'slate' ? 'rgba(100,116,139,0.2)' : 'rgba(148,163,184,0.35)'}
                 strokeWidth={1}
               />
             );
@@ -222,7 +225,7 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
             y1={indicatorStart.y}
             x2={indicatorEnd.x}
             y2={indicatorEnd.y}
-            stroke="#F8FAFC"
+            stroke={accent === 'slate' ? '#475569' : '#F8FAFC'}
             strokeWidth={2}
             strokeLinecap="round"
           />
@@ -247,7 +250,7 @@ interface VerticalFaderProps {
   defaultValue?: number;
   height?: number;
   disabled?: boolean;
-  accent?: 'sky' | 'emerald' | 'amber';
+  accent?: 'sky' | 'emerald' | 'amber' | 'slate';
   onChange: (next: number) => void;
 }
 
@@ -295,7 +298,13 @@ export const VerticalFader: React.FC<VerticalFaderProps> = ({
   };
 
   const fillBg =
-    accent === 'emerald' ? 'bg-emerald-500' : accent === 'amber' ? 'bg-amber-500' : 'bg-sky-400';
+    accent === 'slate'
+      ? 'bg-slate-700'
+      : accent === 'emerald'
+        ? 'bg-emerald-500'
+        : accent === 'amber'
+          ? 'bg-amber-500'
+          : 'bg-sky-400';
 
   const capBottomPct = 6 + norm * 82;
 
@@ -328,7 +337,13 @@ export const VerticalFader: React.FC<VerticalFaderProps> = ({
           {[0, 1, 2, 3, 4, 5, 6].map((t) => (
             <div
               key={t}
-              className={`h-px ${t === 1 ? 'w-2 bg-sky-400/70' : 'w-1.5 bg-slate-600/60'}`}
+              className={`h-px ${
+                t === 1
+                  ? accent === 'slate'
+                    ? 'w-2 bg-slate-700/50'
+                    : 'w-2 bg-sky-400/70'
+                  : 'w-1.5 bg-slate-600/60'
+              }`}
             />
           ))}
         </div>
@@ -336,7 +351,13 @@ export const VerticalFader: React.FC<VerticalFaderProps> = ({
           {[0, 1, 2, 3, 4, 5, 6].map((t) => (
             <div
               key={t}
-              className={`h-px ${t === 1 ? 'w-2 bg-sky-400/70' : 'w-1.5 bg-slate-600/60'}`}
+              className={`h-px ${
+                t === 1
+                  ? accent === 'slate'
+                    ? 'w-2 bg-slate-700/50'
+                    : 'w-2 bg-sky-400/70'
+                  : 'w-1.5 bg-slate-600/60'
+              }`}
             />
           ))}
         </div>
@@ -346,7 +367,7 @@ export const VerticalFader: React.FC<VerticalFaderProps> = ({
           <div
             className={`absolute bottom-0 inset-x-0 ${fillBg} opacity-80`}
             style={{
-              height: `${norm * 100}%`,
+              height: `${accent === 'slate' ? 0 : norm * 100}%`,
               ...(accent === 'sky' ? { backgroundColor: 'var(--theme-accent, #38BDF8)' } : {}),
             }}
           />
@@ -360,12 +381,20 @@ export const VerticalFader: React.FC<VerticalFaderProps> = ({
             background: 'linear-gradient(180deg, #475569 0%, #1E293B 48%, #0F172A 52%, #334155 100%)',
           }}
         >
-          <div className="w-full h-px bg-white/80" />
+          <div className={`w-full h-px ${accent === 'slate' ? 'bg-slate-600/45' : 'bg-white/80'}`} />
         </div>
       </div>
 
-      <div className="font-mono text-[10px] tabular-nums text-slate-300 bg-[#080B10] border border-slate-800 px-1.5 py-0.5 rounded">
-        {clamped <= min + 0.5 ? '-∞' : `${clamped > 0 ? '+' : ''}${clamped.toFixed(1)} dB`}
+      <div
+        className={`font-mono text-[10px] tabular-nums bg-[#080B10] border border-slate-800 px-1.5 py-0.5 rounded ${
+          accent === 'slate' ? 'text-slate-600' : 'text-slate-300'
+        }`}
+      >
+        {accent === 'slate'
+          ? '--'
+          : clamped <= min + 0.5
+            ? '-∞'
+            : `${clamped > 0 ? '+' : ''}${clamped.toFixed(1)} dB`}
       </div>
     </div>
   );

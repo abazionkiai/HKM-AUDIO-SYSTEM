@@ -8,7 +8,7 @@ interface PrecisionVerticalFaderProps {
   label?: string;
   subLabel?: string;
   disabled?: boolean;
-  accent?: 'cyan' | 'amber' | 'emerald' | 'sky' | 'fuchsia';
+  accent?: 'cyan' | 'amber' | 'emerald' | 'sky' | 'fuchsia' | 'slate';
   isKeyFreq?: boolean;
   trackHeightClass?: string;
   compact?: boolean;
@@ -36,9 +36,10 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
 
   const clamped = Math.max(min, Math.min(max, value));
   const norm = max === min ? 0.5 : (clamped - min) / (max - min); // 0 (min) to 1 (max)
-  const isZero = Math.abs(clamped) < 0.05;
-  const isBoost = clamped > 0.05;
-  const isCut = clamped < -0.05;
+  const isDormant = accent === 'slate';
+  const isZero = !isDormant && Math.abs(clamped) < 0.05;
+  const isBoost = !isDormant && clamped > 0.05;
+  const isCut = !isDormant && clamped < -0.05;
   const absGainRatio = Math.min(1, Math.abs(clamped) / Math.max(1, Math.max(Math.abs(min), Math.abs(max))));
 
   const updateFromY = useCallback(
@@ -160,9 +161,16 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
         <div
           className="w-1.5 h-1.5 rounded-full mb-1 transition-all duration-150"
           style={{
-            backgroundColor: isBoost ? theme.ledHex : isCut ? '#F59E0B' : 'rgba(100,116,139,0.4)',
-            boxShadow:
-              isBoost || isCut
+            backgroundColor: isDormant
+              ? 'rgba(71,85,105,0.25)'
+              : isBoost
+                ? theme.ledHex
+                : isCut
+                  ? '#F59E0B'
+                  : 'rgba(100,116,139,0.4)',
+            boxShadow: isDormant
+              ? 'none'
+              : isBoost || isCut
                 ? `0 0 6px ${isBoost ? theme.glow : 'rgba(245,158,11,0.7)'}`
                 : 'none',
           }}
@@ -172,10 +180,16 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
       {/* Real-time gain numeric display above fader */}
       <span
         className={`font-mono ${compact ? 'text-[8px] mb-0.5 h-3.5' : 'text-[9px] mb-1 h-4'} font-semibold tabular-nums flex items-center justify-center transition-colors ${
-          isZero ? 'text-slate-500' : isBoost ? `${theme.text} font-bold drop-shadow-[0_0_4px_rgba(6,182,212,0.4)]` : 'text-amber-400 font-bold'
+          isDormant
+            ? 'text-slate-600'
+            : isZero
+              ? 'text-slate-500'
+              : isBoost
+                ? `${theme.text} font-bold drop-shadow-[0_0_4px_rgba(6,182,212,0.4)]`
+                : 'text-amber-400 font-bold'
         }`}
       >
-        {isBoost ? `+${clamped.toFixed(1)}` : isZero ? '0.0' : clamped.toFixed(1)}
+        {isDormant ? '--' : isBoost ? `+${clamped.toFixed(1)}` : isZero ? '0.0' : clamped.toFixed(1)}
       </span>
 
       {/* Futuristic Backlit Fader Track */}
@@ -190,11 +204,13 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
           compact ? 'w-4' : 'w-5 sm:w-5.5'
         } rounded-sm bg-[#04070D] border border-slate-800/90 shadow-[inset_0_2px_8px_rgba(0,0,0,0.95)] flex items-center justify-center touch-none overflow-visible`}
         style={{
-          boxShadow: isBoost
-            ? `inset 0 0 8px rgba(0,0,0,0.9), 0 0 ${Math.round(absGainRatio * 8)}px ${theme.glow}`
-            : isCut
-              ? `inset 0 0 8px rgba(0,0,0,0.9), 0 0 ${Math.round(absGainRatio * 6)}px rgba(245,158,11,0.4)`
-              : 'inset 0 2px 8px rgba(0,0,0,0.95)',
+          boxShadow: isDormant
+            ? 'inset 0 2px 8px rgba(0,0,0,0.95)'
+            : isBoost
+              ? `inset 0 0 8px rgba(0,0,0,0.9), 0 0 ${Math.round(absGainRatio * 8)}px ${theme.glow}`
+              : isCut
+                ? `inset 0 0 8px rgba(0,0,0,0.9), 0 0 ${Math.round(absGainRatio * 6)}px rgba(245,158,11,0.4)`
+                : 'inset 0 2px 8px rgba(0,0,0,0.95)',
         }}
       >
         {/* Center 0 dB detent line */}
@@ -207,29 +223,33 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
         {/* Center vertical slit with neon channel groove */}
         <div className="absolute top-2 bottom-2 w-1.5 rounded-full bg-[#020306] border-x border-slate-800/70 z-0 pointer-events-none" />
 
-        {/* Illuminated LED light strip inside track slit */}
-        <div
-          className={`absolute w-1 rounded-full pointer-events-none transition-all duration-75 ${
-            isBoost
-              ? `${theme.fill}`
-              : isCut
-                ? 'bg-amber-400'
-                : 'bg-transparent'
-          }`}
-          style={{
-            top: isBoost ? `${topPercent}%` : '50%',
-            bottom: isCut ? `${100 - topPercent}%` : '50%',
-            boxShadow: isBoost
-              ? `0 0 10px ${theme.ledHex}, 0 0 2px #fff`
-              : isCut
-                ? '0 0 10px #F59E0B, 0 0 2px #fff'
-                : 'none',
-          }}
-        />
+        {/* Illuminated LED light strip inside track slit (omitted when dormant slate) */}
+        {!isDormant && (
+          <div
+            className={`absolute w-1 rounded-full pointer-events-none transition-all duration-75 ${
+              isBoost
+                ? `${theme.fill}`
+                : isCut
+                  ? 'bg-amber-400'
+                  : 'bg-transparent'
+            }`}
+            style={{
+              top: isBoost ? `${topPercent}%` : '50%',
+              bottom: isCut ? `${100 - topPercent}%` : '50%',
+              boxShadow: isBoost
+                ? `0 0 10px ${theme.ledHex}, 0 0 2px #fff`
+                : isCut
+                  ? '0 0 10px #F59E0B, 0 0 2px #fff'
+                  : 'none',
+            }}
+          />
+        )}
 
         {/* Studio-Grade Sculpted Metallic Fader Cap with Laser-Cut Illuminated Line */}
         <div
-          className="absolute left-[-5px] right-[-5px] h-5 rounded-xs bg-gradient-to-b from-[#4A5568] via-[#2D3748] to-[#1A202C] border-2 border-slate-300/80 shadow-[0_4px_12px_rgba(0,0,0,0.95),inset_0_1px_2px_rgba(255,255,255,0.4)] flex items-center justify-center z-10 pointer-events-none transition-transform group-hover:border-white active:scale-105"
+          className={`absolute left-[-5px] right-[-5px] h-5 rounded-xs bg-gradient-to-b from-[#4A5568] via-[#2D3748] to-[#1A202C] border-2 ${
+            isDormant ? 'border-slate-700/75' : 'border-slate-300/80 group-hover:border-white'
+          } shadow-[0_4px_12px_rgba(0,0,0,0.95),inset_0_1px_2px_rgba(255,255,255,0.4)] flex items-center justify-center z-10 pointer-events-none transition-transform active:scale-105`}
           style={{
             top: `${topPercent}%`,
             transform: 'translateY(-50%)',
@@ -239,12 +259,20 @@ export const PrecisionVerticalFader: React.FC<PrecisionVerticalFaderProps> = ({
           <div
             className="w-full h-[2px] transition-all shadow-sm"
             style={{
-              backgroundColor: isZero ? '#FFFFFF' : isBoost ? theme.ledHex : '#F59E0B',
-              boxShadow: isBoost
-                ? `0 0 6px ${theme.glow}`
-                : isCut
-                  ? '0 0 6px rgba(245,158,11,0.8)'
-                  : '0 0 4px rgba(255,255,255,0.8)',
+              backgroundColor: isDormant
+                ? '#475569'
+                : isZero
+                  ? '#FFFFFF'
+                  : isBoost
+                    ? theme.ledHex
+                    : '#F59E0B',
+              boxShadow: isDormant
+                ? 'none'
+                : isBoost
+                  ? `0 0 6px ${theme.glow}`
+                  : isCut
+                    ? '0 0 6px rgba(245,158,11,0.8)'
+                    : '0 0 4px rgba(255,255,255,0.8)',
             }}
           />
         </div>

@@ -159,6 +159,8 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       stereoLinked: false,
     };
 
+  const selectedAssigned = Boolean(selectedChannel.hardwareInputId);
+
   const totalBanks = Math.max(1, Math.ceil(channels.length / 8));
   const safeBankIdx = Math.min(bankIdx, totalBanks - 1);
   const bankChannels = useMemo(() => {
@@ -238,11 +240,11 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       id: 'phase-1-stage',
       step: '1',
       label: 'PREAMP',
-      readout: `+${selectedChannel.gainDb}dB`,
+      readout: selectedAssigned ? `+${selectedChannel.gainDb}dB` : 'OPEN',
       activeClass: 'bg-amber-500/25 border-2 border-amber-400 text-amber-200 shadow-[0_0_12px_rgba(251,191,36,0.5)] font-extrabold',
-      ledClass: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]',
+      ledClass: selectedAssigned ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' : 'bg-slate-600',
       topBarClass: 'bg-amber-400',
-      enabled: true,
+      enabled: selectedAssigned,
     },
     {
       id: 'phase-2-filters',
@@ -449,13 +451,25 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
           <div className="h-full min-h-0 flex flex-col justify-between p-3 rounded-lg border border-amber-500/40 bg-gradient-to-b from-[#16110A] via-[#0D0B07] to-[#080705] shadow-inner">
             <div className="flex items-center justify-between border-b border-amber-500/25 pb-1.5 shrink-0">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    selectedAssigned
+                      ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]'
+                      : 'bg-slate-600'
+                  }`}
+                />
                 <h3 className="font-mono text-xs font-bold text-amber-100 tracking-wider uppercase">
-                  PHASE 1 · STAGE PREAMP &amp; GROUND HUM TRAPS — {selectedChannel.name}
+                  PHASE 1 · STAGE PREAMP &amp; GROUND HUM TRAPS — {selectedAssigned ? selectedChannel.name : `Open Slot CH${selectedChannel.index}`}
                 </h3>
               </div>
-              <span className="font-mono text-[11px] text-amber-400 font-semibold">
-                Input: {selectedChannel.hardwareInputLabel || selectedChannel.name}
+              <span
+                className={`font-mono text-[11px] font-semibold ${
+                  selectedAssigned ? 'text-amber-400' : 'text-slate-400'
+                }`}
+              >
+                {selectedAssigned
+                  ? `Input: ${selectedChannel.hardwareInputLabel || selectedChannel.name}`
+                  : 'Open Slot — No Input Assigned'}
               </span>
             </div>
 
@@ -464,14 +478,16 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
               <div className="h-full rounded-lg border border-amber-500/25 bg-[#0C0906] p-3 flex items-center justify-around">
                 <RotaryKnob
                   label="Preamp Gain"
-                  value={selectedChannel.gainDb}
+                  value={selectedAssigned ? selectedChannel.gainDb : 0}
                   min={0}
                   max={60}
                   step={1}
                   defaultValue={24}
                   unit="dB"
                   size={64}
-                  accent="amber"
+                  accent={selectedAssigned ? 'amber' : 'slate'}
+                  disabled={locked || !selectedAssigned}
+                  formatValue={!selectedAssigned ? () => '--' : undefined}
                   onChange={(v) => onUpdateChannel(selectedChannel.id, { gainDb: v })}
                 />
                 <RotaryKnob
@@ -484,6 +500,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                   unit="dB"
                   size={64}
                   accent="amber"
+                  disabled={locked}
                   onChange={(v) => onUpdateDsp({ inputTrimDb: v })}
                 />
               </div>
@@ -496,13 +513,14 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    disabled={locked || !selectedAssigned}
                     onClick={() =>
                       onUpdateChannel(selectedChannel.id, {
                         phantom48v: !selectedChannel.phantom48v,
                       })
                     }
-                    className={`py-2 rounded font-bold border transition cursor-pointer flex items-center justify-center gap-1 text-[11px] ${
-                      selectedChannel.phantom48v
+                    className={`py-2 rounded font-bold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 text-[11px] ${
+                      selectedAssigned && selectedChannel.phantom48v
                         ? 'bg-red-600 text-white border-red-400 shadow-[0_0_12px_rgba(239,68,68,0.7)]'
                         : 'bg-[#141925] border-slate-700 text-slate-400 hover:text-slate-200'
                     }`}
@@ -512,13 +530,14 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                   </button>
                   <button
                     type="button"
+                    disabled={locked || !selectedAssigned}
                     onClick={() =>
                       onUpdateChannel(selectedChannel.id, {
                         padDb: !selectedChannel.padDb,
                       })
                     }
-                    className={`py-2 rounded font-bold border transition cursor-pointer text-[11px] ${
-                      selectedChannel.padDb
+                    className={`py-2 rounded font-bold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-[11px] ${
+                      selectedAssigned && selectedChannel.padDb
                         ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.6)]'
                         : 'bg-[#141925] border-slate-700 text-slate-400 hover:text-slate-200'
                     }`}
@@ -528,18 +547,19 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                 </div>
                 <button
                   type="button"
+                  disabled={locked || !selectedAssigned}
                   onClick={() =>
                     onUpdateChannel(selectedChannel.id, {
                       polarityInverted: !selectedChannel.polarityInverted,
                     })
                   }
-                  className={`py-1.5 rounded font-bold border transition cursor-pointer text-[11px] ${
-                    selectedChannel.polarityInverted
+                  className={`py-1.5 rounded font-bold border transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-[11px] ${
+                    selectedAssigned && selectedChannel.polarityInverted
                       ? 'bg-sky-500 text-slate-950 border-sky-300'
                       : 'bg-[#141925] border-slate-700 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  POLARITY {selectedChannel.polarityInverted ? 'Ø INVERTED' : 'NORMAL (0°)'}
+                  POLARITY {selectedAssigned && selectedChannel.polarityInverted ? 'Ø INVERTED' : 'NORMAL (0°)'}
                 </button>
               </div>
 
@@ -1219,8 +1239,14 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
 
           <div className="text-slate-400 flex items-center gap-1.5">
             <span className="text-[9px] uppercase">Selected Strip:</span>
-            <span className="text-sky-300 font-bold bg-[#05080F] px-2 py-0.5 rounded border border-sky-500/40">
-              {selectedChannel.name}
+            <span
+              className={`font-bold bg-[#05080F] px-2 py-0.5 rounded border ${
+                selectedAssigned
+                  ? 'text-sky-300 border-sky-500/40'
+                  : 'text-slate-400 border-slate-700'
+              }`}
+            >
+              {selectedAssigned ? selectedChannel.name : `Open Slot (CH${selectedChannel.index})`}
             </span>
           </div>
         </div>
@@ -1228,13 +1254,15 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
         {/* 8 Channel Strips Side-by-Side (Professional Proportions & Zero Squeeze) */}
         <div className="flex-1 min-h-0 flex items-stretch gap-1.5 pt-1.5 overflow-x-auto">
           {bankChannels.map((ch, idx) => {
+            const isAssigned = Boolean(ch.hardwareInputId);
+            const stripDisabled = Boolean(locked || !isAssigned);
             const isSelected = ch.id === selectedChannel.id;
             const chNum = safeBankIdx * 8 + idx + 1;
             const globalChIdx = safeBankIdx * 8 + idx;
             const chTelemetry = telemetry?.channelLevels?.[globalChIdx];
-            const liveLevelDb = chTelemetry?.rmsDb ?? ch.levelDb;
-            const livePeakDb = chTelemetry?.peakDb ?? ch.peakDb;
-            const hasSignal = telemetry?.isRunning && !ch.mute && liveLevelDb > -54;
+            const liveLevelDb = isAssigned ? chTelemetry?.rmsDb ?? ch.levelDb : -96;
+            const livePeakDb = isAssigned ? chTelemetry?.peakDb ?? ch.peakDb : -96;
+            const hasSignal = isAssigned && telemetry?.isRunning && !ch.mute && liveLevelDb > -54;
             const isHot = hasSignal && livePeakDb > -3;
 
             const isMainPaAssigned = ch.mainPaAssign ?? true;
@@ -1246,56 +1274,90 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                 key={ch.id}
                 onClick={() => setSelectedChannelId(ch.id)}
                 className={`flex-1 min-w-[104px] max-w-[160px] h-full min-h-0 flex flex-col justify-between p-1.5 rounded-md border-2 transition-all cursor-pointer ${
-                  isSelected
-                    ? 'border-sky-400 bg-gradient-to-b from-sky-950/60 to-[#09111E] shadow-[0_0_12px_rgba(56,189,248,0.35)]'
-                    : 'border-slate-700/80 bg-gradient-to-b from-[#0E1420] to-[#080B12] hover:border-slate-500'
+                  !isAssigned
+                    ? isSelected
+                      ? 'border-dashed border-slate-500 bg-[#0A0E15] opacity-85'
+                      : 'border-dashed border-slate-800/80 bg-[#080B11]/75 opacity-60 hover:opacity-85'
+                    : isSelected
+                      ? 'border-sky-400 bg-gradient-to-b from-sky-950/60 to-[#09111E] shadow-[0_0_12px_rgba(56,189,248,0.35)]'
+                      : 'border-slate-700/80 bg-gradient-to-b from-[#0E1420] to-[#080B12] hover:border-slate-500'
                 }`}
               >
                 {/* OLED Scribble Strip Header (No Text Collision) */}
                 <div
                   className={`shrink-0 rounded px-1.5 py-1 border font-mono text-[9px] leading-tight flex items-center justify-between gap-1 overflow-hidden ${
-                    isSelected
-                      ? 'bg-[#040A14] border-sky-400 text-sky-200 shadow-[0_0_8px_rgba(56,189,248,0.25)]'
-                      : 'bg-[#04060B] border-slate-700/80 text-slate-200'
+                    !isAssigned
+                      ? 'bg-[#04060A] border-slate-800/80 text-slate-500'
+                      : isSelected
+                        ? 'bg-[#040A14] border-sky-400 text-sky-200 shadow-[0_0_8px_rgba(56,189,248,0.25)]'
+                        : 'bg-[#04060B] border-slate-700/80 text-slate-200'
                   }`}
                 >
                   <div className="flex items-center gap-1 shrink-0">
                     <span
-                      title={hasSignal ? `Signal Live: ${liveLevelDb.toFixed(1)} dBFS` : 'No Signal / Idle'}
+                      title={
+                        !isAssigned
+                          ? 'Open Slot — Unassigned'
+                          : hasSignal
+                            ? `Signal Live: ${liveLevelDb.toFixed(1)} dBFS`
+                            : 'No Signal / Idle'
+                      }
                       className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
-                        ch.mute
-                          ? 'bg-rose-500'
-                          : isHot
-                            ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)] animate-pulse'
-                            : hasSignal
-                              ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]'
-                              : 'bg-slate-600'
+                        !isAssigned
+                          ? 'bg-[#1B232E]'
+                          : ch.mute
+                            ? 'bg-rose-500'
+                            : isHot
+                              ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)] animate-pulse'
+                              : hasSignal
+                                ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]'
+                                : 'bg-slate-600'
                       }`}
                     />
-                    <span className="text-slate-400 font-bold shrink-0">CH{chNum}</span>
+                    <span className={`font-bold shrink-0 ${!isAssigned ? 'text-slate-600' : 'text-slate-400'}`}>
+                      CH{chNum}
+                    </span>
                   </div>
-                  <span className="font-bold flex-1 min-w-0 truncate text-right text-slate-100" title={ch.name}>
+                  <span
+                    className={`font-bold flex-1 min-w-0 truncate text-right ${
+                      !isAssigned ? 'text-slate-500' : 'text-slate-100'
+                    }`}
+                    title={ch.name}
+                  >
                     {ch.name}
                   </span>
                 </div>
 
                 {/* Subtitle: Live Hardware Input Role & Current dB Readout */}
                 <div className="shrink-0 px-1 py-0.5 flex items-center justify-between text-[8px] font-mono">
-                  <span className="truncate text-sky-400 font-medium max-w-[65px]" title={ch.role || 'Live Input'}>
-                    {ch.role || 'Live Input'}
+                  <span
+                    className={`truncate font-medium max-w-[65px] ${
+                      !isAssigned ? 'text-slate-500 italic' : 'text-sky-400'
+                    }`}
+                    title={!isAssigned ? 'Open Slot' : ch.role || 'Live Input'}
+                  >
+                    {!isAssigned ? 'Open Slot' : ch.role || 'Live Input'}
                   </span>
-                  <span className={`font-bold tabular-nums ${ch.faderDb > 0 ? 'text-sky-300' : ch.faderDb < 0 ? 'text-amber-400' : 'text-slate-300'}`}>
-                    {ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb === 0 ? '0.0' : ch.faderDb.toFixed(1)}
-                  </span>
+                  {!isAssigned ? (
+                    <span className="font-bold tabular-nums text-slate-600">--</span>
+                  ) : (
+                    <span
+                      className={`font-bold tabular-nums ${
+                        ch.faderDb > 0 ? 'text-sky-300' : ch.faderDb < 0 ? 'text-amber-400' : 'text-slate-300'
+                      }`}
+                    >
+                      {ch.faderDb > 0 ? `+${ch.faderDb.toFixed(1)}` : ch.faderDb === 0 ? '0.0' : ch.faderDb.toFixed(1)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Vertical Throw Fader + Studio Decibel Scale + 10-Segment LED Meter */}
                 <div className="flex-1 min-h-0 flex items-center justify-between gap-1 py-1 px-0.5">
                   {/* Calibrated Decibel Ticks */}
                   <div className="h-32 flex flex-col justify-between items-end font-mono text-[7px] text-slate-500 tabular-nums shrink-0 select-none pr-0.5">
-                    <span className="text-rose-400 font-semibold">+10</span>
+                    <span className={isAssigned ? 'text-rose-400 font-semibold' : 'text-slate-600'}>+10</span>
                     <span>+5</span>
-                    <span className="text-slate-300 font-bold">0</span>
+                    <span className={isAssigned ? 'text-slate-300 font-bold' : 'text-slate-600'}>0</span>
                     <span>-5</span>
                     <span>-10</span>
                     <span>-20</span>
@@ -1307,13 +1369,14 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                   {/* Precision Console Fader Throw (128px Studio Travel) */}
                   <div className="flex-1 flex justify-center">
                     <PrecisionVerticalFader
-                      value={ch.faderDb}
+                      value={isAssigned ? ch.faderDb : -48}
                       min={-48}
                       max={10}
                       step={0.5}
                       compact
+                      disabled={stripDisabled}
                       trackHeightClass="h-32"
-                      accent={ch.mute ? 'amber' : isSelected ? 'sky' : 'cyan'}
+                      accent={!isAssigned ? 'slate' : ch.mute ? 'amber' : isSelected ? 'sky' : 'cyan'}
                       onChange={(next) => onUpdateChannel(ch.id, { faderDb: next })}
                     />
                   </div>
@@ -1332,6 +1395,9 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                       { threshold: -42, color: 'bg-emerald-700' },
                       { threshold: -48, color: 'bg-emerald-800' },
                     ].map((seg, sIdx) => {
+                      if (!isAssigned) {
+                        return <div key={sIdx} className="w-full h-2 rounded-[1px] bg-[#0E131A]" />;
+                      }
                       const lit = telemetry?.isRunning && !ch.mute && livePeakDb >= seg.threshold;
                       return (
                         <div
@@ -1349,82 +1415,105 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                 <div className="shrink-0 grid grid-cols-3 gap-1 mb-1 font-mono text-[8px] font-bold">
                   <button
                     type="button"
-                    title="Assign to Main PA Mix"
+                    disabled={stripDisabled}
+                    title={!isAssigned ? 'Open Slot — Unassigned' : 'Assign to Main PA Mix'}
                     onClick={(e) => {
                       e.stopPropagation();
                       onUpdateChannel(ch.id, { mainPaAssign: !isMainPaAssigned });
                     }}
-                    className={`py-1 rounded border-2 transition cursor-pointer text-center ${
-                      isMainPaAssigned
-                        ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-extrabold shadow-[0_0_6px_rgba(56,189,248,0.4)]'
-                        : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300'
+                    className={`py-1 rounded border-2 transition text-center ${
+                      !isAssigned
+                        ? 'bg-[#070A10] border-slate-800/80 text-slate-600 opacity-45 cursor-not-allowed'
+                        : isMainPaAssigned
+                          ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-extrabold shadow-[0_0_6px_rgba(56,189,248,0.4)] cursor-pointer'
+                          : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300 cursor-pointer'
                     }`}
                   >
                     MAIN
                   </button>
                   <button
                     type="button"
-                    title="Assign to Live Stream / OBS Mix"
+                    disabled={stripDisabled}
+                    title={!isAssigned ? 'Open Slot — Unassigned' : 'Assign to Live Stream / OBS Mix'}
                     onClick={(e) => {
                       e.stopPropagation();
                       onUpdateChannel(ch.id, { streamAssign: !isStreamAssigned });
                     }}
-                    className={`py-1 rounded border-2 transition cursor-pointer text-center ${
-                      isStreamAssigned
-                        ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 font-extrabold shadow-[0_0_6px_rgba(52,211,153,0.4)]'
-                        : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300'
+                    className={`py-1 rounded border-2 transition text-center ${
+                      !isAssigned
+                        ? 'bg-[#070A10] border-slate-800/80 text-slate-600 opacity-45 cursor-not-allowed'
+                        : isStreamAssigned
+                          ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 font-extrabold shadow-[0_0_6px_rgba(52,211,153,0.4)] cursor-pointer'
+                          : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300 cursor-pointer'
                     }`}
                   >
                     STRM
                   </button>
                   <button
                     type="button"
-                    title="Assign to Subwoofer Bus"
+                    disabled={stripDisabled}
+                    title={!isAssigned ? 'Open Slot — Unassigned' : 'Assign to Subwoofer Bus'}
                     onClick={(e) => {
                       e.stopPropagation();
                       onUpdateChannel(ch.id, { subAssign: !isSubAssigned });
                     }}
-                    className={`py-1 rounded border-2 transition cursor-pointer text-center ${
-                      isSubAssigned
-                        ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200 font-extrabold shadow-[0_0_6px_rgba(232,121,249,0.4)]'
-                        : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300'
+                    className={`py-1 rounded border-2 transition text-center ${
+                      !isAssigned
+                        ? 'bg-[#070A10] border-slate-800/80 text-slate-600 opacity-45 cursor-not-allowed'
+                        : isSubAssigned
+                          ? 'bg-fuchsia-500/25 border-fuchsia-400 text-fuchsia-200 font-extrabold shadow-[0_0_6px_rgba(232,121,249,0.4)] cursor-pointer'
+                          : 'bg-[#0A0F1A] border-slate-700/80 text-slate-500 hover:text-slate-300 cursor-pointer'
                     }`}
                   >
                     SUB
                   </button>
                 </div>
 
-                {/* Tactile Illuminated SOLO & MUTE Keys */}
+                {/* Tactile Illuminated SOLO & MUTE Keys (or Dormant OPEN SLOT badge) */}
                 <div className="shrink-0 grid grid-cols-2 gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUpdateChannel(ch.id, { solo: !ch.solo });
-                    }}
-                    className={`h-7 text-[10px] font-mono font-bold rounded border-2 transition cursor-pointer flex items-center justify-center ${
-                      ch.solo
-                        ? 'bg-amber-400 text-slate-950 border-amber-200 shadow-[0_0_10px_rgba(251,191,36,0.9)]'
-                        : 'bg-[#121824] border-slate-600 text-slate-300 hover:text-white hover:border-slate-400'
-                    }`}
-                  >
-                    SOLO
-                  </button>
+                  {!isAssigned ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="col-span-2 h-7 text-[9px] font-mono font-bold rounded border border-slate-800 bg-[#0A0E14] text-slate-600 cursor-not-allowed flex items-center justify-center"
+                    >
+                      OPEN SLOT
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={locked}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateChannel(ch.id, { solo: !ch.solo });
+                        }}
+                        className={`h-7 text-[10px] font-mono font-bold rounded border-2 transition cursor-pointer disabled:opacity-45 flex items-center justify-center ${
+                          ch.solo
+                            ? 'bg-amber-400 text-slate-950 border-amber-200 shadow-[0_0_10px_rgba(251,191,36,0.9)]'
+                            : 'bg-[#121824] border-slate-600 text-slate-300 hover:text-white hover:border-slate-400'
+                        }`}
+                      >
+                        SOLO
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUpdateChannel(ch.id, { mute: !ch.mute });
-                    }}
-                    className={`h-7 text-[10px] font-mono font-bold rounded border-2 transition cursor-pointer flex items-center justify-center ${
-                      ch.mute
-                        ? 'bg-rose-600 text-white border-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.9)]'
-                        : 'bg-[#121824] border-slate-600 text-slate-300 hover:text-white hover:border-slate-400'
-                    }`}
-                  >
-                    MUTE
-                  </button>
+                      <button
+                        type="button"
+                        disabled={locked}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateChannel(ch.id, { mute: !ch.mute });
+                        }}
+                        className={`h-7 text-[10px] font-mono font-bold rounded border-2 transition cursor-pointer disabled:opacity-45 flex items-center justify-center ${
+                          ch.mute
+                            ? 'bg-rose-600 text-white border-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.9)]'
+                            : 'bg-[#121824] border-slate-600 text-slate-300 hover:text-white hover:border-slate-400'
+                        }`}
+                      >
+                        MUTE
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );

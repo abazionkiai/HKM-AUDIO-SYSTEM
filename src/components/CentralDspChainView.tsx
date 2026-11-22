@@ -45,7 +45,7 @@ interface ColumnSliderProps {
   step?: number;
   defaultValue?: number;
   ticks?: string[];
-  accent?: 'green' | 'cyan' | 'amber';
+  accent?: 'green' | 'cyan' | 'amber' | 'slate';
   thumbStyle?: 'bar' | 'puck';
   disabled?: boolean;
   ariaLabel: string;
@@ -83,8 +83,10 @@ const ColumnSlider: React.FC<ColumnSliderProps> = ({
     [disabled, max, min, onChange, step]
   );
 
-  const glowColor =
-    accent === 'cyan'
+  const isDormant = accent === 'slate';
+  const glowColor = isDormant
+    ? '#475569'
+    : accent === 'cyan'
       ? '#22D3EE'
       : accent === 'amber'
         ? '#F59E0B'
@@ -152,10 +154,10 @@ const ColumnSlider: React.FC<ColumnSliderProps> = ({
           <div
             className="absolute bottom-0 inset-x-0 rounded-full transition-all duration-75"
             style={{
-              height: `${ratio * 100}%`,
+              height: `${isDormant ? 0 : ratio * 100}%`,
               backgroundColor: glowColor,
-              boxShadow: `0 0 8px ${glowColor}`,
-              opacity: 0.82,
+              boxShadow: isDormant ? 'none' : `0 0 8px ${glowColor}`,
+              opacity: isDormant ? 0 : 0.82,
             }}
           />
         </div>
@@ -164,7 +166,7 @@ const ColumnSlider: React.FC<ColumnSliderProps> = ({
           <div className="absolute -right-1 inset-y-1 flex flex-col justify-between pointer-events-none">
             {[0, 1, 2, 3, 4, 5, 6].map((idx) => {
               const tickFrac = 1 - idx / 6;
-              const isLit = tickFrac <= ratio;
+              const isLit = !isDormant && tickFrac <= ratio;
               return (
                 <span
                   key={idx}
@@ -203,7 +205,10 @@ const ColumnSlider: React.FC<ColumnSliderProps> = ({
           >
             <div
               className="w-full h-[1.5px]"
-              style={{ backgroundColor: glowColor, boxShadow: `0 0 5px ${glowColor}` }}
+              style={{
+                backgroundColor: glowColor,
+                boxShadow: isDormant ? 'none' : `0 0 5px ${glowColor}`,
+              }}
             />
           </div>
         )}
@@ -322,7 +327,8 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
   const fbxActive = !dsp.bypassed && ((dsp.qualityGate?.enabled ?? true) || dsp.hpfEnabled);
   const agcActive = Boolean(dsp.smartAgc?.enabled && !dsp.bypassed);
   const compActive = Boolean(dsp.compressor.enabled && !dsp.bypassed);
-  const chActive = !selectedChannel.mute;
+  const chAssigned = Boolean(selectedChannel.hardwareInputId);
+  const chActive = chAssigned && !selectedChannel.mute;
   const monActive = monitorAudible && !emergencyMuted;
   const streamAssigned = selectedChannel.streamAssign ?? true;
   const subAssigned = selectedChannel.subAssign ?? false;
@@ -348,8 +354,14 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
       {/* Top Centered Console Title & Compact Sub-Tool Strip */}
       <div className="h-8 shrink-0 px-3 hw-card-header border-b border-[#4D5F74] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#0D2126] border border-teal-400/70 text-teal-200 truncate max-w-[140px]">
-            CH{selectedChannel.index} · {selectedChannel.name}
+          <span
+            className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border truncate max-w-[140px] ${
+              chAssigned
+                ? 'bg-[#0D2126] border-teal-400/70 text-teal-200'
+                : 'bg-[#111720] border-[#334155] text-slate-400'
+            }`}
+          >
+            CH{selectedChannel.index} · {chAssigned ? selectedChannel.name : 'Open Slot'}
           </span>
           <h1 className="font-display text-xs font-bold tracking-[0.14em] text-slate-100 uppercase truncate hidden sm:block">
             CENTRAL DSP PROCESSING CHAIN
@@ -506,15 +518,27 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
               <path
                 d="M 195 148 L 195 588 Q 195 594 201 594 L 397 594"
                 fill="none"
-                stroke={busColor(chActive)}
+                stroke={chAssigned ? busColor(chActive) : '#334155'}
                 strokeWidth="2.2"
-                strokeOpacity="0.92"
-                filter={`url(#glow-${uid})`}
+                strokeOpacity={chAssigned ? '0.92' : '0.45'}
+                filter={chAssigned ? `url(#glow-${uid})` : undefined}
               />
-              <circle cx="195" cy="148" r="3.8" fill={busColor(chActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="195" cy="330" r="3.8" fill={busColor(chActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="195" cy="594" r="3.5" fill={busColor(chActive)} />
-              <circle cx="298" cy="594" r="3.5" fill={busColor(chActive)} />
+              <circle
+                cx="195"
+                cy="148"
+                r="3.8"
+                fill={chAssigned ? busColor(chActive) : '#334155'}
+                filter={chAssigned ? `url(#glow-${uid})` : undefined}
+              />
+              <circle
+                cx="195"
+                cy="330"
+                r="3.8"
+                fill={chAssigned ? busColor(chActive) : '#334155'}
+                filter={chAssigned ? `url(#glow-${uid})` : undefined}
+              />
+              <circle cx="195" cy="594" r="3.5" fill={chAssigned ? busColor(chActive) : '#334155'} />
+              <circle cx="298" cy="594" r="3.5" fill={chAssigned ? busColor(chActive) : '#334155'} />
 
               {/* Seam 2/3 (Col 2 -> Col 3) + Bottom Gutter Under Col 3 */}
               <path
@@ -592,8 +616,12 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
                 </span>
               </div>
               <div className="hw-card-subheader h-[21px] px-1.5 flex items-center justify-center text-center shrink-0">
-                <span className="text-[8.5px] font-mono font-semibold text-[#99F6E4] truncate">
-                  Selected CH{selectedChannel.index}
+                <span
+                  className={`text-[8.5px] font-mono font-semibold truncate ${
+                    chAssigned ? 'text-[#99F6E4]' : 'text-slate-400'
+                  }`}
+                >
+                  {chAssigned ? `Selected CH${selectedChannel.index}` : `Open Slot CH${selectedChannel.index}`}
                 </span>
               </div>
 
@@ -614,31 +642,46 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
                     strokeWidth="7"
                     strokeLinecap="round"
                   />
-                  <path
-                    d={`M ${arcCx - arcR} ${arcCy} A ${arcR} ${arcR} 0 0 1 ${arcCx + arcR} ${arcCy}`}
-                    fill="none"
-                    stroke={`url(#inArc-${uid})`}
-                    strokeWidth="7"
-                    strokeLinecap="round"
-                    strokeDasharray={`${arcCirc * gainArcNorm} ${arcCirc}`}
-                  />
-                  <text x={arcCx} y={arcCy - 4} textAnchor="middle" fill="#4ADE80" fontSize="11" fontWeight="700" fontFamily="JetBrains Mono">
-                    {trimEquivDb >= 0 ? `+${trimEquivDb.toFixed(1)}` : trimEquivDb.toFixed(1)}
+                  {chAssigned && (
+                    <path
+                      d={`M ${arcCx - arcR} ${arcCy} A ${arcR} ${arcR} 0 0 1 ${arcCx + arcR} ${arcCy}`}
+                      fill="none"
+                      stroke={`url(#inArc-${uid})`}
+                      strokeWidth="7"
+                      strokeLinecap="round"
+                      strokeDasharray={`${arcCirc * gainArcNorm} ${arcCirc}`}
+                    />
+                  )}
+                  <text
+                    x={arcCx}
+                    y={arcCy - 4}
+                    textAnchor="middle"
+                    fill={chAssigned ? '#4ADE80' : '#64748B'}
+                    fontSize="11"
+                    fontWeight="700"
+                    fontFamily="JetBrains Mono"
+                  >
+                    {!chAssigned
+                      ? '--'
+                      : trimEquivDb >= 0
+                        ? `+${trimEquivDb.toFixed(1)}`
+                        : trimEquivDb.toFixed(1)}
                   </text>
                 </svg>
 
                 <div className="-mt-1 shrink-0">
                   <RotaryKnob
                     label="PREAMP"
-                    value={selectedChannel.gainDb}
+                    value={chAssigned ? selectedChannel.gainDb : 0}
                     min={0}
                     max={60}
                     step={1}
                     defaultValue={24}
                     unit="dB"
                     size={44}
-                    disabled={locked}
-                    accent="emerald"
+                    disabled={locked || !chAssigned}
+                    accent={chAssigned ? 'emerald' : 'slate'}
+                    formatValue={!chAssigned ? () => '--' : undefined}
                     onChange={(next) => onUpdateChannel(selectedChannel.id, { gainDb: next })}
                   />
                 </div>
@@ -647,10 +690,10 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
                 <div className="w-full grid grid-cols-3 gap-1 font-mono text-[8px] shrink-0">
                   <button
                     type="button"
-                    disabled={locked}
+                    disabled={locked || !chAssigned}
                     onClick={() => onUpdateChannel(selectedChannel.id, { phantom48v: !selectedChannel.phantom48v })}
-                    className={`py-1 rounded font-bold cursor-pointer disabled:opacity-45 ${
-                      selectedChannel.phantom48v
+                    className={`py-1 rounded font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      chAssigned && selectedChannel.phantom48v
                         ? 'bg-red-600 border border-red-300 text-white'
                         : 'hw-top-btn'
                     }`}
@@ -659,10 +702,10 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
                   </button>
                   <button
                     type="button"
-                    disabled={locked}
+                    disabled={locked || !chAssigned}
                     onClick={() => onUpdateChannel(selectedChannel.id, { padDb: !selectedChannel.padDb })}
-                    className={`py-1 rounded font-bold cursor-pointer disabled:opacity-45 ${
-                      selectedChannel.padDb
+                    className={`py-1 rounded font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      chAssigned && selectedChannel.padDb
                         ? 'bg-amber-500 border border-amber-300 text-slate-950'
                         : 'hw-top-btn'
                     }`}
@@ -671,12 +714,12 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
                   </button>
                   <button
                     type="button"
-                    disabled={locked}
+                    disabled={locked || !chAssigned}
                     onClick={() =>
                       onUpdateChannel(selectedChannel.id, { polarityInverted: !selectedChannel.polarityInverted })
                     }
-                    className={`py-1 rounded font-bold cursor-pointer disabled:opacity-45 ${
-                      selectedChannel.polarityInverted
+                    className={`py-1 rounded font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                      chAssigned && selectedChannel.polarityInverted
                         ? 'bg-teal-500 border border-teal-300 text-slate-950'
                         : 'hw-top-btn'
                     }`}
@@ -687,25 +730,29 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
 
                 <button
                   type="button"
-                  disabled={locked}
+                  disabled={locked || !chAssigned}
                   onClick={() => onUpdateChannel(selectedChannel.id, { mute: !selectedChannel.mute })}
-                  className={`w-[88%] py-1.5 rounded-[5px] text-[10px] font-mono font-bold uppercase tracking-wider shrink-0 cursor-pointer disabled:opacity-45 ${
-                    chActive ? 'hw-pill-active' : 'hw-pill-bypass'
+                  className={`w-[88%] py-1.5 rounded-[5px] text-[10px] font-mono font-bold uppercase tracking-wider shrink-0 ${
+                    !chAssigned
+                      ? 'bg-[#121821] border border-[#334155] text-slate-500 cursor-not-allowed'
+                      : chActive
+                        ? 'hw-pill-active cursor-pointer disabled:opacity-45'
+                        : 'hw-pill-bypass cursor-pointer disabled:opacity-45'
                   }`}
                 >
-                  {chActive ? 'ACTIVE' : 'MUTED'}
+                  {!chAssigned ? 'OPEN SLOT' : chActive ? 'ACTIVE' : 'MUTED'}
                 </button>
 
                 <ColumnSlider
                   ariaLabel={`Channel ${selectedChannel.index} Fader`}
-                  value={selectedChannel.faderDb}
+                  value={chAssigned ? selectedChannel.faderDb : -48}
                   min={-48}
                   max={10}
                   step={0.5}
                   defaultValue={0}
                   ticks={['+10', '0', '-20', '-48']}
-                  accent="green"
-                  disabled={locked}
+                  accent={chAssigned ? 'green' : 'slate'}
+                  disabled={locked || !chAssigned}
                   onChange={(next) => onUpdateChannel(selectedChannel.id, { faderDb: next })}
                 />
               </div>

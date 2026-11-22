@@ -221,8 +221,8 @@ export function createOpenChannelSlot(index: number, authority: InputChannel['au
     authority,
     levelDb: -96,
     peakDb: -96,
-    gainDb: 24,
-    faderDb: 0,
+    gainDb: 0,
+    faderDb: -48,
     mute: false,
     solo: false,
     phantom48v: false,
@@ -272,7 +272,9 @@ function channelsMatchSignature(a: InputChannel[], b: InputChannel[]): boolean {
       x.role !== y.role ||
       (x.hardwareInputId || '') !== (y.hardwareInputId || '') ||
       (x.hardwareInputLabel || '') !== (y.hardwareInputLabel || '') ||
-      Boolean(x.stereoLinked) !== Boolean(y.stereoLinked)
+      Boolean(x.stereoLinked) !== Boolean(y.stereoLinked) ||
+      ((!x.hardwareInputId || !y.hardwareInputId) &&
+        (x.faderDb !== y.faderDb || x.gainDb !== y.gainDb || x.mute !== y.mute))
     ) {
       return false;
     }
@@ -309,11 +311,17 @@ export function sanitizeAndAutoNameChannels(
       return {
         ...ch,
         index: chNum,
-        name: !ch.name || isLegacyMockName(ch.name) ? `Input ${chNum}` : ch.name,
-        role:
-          !ch.role || isLegacyMockName(ch.name) || ch.role.startsWith('Live Input')
-            ? 'Open Slot'
-            : ch.role,
+        name: `Input ${chNum}`,
+        role: 'Open Slot',
+        gainDb: 0,
+        faderDb: -48,
+        mute: false,
+        solo: false,
+        levelDb: -96,
+        peakDb: -96,
+        phantom48v: false,
+        padDb: false,
+        polarityInverted: false,
         stereoLinked: false,
         pan: 0,
         hardwareInputId: undefined,
@@ -391,6 +399,7 @@ export function reconcileLiveInputsToChannels(
         const base = donor
           ? { ...donor, id: existingChannels[i]?.id || `ch-${chNum}`, index: chNum }
           : createOpenChannelSlot(chNum);
+        const hadExistingHardware = Boolean(donor?.hardwareInputId);
         const derived = deriveAutoChannelNameAndRole(cleanLabel, chNum);
         const keepCustomName =
           Boolean(donor?.hardwareInputId === dev.deviceId && donor?.name) &&
@@ -403,6 +412,10 @@ export function reconcileLiveInputsToChannels(
           index: chNum,
           name: keepCustomName ? base.name : derived.name,
           role: derived.role,
+          gainDb: hadExistingHardware ? base.gainDb : 24,
+          faderDb: hadExistingHardware ? base.faderDb : 0,
+          mute: hadExistingHardware ? base.mute : false,
+          solo: hadExistingHardware ? base.solo : false,
           stereoLinked: false,
           hardwareInputId: dev.deviceId || cleanLabel,
           hardwareInputLabel: cleanLabel,
@@ -423,6 +436,15 @@ export function reconcileLiveInputsToChannels(
               index: chNum,
               name: `Input ${chNum}`,
               role: 'Open Slot',
+              gainDb: 0,
+              faderDb: -48,
+              mute: false,
+              solo: false,
+              levelDb: -96,
+              peakDb: -96,
+              phantom48v: false,
+              padDb: false,
+              polarityInverted: false,
               stereoLinked: false,
               pan: 0,
               hardwareInputId: undefined,
@@ -498,6 +520,10 @@ export function reconcileLiveInputsToChannels(
       ...slot,
       name: derived.name,
       role: derived.role,
+      gainDb: 24,
+      faderDb: 0,
+      mute: false,
+      solo: false,
       stereoLinked: false,
       hardwareInputId: assignedId,
       hardwareInputLabel: cleanLabel,
