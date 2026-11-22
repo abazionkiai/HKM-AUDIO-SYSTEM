@@ -16,7 +16,10 @@ interface UniversalRoutingModuleProps {
   preferredStreamOutputDeviceId?: string;
   onSelectOutputDevice?: (deviceId: string) => void;
   onSelectStreamOutputDevice?: (deviceId: string) => void;
-  onScanAudioDevices?: (requestPermission?: boolean) => Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }>;
+  onScanAudioDevices?: (
+    requestPermission?: boolean,
+    mode?: 'slot-new' | 'reset-from-ch1'
+  ) => Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }>;
   zones: SpeakerZone[];
   dsp: DspConfig;
   onOpenSignalJourney: (channelId: string) => void;
@@ -70,39 +73,18 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
     return 'Mic / Interface';
   };
 
-  const handleScanAndAutoAssignInputs = async (autoMap: boolean) => {
+  const handleScanAndAutoAssignInputs = async (resetFromCh1: boolean) => {
     setScanningPorts(true);
     try {
       let inputs = inputDevices;
       if (onScanAudioDevices) {
-        const res = await onScanAudioDevices(true);
+        const res = await onScanAudioDevices(true, resetFromCh1 ? 'reset-from-ch1' : 'slot-new');
         inputs = res.inputs;
-      } else if (typeof navigator !== 'undefined' && navigator.mediaDevices?.enumerateDevices) {
-        const all = await navigator.mediaDevices.enumerateDevices();
-        inputs = all.filter((d) => d.kind === 'audioinput');
-      }
-
-      if (autoMap) {
-        inputs.forEach((dev, i) => {
-          const label = dev.label || `Audio Input ${i + 1}`;
-          const kind = classifyInputRole(label);
-          const target = channels[i];
-          if (target) {
-            onUpdateChannel(target.id, {
-              name: label.slice(0, 26),
-              role: kind,
-              hardwareInputId: dev.deviceId,
-              hardwareInputLabel: label,
-            });
-          } else if (onAddChannel) {
-            onAddChannel(label.slice(0, 26), kind);
-          }
-        });
       }
       setGuardNotice(
-        autoMap
-          ? `Scanned ${inputs.length} input port(s) and auto-assigned them to channels.`
-          : `Scanned ${inputs.length} input port(s). Pick any input port per channel below or click Auto-Assign.`
+        resetFromCh1
+          ? `Scanned ${inputs.length} unique live input(s) and assigned CH1–CH${Math.max(1, inputs.length)} 1-to-1 (unused tail slots left open).`
+          : `Scanned ${inputs.length} unique live input(s). Any new hardware inputs were automatically placed in the next open channel slot.`
       );
       window.setTimeout(() => setGuardNotice(null), 5000);
     } catch (err) {
@@ -272,16 +254,18 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
                 disabled={scanningPorts}
                 onClick={() => void handleScanAndAutoAssignInputs(false)}
                 className="px-2 py-1 rounded bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700 font-bold cursor-pointer"
+                title="Scan live inputs and place newly connected hardware into the next open channel slot"
               >
-                Scan Inputs
+                Scan New Inputs
               </button>
               <button
                 type="button"
                 disabled={scanningPorts}
                 onClick={() => void handleScanAndAutoAssignInputs(true)}
                 className="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 hover:bg-emerald-500/35 font-bold cursor-pointer"
+                title="Reset CH1..CHN 1-to-1 from currently connected live inputs"
               >
-                Auto-Assign All
+                Re-Slot CH1..N
               </button>
               {onAddChannel && (
                 <button
@@ -321,7 +305,8 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
                     onUpdateChannel(ch.id, {
                       hardwareInputId: devId || undefined,
                       hardwareInputLabel: dev?.label || (devId ? devId : undefined),
-                      role: dev ? classifyInputRole(dev.label || '') : ch.role,
+                      name: dev?.label ? undefined : `Input ${ch.index}`,
+                      role: dev ? classifyInputRole(dev.label || '') : 'Open Slot',
                     });
                   }}
                   className="col-span-6 bg-[#070A10] border border-slate-700 rounded px-2 py-1 text-slate-200 text-[11px] focus:outline-none focus:border-sky-400"

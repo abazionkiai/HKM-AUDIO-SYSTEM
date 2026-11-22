@@ -104,15 +104,6 @@ export const LivePatchbayDrawer: React.FC<LivePatchbayDrawerProps> = ({
     if (l.includes('usb') || l.includes('interface') || l.includes('scarlett') || l.includes('behringer') || l.includes('yamaha')) {
       return { kind: 'USB Interface Out', color: 'text-amber-400 bg-amber-950/40 border-amber-500/30', icon: Speaker };
     }
-    if (l.includes('jack 3/4') || l.includes('center / sub')) {
-      return { kind: 'Subwoofer Jack', color: 'text-amber-400 bg-amber-950/40 border-amber-500/30', icon: Speaker };
-    }
-    if (l.includes('jack 5/6') || l.includes('rear / delay')) {
-      return { kind: 'Delay / Surround Jack', color: 'text-fuchsia-400 bg-fuchsia-950/40 border-fuchsia-500/30', icon: Speaker };
-    }
-    if (l.includes('jack 7/8') || l.includes('side / aux')) {
-      return { kind: 'Foldback / Monitor Jack', color: 'text-cyan-400 bg-cyan-950/40 border-cyan-500/30', icon: Speaker };
-    }
     return { kind: 'Main PA / Speakers', color: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/30', icon: Speaker };
   };
 
@@ -241,7 +232,7 @@ export const LivePatchbayDrawer: React.FC<LivePatchbayDrawerProps> = ({
             inputDevices.map((dev, idx) => {
               const { kind, color } = classifyInput(dev.label || '');
               const assignedChannels = channels.filter(
-                (c) => c.hardwareInputId === dev.deviceId || (!c.hardwareInputId && idx === 0)
+                (c) => c.hardwareInputId === dev.deviceId
               );
               return (
                 <div
@@ -459,7 +450,7 @@ export const LivePatchbayDrawer: React.FC<LivePatchbayDrawerProps> = ({
           </button>
         ) : (
           <div className="font-mono text-[9px] text-slate-400 flex items-center justify-between">
-            <span>PCIe Discrete Ports</span>
+            <span>Standalone Stereo Outputs</span>
             <span className="text-emerald-400 font-bold">100% Live Sync</span>
           </div>
         )}

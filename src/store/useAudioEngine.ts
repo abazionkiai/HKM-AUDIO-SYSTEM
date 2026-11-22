@@ -56,7 +56,6 @@ interface UseAudioEngineProps {
   bufferSize: number;
   sampleRate: number;
   plugins: LoadedPluginRecord[];
-  preferredBrowserInputId?: string;
   onSendWsTelemetry?: (telemetry: SignalTelemetry) => void;
   logAudit: (action: string, detail: string, authority?: AuditAuthority) => void;
   onAddFinding?: (finding: DiagnosticFinding) => void;
@@ -70,7 +69,6 @@ export function useAudioEngine({
   bufferSize,
   sampleRate,
   plugins,
-  preferredBrowserInputId,
   onSendWsTelemetry,
   logAudit,
   onAddFinding,
@@ -103,8 +101,10 @@ export function useAudioEngine({
   // Sync per-channel strip fader/gain/mute and dedicated stereo inputs into Web Audio Engine
   useEffect(() => {
     liveAudioEngine.applyChannels(channels);
-    liveAudioEngine.syncChannelHardwareInputs(channels);
-  }, [channels]);
+    if (engineRunning) {
+      void liveAudioEngine.syncChannelHardwareInputs(channels);
+    }
+  }, [channels, engineRunning]);
 
   // Sync speaker zone routing to multi-channel physical soundcard rear jacks
   useEffect(() => {
@@ -303,7 +303,7 @@ export function useAudioEngine({
       logAudit('Stopped Audio Engine', 'Audio DSP processing placed into standby.', 'operator');
     } else {
       try {
-        await liveAudioEngine.start(audioSource, dsp, preferredBrowserInputId);
+        await liveAudioEngine.start(audioSource, dsp, channels);
         liveAudioEngine.applyChannels(channels);
         setEngineRunning(true);
         logAudit('Started Audio Engine', `Source: ${audioSource} · Device: ${activeDevice.model}`, 'operator');
@@ -324,7 +324,6 @@ export function useAudioEngine({
     engineRunning,
     logAudit,
     onSendWsTelemetry,
-    preferredBrowserInputId,
   ]);
 
   const handleSourceChange = useCallback(async (nextSrc: AudioSourceSimulation) => {
@@ -333,7 +332,7 @@ export function useAudioEngine({
     setAudioError(null);
     if (engineRunning) {
       try {
-        await liveAudioEngine.start(nextSrc, dsp, preferredBrowserInputId);
+        await liveAudioEngine.start(nextSrc, dsp, channels);
         liveAudioEngine.applyChannels(channels);
         logAudit('Switched Audio Source', `Input switched to ${nextSrc}`, 'operator');
       } catch (err) {
@@ -348,7 +347,7 @@ export function useAudioEngine({
         setAudioError(err instanceof Error ? err.message : 'Failed to switch audio source.');
       }
     }
-  }, [channels, dsp, engineRunning, logAudit, preferredBrowserInputId]);
+  }, [channels, dsp, engineRunning, logAudit]);
 
   const handleToggleMonitor = useCallback(() => {
     setMonitorAudible((prev) => {

@@ -145,7 +145,7 @@ export default function App() {
     onKeyboardShortcutsLoaded: handleKeyboardShortcutsLoaded,
   });
 
-  // 2. Physical & Loopback Hardware Discovery
+  // 2. Physical Hardware Discovery + Unified Startup & Hot-Plug 1-to-1 Input Auto-Slotting
   const hardware = useHardwareManager({
     activeDevice: session.activeDevice,
     platform: session.platform,
@@ -153,8 +153,8 @@ export default function App() {
     onRegisterDevices: session.handleRegisterDevices,
     onSelectDevice: session.handleSelectDevice,
     logAudit: session.logAudit,
-    engineRunning: false, // updated below
-    audioSource: 'live-mic',
+    hydrated: session.hydrated,
+    onSyncLiveInputsToChannels: session.handleReconcileLiveInputs,
   });
 
   // 3. Live Web Audio DSP Engine Runtime
@@ -166,7 +166,6 @@ export default function App() {
     bufferSize: session.bufferSize,
     sampleRate: session.sampleRate,
     plugins: session.plugins,
-    preferredBrowserInputId: hardware.preferredBrowserInputId,
     onSendWsTelemetry: (tel) => {
       const ws = session.desktopWsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -395,8 +394,6 @@ export default function App() {
         onOpenShortcuts={() => shortcuts.setShowShortcutsModal(true)}
         shortcutsArmed={shortcuts.shortcutsGlobalEnabled}
         inputDevices={hardware.inputDevices}
-        activeInputDeviceId={hardware.preferredBrowserInputId}
-        onSelectInputDevice={hardware.setPreferredBrowserInputId}
         outputDevices={hardware.outputDevices}
         activeOutputDeviceId={hardware.preferredOutputDeviceId}
         onSelectOutputDevice={hardware.handleSelectOutputDevice}

@@ -42,6 +42,8 @@ import { liveAudioEngine } from '../audio/liveAudioEngine.ts';
 import {
   sanitizeAndAutoNameChannels,
   deriveAutoChannelNameAndRole,
+  reconcileLiveInputsToChannels,
+  isLoopbackInputLabel,
 } from '../utils/audioNaming.ts';
 import QRCode from 'qrcode';
 
@@ -163,6 +165,9 @@ export function useConsoleSession({
 
   const desktopWsRef = useRef<WebSocket | null>(null);
   const hydratedRef = useRef<boolean>(false);
+  const [hydrated, setHydrated] = useState<boolean>(false);
+  const channelsRef = useRef<InputChannel[]>(channels);
+  channelsRef.current = channels;
   const suppressSyncCountRef = useRef<number>(0);
   const cachedSynthDevicesRef = useRef<HardwareDevice[]>([]);
 
@@ -255,13 +260,42 @@ export function useConsoleSession({
             setBroadcastDsp(data.broadcastDsp);
           }
           if (Array.isArray(data.zones) && data.zones.length > 0) {
-            const cleanZones = data.zones.map((z: SpeakerZone) => {
-              if (!z.hardwareOutput || /^(Out \d|Aux \d)/i.test(z.hardwareOutput)) {
-                return { ...z, hardwareOutput: 'System Default Output' };
+            const migratedZones: SpeakerZone[] = [];
+            let mergedFrontAdded = false;
+            for (const rawZone of data.zones as SpeakerZone[]) {
+              const cleanOutId = rawZone.hardwareOutputId
+                ? rawZone.hardwareOutputId.split('::')[0]
+                : undefined;
+              const cleanOutLabel =
+                !rawZone.hardwareOutput || /^(Out \d|Aux \d)/i.test(rawZone.hardwareOutput)
+                  ? 'System Default Output'
+                  : rawZone.hardwareOutput;
+
+              if (rawZone.id === 'zone-main-l' || rawZone.id === 'zone-main-r') {
+                if (!mergedFrontAdded) {
+                  mergedFrontAdded = true;
+                  migratedZones.push({
+                    ...rawZone,
+                    id: 'zone-front-main',
+                    name: 'Front Speakers (Main PA)',
+                    role: 'main-lr',
+                    x: 50,
+                    y: 20,
+                    rotationDeg: 180,
+                    dispersionDeg: 100,
+                    hardwareOutputId: cleanOutId,
+                    hardwareOutput: cleanOutLabel,
+                  });
+                }
+                continue;
               }
-              return z;
-            });
-            setZones(cleanZones);
+              migratedZones.push({
+                ...rawZone,
+                hardwareOutputId: cleanOutId,
+                hardwareOutput: cleanOutLabel,
+              });
+            }
+            setZones(migratedZones.length > 0 ? migratedZones : DEFAULT_SPEAKER_ZONES);
           }
           if (data.obsStatus && typeof data.obsStatus === 'object') setObsStatus(data.obsStatus);
           if (data.measurement && typeof data.measurement === 'object') {
@@ -300,7 +334,10 @@ export function useConsoleSession({
         }
       })
       .finally(() => {
-        if (active) hydratedRef.current = true;
+        if (active) {
+          hydratedRef.current = true;
+          setHydrated(true);
+        }
       });
 
     return () => {
@@ -697,10 +734,26 @@ export function useConsoleSession({
         resolvedPatch.role = auto.role;
       }
 
-      // Standalone channels: every strip is 100% independent with zero cross-channel partner mirroring
+      if (resolvedPatch.hardwareInputId && isLoopbackInputLabel(resolvedPatch.hardwareInputLabel)) {
+        resolvedPatch.hardwareInputId = undefined;
+        resolvedPatch.hardwareInputLabel = undefined;
+      }
+
+      // Enforce 1-to-1 physical input uniqueness: move input away from any other slot if reassigned
+      const claimedDeviceId = resolvedPatch.hardwareInputId;
       return prev.map((c, i) => {
         if (i === idx) {
-          return { ...c, ...resolvedPatch };
+          return { ...c, ...resolvedPatch, stereoLinked: false };
+        }
+        if (claimedDeviceId && c.hardwareInputId === claimedDeviceId) {
+          return {
+            ...c,
+            name: `Input ${c.index}`,
+            role: 'Open Slot',
+            hardwareInputId: undefined,
+            hardwareInputLabel: undefined,
+            stereoLinked: false,
+          };
         }
         return c;
       });
@@ -810,6 +863,41 @@ export function useConsoleSession({
         logAudit('Added Input Channel', `CH ${nextIdx} (${created.name})`, 'operator');
         return [...prev, created];
       });
+    },
+    [logAudit]
+  );
+
+  const handleReconcileLiveInputs = useCallback(
+    (liveInputs: MediaDeviceInfo[], isStartupSync: boolean) => {
+      const result = reconcileLiveInputsToChannels(channelsRef.current, liveInputs, {
+        isStartupSync,
+        minSlots: 8,
+      });
+      if (!result.changed) return;
+
+      channelsRef.current = result.channels;
+      setChannels(result.channels);
+
+      if (result.newlyAssigned.length > 0) {
+        if (isStartupSync) {
+          const summary = result.newlyAssigned
+            .map((a) => `CH${a.channelIndex}: ${a.label}`)
+            .join(', ');
+          logAudit(
+            `Auto-Slotted ${result.newlyAssigned.length} Startup Input(s)`,
+            summary,
+            'system'
+          );
+        } else {
+          for (const added of result.newlyAssigned) {
+            logAudit(
+              'Auto-Slotted New Live Input',
+              `CH${added.channelIndex} ← ${added.label}`,
+              'system'
+            );
+          }
+        }
+      }
     },
     [logAudit]
   );
@@ -1088,7 +1176,9 @@ export function useConsoleSession({
     handleResetDsp,
     handleUndoLastDsp,
     handleUpdateChannel,
+    handleReconcileLiveInputs,
     handleAddChannel,
+    hydrated,
     handleRemoveChannel,
     handleAddEqBand,
     handleRemoveEqBand,

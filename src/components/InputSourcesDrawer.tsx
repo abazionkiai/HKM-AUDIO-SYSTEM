@@ -105,7 +105,7 @@ export const InputSourcesDrawer: React.FC<InputSourcesDrawerProps> = ({
           inputDevices.map((dev, idx) => {
             const { kind, color } = classifyDevice(dev.label || '');
             const assignedChannels = channels.filter(
-              (c) => c.hardwareInputId === dev.deviceId || (!c.hardwareInputId && idx === 0)
+              (c) => c.hardwareInputId === dev.deviceId
             );
             return (
               <div

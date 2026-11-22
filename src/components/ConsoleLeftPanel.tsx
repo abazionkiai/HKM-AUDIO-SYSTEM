@@ -13,7 +13,6 @@ import {
   Radio,
   Speaker,
   Check,
-  ArrowRight,
   Cable,
 } from 'lucide-react';
 import type { InputChannel, SpeakerZone, SignalTelemetry } from '../types/audio.ts';
@@ -116,7 +115,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
 
   const classifyInput = (label: string) => {
     const l = label.toLowerCase();
-    if (l.includes('cable') || l.includes('virtual') || l.includes('loopback')) {
+    if (l.includes('cable') || l.includes('virtual') || l.includes('voicemeeter')) {
       return { kind: 'Virtual', dot: 'bg-emerald-400', badge: 'text-emerald-300 border-emerald-500/35 bg-emerald-950/40' };
     }
     if (
@@ -143,16 +142,16 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
     if (l.includes('headphone') || l.includes('earphone') || l.includes('bluetooth') || l.includes('buds')) {
       return { kind: 'Headphones / Cue', color: 'text-sky-300 bg-sky-950/40 border-sky-500/35', icon: Headphones };
     }
-    if (l.includes('jack 3/4') || l.includes('center / sub')) {
-      return { kind: 'Subwoofer Jack 3/4', color: 'text-amber-300 bg-amber-950/40 border-amber-500/35', icon: Speaker };
+    if (
+      l.includes('usb') ||
+      l.includes('interface') ||
+      l.includes('scarlett') ||
+      l.includes('behringer') ||
+      l.includes('yamaha')
+    ) {
+      return { kind: 'USB Audio Out', color: 'text-amber-300 bg-amber-950/40 border-amber-500/35', icon: Speaker };
     }
-    if (l.includes('jack 5/6') || l.includes('rear / delay')) {
-      return { kind: 'Delay Jack 5/6', color: 'text-fuchsia-300 bg-fuchsia-950/40 border-fuchsia-500/35', icon: Speaker };
-    }
-    if (l.includes('jack 7/8') || l.includes('side / aux')) {
-      return { kind: 'Monitor Jack 7/8', color: 'text-cyan-300 bg-cyan-950/40 border-cyan-500/35', icon: Speaker };
-    }
-    return { kind: 'Main PA Out', color: 'text-emerald-300 bg-emerald-950/40 border-emerald-500/35', icon: Speaker };
+    return { kind: 'Speaker Output', color: 'text-emerald-300 bg-emerald-950/40 border-emerald-500/35', icon: Speaker };
   };
 
   const meterWidth = Math.max(0, Math.min(100, (((engineRunning ? fastPostDb : telemetry.postRmsDb) + 60) / 60) * 100));
@@ -461,9 +460,9 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                         <span className="text-slate-400 truncate max-w-[78px]">
                           {ch.hardwareInputLabel
                             ? ch.role
-                            : ch.role.startsWith('Stereo')
-                              ? ch.role
-                              : `ST · ${ch.role}`}
+                            : ch.role === 'Open Slot'
+                              ? 'Open Slot'
+                              : ch.role}
                         </span>
                       )}
                       <span className="text-slate-200 tabular-nums font-semibold">
@@ -521,6 +520,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                   inputDevices.map((dev, idx) => {
                     const cls = classifyInput(dev.label || '');
                     const label = dev.label || `Audio Input ${idx + 1}`;
+                    const slottedChannel = channels.find((c) => c.hardwareInputId === dev.deviceId);
                     const boundToSelected = selectedChannel?.hardwareInputId === dev.deviceId;
                     return (
                       <div
@@ -528,7 +528,9 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                         className={`px-2 py-1 rounded border flex items-center justify-between gap-1.5 font-mono text-[9px] ${
                           boundToSelected
                             ? 'border-teal-400/75 bg-[#122226]'
-                            : 'border-[#3C4B5E] bg-[#0E141C]'
+                            : slottedChannel
+                              ? 'border-emerald-500/45 bg-[#0F1B18]'
+                              : 'border-[#3C4B5E] bg-[#0E141C]'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -537,30 +539,45 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                             {label}
                           </span>
                         </div>
-                        {selectedChannel && (
-                          <button
-                            type="button"
-                            disabled={locked}
-                            onClick={() => {
-                              const auto = deriveAutoChannelNameAndRole(label, selectedChannel.index);
-                              onUpdateChannel(selectedChannel.id, {
-                                hardwareInputId: dev.deviceId,
-                                hardwareInputLabel: label,
-                                name: auto.name,
-                                role: auto.role,
-                              });
-                            }}
-                            title={`Assign "${label}" to CH${selectedChannel.index} (${selectedChannel.name}) as standalone stereo`}
-                            className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold shrink-0 flex items-center gap-0.5 cursor-pointer disabled:opacity-45 ${
-                              boundToSelected
-                                ? 'bg-teal-500 text-slate-950 border border-teal-300'
-                                : 'hw-top-btn text-teal-200'
-                            }`}
-                          >
-                            <span>CH{selectedChannel.index}</span>
-                            <ArrowRight className="w-2.5 h-2.5" />
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {slottedChannel && !boundToSelected && (
+                            <button
+                              type="button"
+                              onClick={() => onSelectChannel(slottedChannel.id)}
+                              title={`Focus CH${slottedChannel.index} (${slottedChannel.name})`}
+                              className="px-1 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[8px] font-bold cursor-pointer"
+                            >
+                              CH{slottedChannel.index}
+                            </button>
+                          )}
+                          {selectedChannel && (
+                            <button
+                              type="button"
+                              disabled={locked}
+                              onClick={() => {
+                                const auto = deriveAutoChannelNameAndRole(label, selectedChannel.index);
+                                onUpdateChannel(selectedChannel.id, {
+                                  hardwareInputId: dev.deviceId,
+                                  hardwareInputLabel: label,
+                                  name: auto.name,
+                                  role: auto.role,
+                                });
+                              }}
+                              title={
+                                boundToSelected
+                                  ? `Active on CH${selectedChannel.index}`
+                                  : `Move/Assign "${label}" to CH${selectedChannel.index} (${selectedChannel.name}) 1:1`
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold shrink-0 flex items-center gap-0.5 cursor-pointer disabled:opacity-45 ${
+                                boundToSelected
+                                  ? 'bg-teal-500 text-slate-950 border border-teal-300'
+                                  : 'hw-top-btn text-teal-200'
+                              }`}
+                            >
+                              <span>{boundToSelected ? `✓ CH${selectedChannel.index}` : `→ CH${selectedChannel.index}`}</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })
@@ -693,8 +710,8 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
           </div>
 
           <div className="shrink-0 px-2.5 py-1.5 border-t border-[#445568] bg-[#10151B] font-mono text-[9px] text-slate-300 flex items-center justify-between">
-            <span>PCIe Multi-Jack Ports</span>
-            <span className="text-emerald-400 font-bold">DISCRETE L/R</span>
+            <span>Standalone Outputs</span>
+            <span className="text-emerald-400 font-bold">STEREO 1:1</span>
           </div>
         </div>
       )}

@@ -918,31 +918,13 @@ export const SERVICE_PRESETS: ServicePreset[] = [
 
 export const DEFAULT_SPEAKER_ZONES: SpeakerZone[] = [
   {
-    id: 'zone-main-l',
-    name: 'Main PA Left',
+    id: 'zone-front-main',
+    name: 'Front Speakers (Main PA)',
     role: 'main-lr',
-    x: 24,
-    y: 22,
-    rotationDeg: 172,
-    dispersionDeg: 80,
-    distanceMeters: 0,
-    delayMs: 0,
-    levelDb: 0,
-    mute: false,
-    polarityInverted: false,
-    crossoverHz: 90,
-    crossoverSlope: 'LR24',
-    limiterDb: -1.0,
-    hardwareOutput: 'System Default Output',
-  },
-  {
-    id: 'zone-main-r',
-    name: 'Main PA Right',
-    role: 'main-lr',
-    x: 76,
-    y: 22,
-    rotationDeg: 188,
-    dispersionDeg: 80,
+    x: 50,
+    y: 20,
+    rotationDeg: 180,
+    dispersionDeg: 100,
     distanceMeters: 0,
     delayMs: 0,
     levelDb: 0,
@@ -1231,7 +1213,7 @@ export const INITIAL_ACOUSTIC_MEASUREMENT: AcousticMeasurement = {
 };
 
 export function buildChannelsForDevice(device: HardwareDevice): InputChannel[] {
-  const count = Math.max(8, Math.min(device.capabilities.maxInputChannels || 8, 32));
+  const count = 8;
   const authority = device.capabilities.perChannelFaderControl ? 'hardware-linked' : 'software-dsp';
 
   return Array.from({ length: count }, (_, i) => {
@@ -1240,7 +1222,7 @@ export function buildChannelsForDevice(device: HardwareDevice): InputChannel[] {
       id: `ch-${chNum}`,
       index: chNum,
       name: `Input ${chNum}`,
-      role: `Live Input ${chNum}`,
+      role: 'Open Slot',
       authority,
       levelDb: -96,
       peakDb: -96,

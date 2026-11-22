@@ -1,7 +1,8 @@
 /**
- * HKM Audio System - Dynamic Audio Device Naming & Sanitation System
- * Automatically binds real connected physical & virtual hardware devices to channel strips
- * Eliminates all static/mock placeholder names across the entire audio console.
+ * HKM Audio System - Hardware Audio I/O Deduplication, Loopback Filtering & 1-to-1 Auto-Slot Allocator
+ * - Guarantees 1 standalone stereo endpoint per physical/virtual device (no L/R splits, no synthetic jack cloning).
+ * - Filters out OS loopback / virtual mix-back traps from live input channels by default.
+ * - Occupies CH 1..CH N 1-to-1 at startup and auto-slots hot-plugged inputs into the next open slot.
  */
 
 import type { InputChannel } from '../types/audio.ts';
@@ -40,6 +41,97 @@ export function isLegacyMockName(name?: string): boolean {
 }
 
 /**
+ * Strips Windows OS alias prefixes ("Default -", "Communications -") and USB hex IDs
+ * so duplicate OS descriptors for the same physical hardware normalize identically.
+ */
+export function normalizeDeviceLabel(label?: string): string {
+  if (!label) return '';
+  return label
+    .replace(/^(?:Default|Communications)\s*-\s*/i, '')
+    .replace(/\s*\([0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Identifies OS loopback / system mix-back capture endpoints that cause audio feedback loops
+ * when automatically mounted as live console inputs.
+ */
+export function isLoopbackInputLabel(label?: string): boolean {
+  if (!label) return false;
+  return /\b(stereo\s*mix|what\s*u\s*hear|wave\s*out\s*mix|loopback|cable\s*output|voicemeeter\s*(?:out|output|aux\s*out|vaio\s*out)|monitor\s+of)\b/i.test(
+    label
+  );
+}
+
+function isAliasEntry(dev: MediaDeviceInfo): boolean {
+  if (dev.deviceId === 'default' || dev.deviceId === 'communications') return true;
+  const raw = (dev.label || '').trim();
+  return /^(?:Default|Communications)\s*-/i.test(raw);
+}
+
+/**
+ * Deduplicates MediaDeviceInfo lists by stripping OS Default/Communications aliases when real endpoints exist,
+ * excluding loopback capture traps for live inputs, and keeping 1 standalone stereo endpoint per hardware port.
+ */
+export function deduplicateMediaDevices(
+  raw: MediaDeviceInfo[],
+  kind: 'audioinput' | 'audiooutput',
+  options?: { excludeLoopbacks?: boolean }
+): MediaDeviceInfo[] {
+  const byKind = raw.filter((d) => d.kind === kind);
+  const excludeLoopbacks = kind === 'audioinput' && options?.excludeLoopbacks !== false;
+
+  const filtered = excludeLoopbacks
+    ? byKind.filter((d) => !isLoopbackInputLabel(d.label))
+    : byKind;
+
+  const concrete = filtered.filter((d) => !isAliasEntry(d));
+  const pool =
+    concrete.length > 0
+      ? concrete
+      : filtered.filter((d) => d.deviceId !== 'communications').slice(0, 1);
+
+  const hasAnyLabel = pool.some((d) => normalizeDeviceLabel(d.label).length > 0);
+  const effectivePool = hasAnyLabel
+    ? pool.filter((d) => normalizeDeviceLabel(d.label).length > 0)
+    : pool.slice(0, 1);
+
+  const seenDeviceIds = new Set<string>();
+  const seenCanonKeys = new Set<string>();
+  const result: MediaDeviceInfo[] = [];
+
+  for (const dev of effectivePool) {
+    if (dev.deviceId && seenDeviceIds.has(dev.deviceId)) continue;
+    const normLabel = normalizeDeviceLabel(dev.label).toLowerCase();
+    const canonKey = normLabel
+      ? dev.groupId
+        ? `${normLabel}::${dev.groupId}`
+        : normLabel
+      : `id::${dev.deviceId || result.length}`;
+    if (seenCanonKeys.has(canonKey)) continue;
+
+    if (dev.deviceId) seenDeviceIds.add(dev.deviceId);
+    seenCanonKeys.add(canonKey);
+
+    const cleanLabel = normalizeDeviceLabel(dev.label);
+    result.push(
+      cleanLabel && cleanLabel !== dev.label
+        ? ({
+            deviceId: dev.deviceId,
+            groupId: dev.groupId,
+            kind: dev.kind,
+            label: cleanLabel,
+            toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
+          } as MediaDeviceInfo)
+        : dev
+    );
+  }
+
+  return result;
+}
+
+/**
  * Derives a clean, concise, hardware-accurate scribble strip name and audio role
  * from a connected physical or virtual audio device descriptor.
  */
@@ -47,26 +139,19 @@ export function deriveAutoChannelNameAndRole(
   deviceLabel?: string,
   channelIndex: number = 1
 ): { name: string; role: string } {
-  if (!deviceLabel || deviceLabel.trim() === '') {
+  const cleanLabel = normalizeDeviceLabel(deviceLabel);
+  if (!cleanLabel) {
     return {
       name: `Input ${channelIndex}`,
-      role: `Live Input ${channelIndex}`,
+      role: 'Open Slot',
     };
   }
 
-  // Strip OS prefix noise
-  let raw = deviceLabel.replace(/^Default\s*-\s*/i, '').trim();
-  // Strip trailing device ID hex patterns e.g. (046d:0825)
-  raw = raw.replace(/\s*\([0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)$/, '').trim();
+  const lower = cleanLabel.toLowerCase();
 
-  const lower = raw.toLowerCase();
-
-  // 1. Determine accurate live signal role
-  let role = 'Live Input';
+  let role = 'Live Stereo';
   if (lower.includes('cable') || lower.includes('virtual') || lower.includes('voicemeeter')) {
-    role = 'Virtual Ingest';
-  } else if (lower.includes('stereo mix') || lower.includes('loopback') || lower.includes('what u hear')) {
-    role = 'Loopback In';
+    role = 'Virtual In';
   } else if (lower.includes('line in') || lower.includes('line-in')) {
     role = 'Line In';
   } else if (lower.includes('mic array') || lower.includes('microphone array')) {
@@ -84,13 +169,11 @@ export function deriveAutoChannelNameAndRole(
     lower.includes('presonus') ||
     lower.includes('interface')
   ) {
-    role = 'Audio Interface';
+    role = 'Interface';
   }
 
-  // 2. Synthesize clean, human-readable channel scribble name (max 18 chars)
-  let name = raw;
-
-  if (lower.includes('vb-audio') || lower.includes('cable output') || lower.includes('virtual cable')) {
+  let name = cleanLabel;
+  if (lower.includes('vb-audio') || lower.includes('virtual cable')) {
     name = 'VB-Audio Cable';
   } else if (lower.includes('voicemeeter')) {
     name = lower.includes('aux') ? 'VoiceMeeter AUX' : 'VoiceMeeter VAIO';
@@ -104,31 +187,20 @@ export function deriveAutoChannelNameAndRole(
     name = 'Behringer UMC';
   } else if (lower.includes('x32') || lower.includes('m32')) {
     name = 'X32 USB In';
-  } else if (lower.includes('stereo mix')) {
-    name = 'Stereo Mix';
   } else if (lower.includes('realtek')) {
-    if (lower.includes('line')) {
-      name = 'Realtek Line In';
-    } else {
-      name = 'Realtek Mic';
-    }
+    name = lower.includes('line') ? 'Realtek Line In' : 'Realtek Mic';
   } else if (lower.includes('intel')) {
     name = 'Intel Mic Array';
   } else {
-    // If format is "Type (Hardware Model)", flip to "Model Type" for instant glanceability
-    // e.g. "Microphone (High Definition Audio Device)" -> "HD Audio Mic"
-    const match = raw.match(/^([A-Za-z\s]+)\s*\((.+)\)$/);
+    const match = cleanLabel.match(/^([A-Za-z\s]+)\s*\((.+)\)$/);
     if (match) {
       const type = match[1].trim();
       const hardware = match[2].trim().replace(/\(R\)/gi, '').replace(/\s+/g, ' ');
       const shortType = type.toLowerCase().includes('micro') ? 'Mic' : type;
       name = `${hardware} ${shortType}`;
-    } else {
-      name = raw;
     }
   }
 
-  // Ensure name is clean, doesn't overflow, and has no repeated whitespace
   name = name.replace(/\s+/g, ' ').trim();
   if (name.length > 18) {
     name = name.slice(0, 17) + '…';
@@ -138,126 +210,312 @@ export function deriveAutoChannelNameAndRole(
 }
 
 /**
- * Sanitizes and auto-configures a list of channels against detected hardware inputs.
- * Replaces any legacy mock names with dynamically derived live device labels.
+ * Creates a clean unoccupied standalone stereo input slot.
+ */
+export function createOpenChannelSlot(index: number, authority: InputChannel['authority'] = 'software-dsp'): InputChannel {
+  return {
+    id: `ch-${index}`,
+    index,
+    name: `Input ${index}`,
+    role: 'Open Slot',
+    authority,
+    levelDb: -96,
+    peakDb: -96,
+    gainDb: 24,
+    faderDb: 0,
+    mute: false,
+    solo: false,
+    phantom48v: false,
+    padDb: false,
+    polarityInverted: false,
+    hpfHz: 80,
+    pan: 0,
+    noiseFloorDb: -96,
+    gateThresholdDb: -48,
+    compThresholdDb: -18,
+    compRatio: 3.0,
+    eqLowDb: 0,
+    eqMidDb: 0,
+    eqMidFreqHz: 1200,
+    eqHighDb: 0,
+    auxSends: {
+      stageMon1Db: -12,
+      stageMon2Db: -12,
+      streamBusDb: 0,
+      subsDb: -48,
+    },
+    dcaGroup: 'None',
+    stereoLinked: false,
+    mainPaAssign: true,
+    streamAssign: true,
+    subAssign: false,
+    hardwareInputId: undefined,
+    hardwareInputLabel: undefined,
+  };
+}
+
+function isUsableHardwareInput(dev: MediaDeviceInfo): boolean {
+  if (dev.deviceId === 'default' || dev.deviceId === 'communications') return false;
+  if (isLoopbackInputLabel(dev.label)) return false;
+  return Boolean(dev.deviceId || normalizeDeviceLabel(dev.label));
+}
+
+function channelsMatchSignature(a: InputChannel[], b: InputChannel[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.index !== y.index ||
+      x.name !== y.name ||
+      x.role !== y.role ||
+      (x.hardwareInputId || '') !== (y.hardwareInputId || '') ||
+      (x.hardwareInputLabel || '') !== (y.hardwareInputLabel || '') ||
+      Boolean(x.stereoLinked) !== Boolean(y.stereoLinked)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Sanitizes persisted or legacy channels: strips mock names, removes loopback/alias bindings,
+ * clears duplicate physical bindings so each live input owns at most one standalone stereo strip.
  */
 export function sanitizeAndAutoNameChannels(
   channels: InputChannel[],
-  inputDevices: MediaDeviceInfo[] = []
+  _inputDevices: MediaDeviceInfo[] = []
 ): InputChannel[] {
+  const seenIds = new Set<string>();
+  const seenLabels = new Set<string>();
+
   return channels.map((ch, idx) => {
-    // Check if channel has legacy mock name
-    const hasMockName = isLegacyMockName(ch.name);
+    const chNum = ch.index || idx + 1;
+    const rawDevId = ch.hardwareInputId;
+    const rawLabel = normalizeDeviceLabel(ch.hardwareInputLabel);
+    const labelKey = rawLabel.toLowerCase();
 
-    // Check if channel already has an active hardware input label
-    if (ch.hardwareInputLabel && !hasMockName) {
-      return ch;
-    }
+    const invalidOrDuplicate =
+      !rawDevId ||
+      rawDevId === 'default' ||
+      rawDevId === 'communications' ||
+      isLoopbackInputLabel(rawLabel) ||
+      seenIds.has(rawDevId) ||
+      (labelKey.length > 0 && seenLabels.has(labelKey));
 
-    // Attempt to match with connected device at this index
-    const matchedDev = inputDevices[idx];
-    if (matchedDev && matchedDev.label) {
-      const { name, role } = deriveAutoChannelNameAndRole(matchedDev.label, ch.index);
+    if (invalidOrDuplicate) {
       return {
         ...ch,
-        name,
-        role,
-        hardwareInputId: matchedDev.deviceId,
-        hardwareInputLabel: matchedDev.label,
+        index: chNum,
+        name: !ch.name || isLegacyMockName(ch.name) ? `Input ${chNum}` : ch.name,
+        role:
+          !ch.role || isLegacyMockName(ch.name) || ch.role.startsWith('Live Input')
+            ? 'Open Slot'
+            : ch.role,
+        stereoLinked: false,
+        pan: 0,
+        hardwareInputId: undefined,
+        hardwareInputLabel: undefined,
       };
     }
 
-    // If channel had a mock name or no device, provide clean neutral numbering
-    if (hasMockName || !ch.name) {
+    seenIds.add(rawDevId);
+    if (labelKey) seenLabels.add(labelKey);
+
+    const hasMockName = isLegacyMockName(ch.name);
+    if (rawLabel) {
+      const derived = deriveAutoChannelNameAndRole(rawLabel, chNum);
       return {
         ...ch,
-        name: `Input ${ch.index}`,
-        role: `Stereo Input ${ch.index}`,
+        index: chNum,
+        name: hasMockName || !ch.name || /^Input \d+$/i.test(ch.name) ? derived.name : ch.name,
+        role: hasMockName || !ch.role || ch.role === 'Open Slot' ? derived.role : ch.role,
+        hardwareInputLabel: rawLabel,
         stereoLinked: false,
       };
     }
 
-    return { ...ch, stereoLinked: false };
+    return {
+      ...ch,
+      index: chNum,
+      name: hasMockName || !ch.name ? `Input ${chNum}` : ch.name,
+      stereoLinked: false,
+    };
   });
 }
 
+export interface ReconcileInputsResult {
+  channels: InputChannel[];
+  newlyAssigned: Array<{ channelId: string; channelIndex: number; deviceId: string; label: string }>;
+  changed: boolean;
+}
+
 /**
- * Detects multi-channel audio devices (e.g. PCIe cards or motherboard 5.1/7.1 rear clusters)
- * and expands them into discrete physical rear-panel jack ports for independent zone routing.
+ * Single authoritative 1-to-1 slot allocator:
+ * - isStartupSync=true: occupies CH 1..CH N sequentially with the N detected live inputs; clears open tail slots.
+ * - isStartupSync=false: preserves existing occupied slots and inserts newly plugged-in inputs into the lowest open slot
+ *   (appending a new channel only if all existing slots are full).
  */
-export function expandOutputEndpoints(devices: MediaDeviceInfo[]): MediaDeviceInfo[] {
-  const result: MediaDeviceInfo[] = [];
+export function reconcileLiveInputsToChannels(
+  existingChannels: InputChannel[],
+  liveInputs: MediaDeviceInfo[],
+  options: { isStartupSync: boolean; minSlots?: number }
+): ReconcileInputsResult {
+  const minSlots = options.minSlots ?? 8;
+  const usableInputs = deduplicateMediaDevices(liveInputs, 'audioinput', {
+    excludeLoopbacks: true,
+  }).filter(isUsableHardwareInput);
 
-  for (const dev of devices) {
-    const rawLabel = (dev.label || '').trim();
-    const lower = rawLabel.toLowerCase();
+  const newlyAssigned: ReconcileInputsResult['newlyAssigned'] = [];
 
-    // Check if device represents a multi-channel soundcard or motherboard surround soundcard
-    const isMultiChannelCandidate =
-      lower.includes('speakers') ||
-      lower.includes('realtek') ||
-      lower.includes('sound blaster') ||
-      lower.includes('audigy') ||
-      lower.includes('ae-') ||
-      lower.includes('xonar') ||
-      lower.includes('high definition audio') ||
-      lower.includes('pci') ||
-      lower.includes('surround') ||
-      lower.includes('7.1') ||
-      lower.includes('5.1');
+  if (options.isStartupSync) {
+    const slotCount = Math.max(minSlots, usableInputs.length);
+    const nextChannels: InputChannel[] = [];
 
-    // Do not expand virtual cables, loopbacks, or explicit headphone devices
-    const isVirtualOrHeadphones =
-      lower.includes('cable') ||
-      lower.includes('virtual') ||
-      lower.includes('voicemeeter') ||
-      lower.includes('headphone') ||
-      lower.includes('buds') ||
-      lower.includes('bluetooth') ||
-      lower.includes('airpods');
+    for (let i = 0; i < slotCount; i++) {
+      const chNum = i + 1;
+      const dev = usableInputs[i];
 
-    if (isMultiChannelCandidate && !isVirtualOrHeadphones) {
-      const cleanBase = rawLabel
-        .replace(/^Default\s*-\s*/i, '')
-        .replace(/\s*\([0-9a-fA-F]{4}:[0-9a-fA-F]{4}\)$/, '')
-        .trim();
+      if (dev) {
+        const cleanLabel = normalizeDeviceLabel(dev.label) || `Live Audio Input ${chNum}`;
+        const canonKey = cleanLabel.toLowerCase();
+        const donor =
+          existingChannels.find((c) => c.hardwareInputId && c.hardwareInputId === dev.deviceId) ??
+          existingChannels.find(
+            (c) => c.hardwareInputLabel && normalizeDeviceLabel(c.hardwareInputLabel).toLowerCase() === canonKey
+          ) ??
+          (existingChannels[i] && !existingChannels[i].hardwareInputId ? existingChannels[i] : undefined);
 
-      // Create synthetic discrete MediaDeviceInfo-compatible representations for each rear jack pair
-      result.push({
-        deviceId: `${dev.deviceId}::jack-1-2`,
-        groupId: dev.groupId,
-        kind: 'audiooutput',
-        label: `${cleanBase} · Jack 1/2 [Green: Front PA L/R]`,
-        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
-      } as MediaDeviceInfo);
+        const base = donor
+          ? { ...donor, id: existingChannels[i]?.id || `ch-${chNum}`, index: chNum }
+          : createOpenChannelSlot(chNum);
+        const derived = deriveAutoChannelNameAndRole(cleanLabel, chNum);
+        const keepCustomName =
+          Boolean(donor?.hardwareInputId === dev.deviceId && donor?.name) &&
+          !isLegacyMockName(donor?.name) &&
+          !/^Input \d+$/i.test(donor?.name || '');
 
-      result.push({
-        deviceId: `${dev.deviceId}::jack-3-4`,
-        groupId: dev.groupId,
-        kind: 'audiooutput',
-        label: `${cleanBase} · Jack 3/4 [Orange: Center / Sub]`,
-        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
-      } as MediaDeviceInfo);
+        const slotted: InputChannel = {
+          ...base,
+          id: existingChannels[i]?.id || `ch-${chNum}`,
+          index: chNum,
+          name: keepCustomName ? base.name : derived.name,
+          role: derived.role,
+          stereoLinked: false,
+          hardwareInputId: dev.deviceId || cleanLabel,
+          hardwareInputLabel: cleanLabel,
+        };
+        nextChannels.push(slotted);
+        newlyAssigned.push({
+          channelId: slotted.id,
+          channelIndex: chNum,
+          deviceId: slotted.hardwareInputId!,
+          label: cleanLabel,
+        });
+      } else {
+        const template = existingChannels[i];
+        const cleanOpen = template
+          ? {
+              ...template,
+              id: template.id || `ch-${chNum}`,
+              index: chNum,
+              name: `Input ${chNum}`,
+              role: 'Open Slot',
+              stereoLinked: false,
+              pan: 0,
+              hardwareInputId: undefined,
+              hardwareInputLabel: undefined,
+            }
+          : createOpenChannelSlot(chNum);
+        nextChannels.push(cleanOpen);
+      }
+    }
 
-      result.push({
-        deviceId: `${dev.deviceId}::jack-5-6`,
-        groupId: dev.groupId,
-        kind: 'audiooutput',
-        label: `${cleanBase} · Jack 5/6 [Black: Rear / Delay]`,
-        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
-      } as MediaDeviceInfo);
+    return {
+      channels: nextChannels,
+      newlyAssigned,
+      changed: !channelsMatchSignature(existingChannels, nextChannels),
+    };
+  }
 
-      result.push({
-        deviceId: `${dev.deviceId}::jack-7-8`,
-        groupId: dev.groupId,
-        kind: 'audiooutput',
-        label: `${cleanBase} · Jack 7/8 [Gray: Side / Aux]`,
-        toJSON: dev.toJSON ? () => dev.toJSON() : () => ({}),
-      } as MediaDeviceInfo);
-    } else {
-      result.push(dev);
+  // Post-startup hot-plug / manual scan: clean existing duplicates first, then place new inputs into open slots
+  const cleaned = sanitizeAndAutoNameChannels(existingChannels);
+  const nextChannels: InputChannel[] = cleaned.map((c, idx) => ({
+    ...c,
+    index: idx + 1,
+  }));
+
+  while (nextChannels.length < minSlots) {
+    nextChannels.push(createOpenChannelSlot(nextChannels.length + 1));
+  }
+
+  const occupiedIds = new Set<string>();
+  const occupiedLabels = new Set<string>();
+
+  for (let i = 0; i < nextChannels.length; i++) {
+    const ch = nextChannels[i];
+    if (ch.hardwareInputId) {
+      occupiedIds.add(ch.hardwareInputId);
+      const norm = normalizeDeviceLabel(ch.hardwareInputLabel).toLowerCase();
+      if (norm) occupiedLabels.add(norm);
     }
   }
 
-  return result;
+  for (const dev of usableInputs) {
+    const cleanLabel = normalizeDeviceLabel(dev.label) || dev.deviceId;
+    const normKey = cleanLabel.toLowerCase();
+
+    if (dev.deviceId && occupiedIds.has(dev.deviceId)) continue;
+
+    // Refresh rotating OS deviceId in-place if the exact same physical input label already occupies a strip
+    if (normKey && occupiedLabels.has(normKey)) {
+      const matchIdx = nextChannels.findIndex(
+        (c) => c.hardwareInputLabel && normalizeDeviceLabel(c.hardwareInputLabel).toLowerCase() === normKey
+      );
+      if (matchIdx >= 0 && dev.deviceId && nextChannels[matchIdx].hardwareInputId !== dev.deviceId) {
+        occupiedIds.add(dev.deviceId);
+        nextChannels[matchIdx] = {
+          ...nextChannels[matchIdx],
+          hardwareInputId: dev.deviceId,
+        };
+      }
+      continue;
+    }
+
+    let openIdx = nextChannels.findIndex((c) => !c.hardwareInputId);
+    if (openIdx < 0) {
+      const nextNum = nextChannels.length + 1;
+      nextChannels.push(createOpenChannelSlot(nextNum));
+      openIdx = nextChannels.length - 1;
+    }
+
+    const slot = nextChannels[openIdx];
+    const derived = deriveAutoChannelNameAndRole(cleanLabel, slot.index);
+    const assignedId = dev.deviceId || cleanLabel;
+    nextChannels[openIdx] = {
+      ...slot,
+      name: derived.name,
+      role: derived.role,
+      stereoLinked: false,
+      hardwareInputId: assignedId,
+      hardwareInputLabel: cleanLabel,
+    };
+
+    occupiedIds.add(assignedId);
+    if (normKey) occupiedLabels.add(normKey);
+    newlyAssigned.push({
+      channelId: slot.id,
+      channelIndex: slot.index,
+      deviceId: assignedId,
+      label: cleanLabel,
+    });
+  }
+
+  return {
+    channels: nextChannels,
+    newlyAssigned,
+    changed: !channelsMatchSignature(existingChannels, nextChannels),
+  };
 }

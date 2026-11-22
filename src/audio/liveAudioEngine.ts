@@ -7,6 +7,7 @@ import {
   type SpeakerZone,
   ISO_31_FREQUENCIES,
 } from '../types/audio.ts';
+import { deduplicateMediaDevices } from '../utils/audioNaming.ts';
 
 export interface SpectrumSnapshot {
   frequencies: Float32Array;
@@ -75,14 +76,17 @@ class LiveAudioEngine {
   private talkbackActive = false;
   private onSourceEndedCb: (() => void) | null = null;
 
-  // Source & multichannel capture state
+  // Source & collision-free 1-to-1 per-device capture registry
   private sourceNodes: AudioNode[] = [];
   private activeStream: MediaStream | null = null;
-  private channelSourceStreams: Map<number, { stream: MediaStream; node: AudioNode }> = new Map();
-  private lastAssignedInputs: Map<number, string> = new Map();
+  private deviceStreams: Map<
+    string,
+    { stream: MediaStream; node: MediaStreamAudioSourceNode; strips: Set<number> }
+  > = new Map();
+  private stripDeviceBindings: Map<number, string> = new Map();
+  private syncQueuePromise: Promise<void> = Promise.resolve();
   private activeInputLabel: string | null = null;
   private capturedChannels = 0;
-  private inputSplitter: ChannelSplitterNode | null = null;
   private busMixSum: GainNode | null = null;
   private channelStrips: ChannelStripNodes[] = [];
   private channelAnalysers: AnalyserNode[] = [];
@@ -150,12 +154,6 @@ class LiveAudioEngine {
   private widthLRGain: GainNode | null = null;
 
   private monitorGain: GainNode | null = null;
-  private multiChannelMerger: ChannelMergerNode | null = null;
-  private jackFrontGain: GainNode | null = null;
-  private jackSubGain: GainNode | null = null;
-  private jackRearGain: GainNode | null = null;
-  private jackSideGain: GainNode | null = null;
-  private activeJackTarget = 'jack-1-2';
   private preferredOutputDeviceId: string | undefined = undefined;
   private preferredStreamOutputDeviceId: string | undefined = undefined;
   private streamOutputGain: GainNode | null = null;
@@ -184,7 +182,6 @@ class LiveAudioEngine {
   private noiseFloorDb = -96;
   private emergencyMuted = false;
   private lastDsp: DspConfig | null = null;
-  private preferredInputDeviceId: string | undefined = undefined;
 
   public setOnSourceEnded(cb: (() => void) | null): void {
     this.onSourceEndedCb = cb;
@@ -193,12 +190,12 @@ class LiveAudioEngine {
   public async start(
     source: AudioSourceSimulation,
     dsp: DspConfig,
-    preferredInputDeviceId?: string
+    channels?: InputChannel[]
   ): Promise<void> {
     this.sourceMode = source;
     this.lastDsp = dsp;
-    if (preferredInputDeviceId !== undefined) {
-      this.preferredInputDeviceId = preferredInputDeviceId || undefined;
+    if (channels) {
+      this.lastChannels = channels;
     }
 
     if (!this.ctx) {
@@ -217,15 +214,17 @@ class LiveAudioEngine {
     this.clippingCount = 0;
     this.noiseFloorDb = -96;
     this.gateIsClosed = false;
-    await this.setupSource(source, this.preferredInputDeviceId);
-    this.applyChannels(this.lastChannels);
-    this.applyDsp(dsp);
-    this.syncMonitorGain();
     this.isRunning = true;
-  }
-
-  public getActiveInputDeviceId(): string | undefined {
-    return this.preferredInputDeviceId;
+    try {
+      await this.setupSource(source);
+      this.applyChannels(this.lastChannels);
+      this.applyDsp(dsp);
+      this.syncMonitorGain();
+    } catch (err) {
+      this.teardownSource();
+      this.isRunning = false;
+      throw err;
+    }
   }
 
   public getActiveInputLabel(): string | null {
@@ -233,43 +232,19 @@ class LiveAudioEngine {
   }
 
   public async setOutputDevice(deviceId?: string): Promise<boolean> {
-    this.preferredOutputDeviceId = deviceId || undefined;
-    const rawId = deviceId || '';
-    const [baseDeviceId, jackTarget] = rawId.includes('::')
-      ? rawId.split('::')
-      : [rawId, 'jack-1-2'];
-
-    this.activeJackTarget = jackTarget || 'jack-1-2';
+    const cleanId = (deviceId || '').split('::')[0];
+    this.preferredOutputDeviceId = cleanId || undefined;
 
     if (this.ctx && 'setSinkId' in this.ctx && typeof (this.ctx as any).setSinkId === 'function') {
       try {
-        await (this.ctx as any).setSinkId(baseDeviceId || '');
-        this.updateDiscreteJackGains();
+        await (this.ctx as any).setSinkId(cleanId || '');
         return true;
       } catch (err) {
         console.warn('AudioContext.setSinkId failed:', err);
         return false;
       }
     }
-    this.updateDiscreteJackGains();
     return false;
-  }
-
-  private updateDiscreteJackGains(): void {
-    if (!this.ctx || !this.jackFrontGain || !this.jackSubGain || !this.jackRearGain || !this.jackSideGain) return;
-    // Jack 1/2 is active for Front PA
-    this.jackFrontGain.gain.value = 1;
-    // Selective individual jack focus if designated
-    if (this.activeJackTarget === 'jack-3-4') {
-      this.jackFrontGain.gain.value = 0;
-      this.jackSubGain.gain.value = 1;
-    } else if (this.activeJackTarget === 'jack-5-6') {
-      this.jackFrontGain.gain.value = 0;
-      this.jackRearGain.gain.value = 1;
-    } else if (this.activeJackTarget === 'jack-7-8') {
-      this.jackFrontGain.gain.value = 0;
-      this.jackSideGain.gain.value = 1;
-    }
   }
 
   public getPreferredOutputDeviceId(): string {
@@ -277,15 +252,20 @@ class LiveAudioEngine {
   }
 
   public async setStreamOutputDevice(deviceId?: string): Promise<boolean> {
-    this.preferredStreamOutputDeviceId = deviceId || undefined;
-    if (!deviceId) {
+    const cleanId = (deviceId || '').split('::')[0];
+    this.preferredStreamOutputDeviceId = cleanId || undefined;
+    if (!cleanId) {
       if (this.streamAudioEl) {
         this.streamAudioEl.pause();
         this.streamAudioEl.srcObject = null;
       }
+      this.syncMonitorGain();
       return true;
     }
-    if (!this.ctx || !this.streamMediaDest) return false;
+    if (!this.ctx || !this.streamMediaDest) {
+      this.syncMonitorGain();
+      return false;
+    }
     try {
       if (!this.streamAudioEl && typeof Audio !== 'undefined') {
         this.streamAudioEl = new Audio();
@@ -294,13 +274,15 @@ class LiveAudioEngine {
       if (this.streamAudioEl) {
         this.streamAudioEl.srcObject = this.streamMediaDest.stream;
         if ('setSinkId' in this.streamAudioEl && typeof (this.streamAudioEl as any).setSinkId === 'function') {
-          await (this.streamAudioEl as any).setSinkId(deviceId);
+          await (this.streamAudioEl as any).setSinkId(cleanId);
         }
         await this.streamAudioEl.play().catch(() => {});
       }
+      this.syncMonitorGain();
       return true;
     } catch (err) {
       console.warn('Stream output setSinkId failed:', err);
+      this.syncMonitorGain();
       return false;
     }
   }
@@ -314,14 +296,21 @@ class LiveAudioEngine {
     this.isRunning = false;
     this.noiseFloorDb = -96;
     this.gateIsClosed = false;
+    this.syncMonitorGain();
   }
 
   private syncMonitorGain(): void {
-    if (!this.monitorGain || !this.ctx) return;
-    const baseLinear = dbToLinear(this.monitorLevelDb);
-    const tbFactor = this.talkbackActive ? 0.2 : 1.0; // -14 dB Cue Dim during Talkback
-    const target = this.monitorAudible && !this.emergencyMuted ? baseLinear * tbFactor : 0;
-    this.monitorGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.02);
+    if (!this.ctx) return;
+    if (this.monitorGain) {
+      const baseLinear = dbToLinear(this.monitorLevelDb);
+      const tbFactor = this.talkbackActive ? 0.2 : 1.0; // -14 dB Cue Dim during Talkback
+      const target = this.monitorAudible && !this.emergencyMuted ? baseLinear * tbFactor : 0;
+      this.monitorGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.02);
+    }
+    if (this.streamOutputGain) {
+      const streamActive = Boolean(this.preferredStreamOutputDeviceId) && !this.emergencyMuted && this.isRunning;
+      this.streamOutputGain.gain.setTargetAtTime(streamActive ? 1 : 0, this.ctx.currentTime, 0.02);
+    }
   }
 
   public setMonitorAudible(audible: boolean): void {
@@ -720,55 +709,14 @@ class LiveAudioEngine {
     this.postAnalyser.connect(this.postSplitter);
     this.postSplitter.connect(this.postLAnalyser, 0);
     this.postSplitter.connect(this.postRAnalyser, 1);
+
+    // Clean standalone stereo main output strictly gated by monitorGain (muted by default -> zero loopback)
     this.postAnalyser.connect(this.monitorGain);
+    this.monitorGain.connect(ctx.destination);
 
-    // Discrete Multi-Channel Destination Architecture (PCIe cards & motherboard 5.1/7.1 rear jacks)
-    const maxHwCh = Math.max(2, Math.min(8, ctx.destination.maxChannelCount || 2));
-    try {
-      ctx.destination.channelCount = maxHwCh;
-      ctx.destination.channelCountMode = 'explicit';
-      ctx.destination.channelInterpretation = 'discrete';
-    } catch (e) {
-      console.warn('Discrete multi-channel destination initialization warning:', e);
-    }
-
-    this.multiChannelMerger = ctx.createChannelMerger(maxHwCh);
-    this.jackFrontGain = ctx.createGain(); // Pins 0 & 1: Green Jack (Front L/R)
-    this.jackSubGain = ctx.createGain();   // Pins 2 & 3: Orange Jack (Center/Sub)
-    this.jackRearGain = ctx.createGain();  // Pins 4 & 5: Black Jack (Rear/Delay)
-    this.jackSideGain = ctx.createGain();  // Pins 6 & 7: Gray Jack (Side/Monitors)
-
-    // Master Sanctuary PA feeds Jack 1/2 (Green)
-    this.monitorGain.connect(this.jackFrontGain);
-    this.jackFrontGain.connect(this.multiChannelMerger, 0, 0);
-    this.jackFrontGain.connect(this.multiChannelMerger, 0, 1);
-
-    // Dedicated Sub crossover feeds Jack 3/4 (Orange)
-    if (maxHwCh >= 4) {
-      this.xoverSubDelay.connect(this.jackSubGain);
-      this.jackSubGain.connect(this.multiChannelMerger, 0, 2);
-      this.jackSubGain.connect(this.multiChannelMerger, 0, 3);
-    }
-
-    // Rear Delays / Overflows feed Jack 5/6 (Black)
-    if (maxHwCh >= 6) {
-      this.monitorGain.connect(this.jackRearGain);
-      this.jackRearGain.connect(this.multiChannelMerger, 0, 4);
-      this.jackRearGain.connect(this.multiChannelMerger, 0, 5);
-    }
-
-    // Side / Stage Foldback Wedges feed Jack 7/8 (Gray)
-    if (maxHwCh >= 8) {
-      this.monitorGain.connect(this.jackSideGain);
-      this.jackSideGain.connect(this.multiChannelMerger, 0, 6);
-      this.jackSideGain.connect(this.multiChannelMerger, 0, 7);
-    }
-
-    this.multiChannelMerger.connect(ctx.destination);
-
-    // Secondary dedicated Virtual-Cable / OBS stream sink (runs in parallel with physical speakers)
+    // Secondary dedicated stream / OBS sink (strictly muted until operator explicitly assigns an output endpoint)
     this.streamOutputGain = ctx.createGain();
-    this.streamOutputGain.gain.value = 1;
+    this.streamOutputGain.gain.value = 0;
     this.streamMediaDest = ctx.createMediaStreamDestination();
     this.postAnalyser.connect(this.streamOutputGain);
     this.streamOutputGain.connect(this.streamMediaDest);
@@ -783,20 +731,8 @@ class LiveAudioEngine {
     this.postTimeBuf = new Float32Array(binCount);
   }
 
-  public applySpeakerZones(zones: SpeakerZone[]): void {
-    if (!this.ctx || !this.jackSubGain || !this.jackRearGain || !this.jackSideGain) return;
-    const subZone = zones.find((z) => z.role === 'sub' || z.hardwareOutputId?.includes('jack-3-4'));
-    if (subZone && this.jackSubGain) {
-      this.jackSubGain.gain.value = subZone.mute ? 0 : Math.pow(10, subZone.levelDb / 20);
-    }
-    const delayZone = zones.find((z) => z.role === 'rear-fill' || z.role === 'overflow' || z.hardwareOutputId?.includes('jack-5-6'));
-    if (delayZone && this.jackRearGain) {
-      this.jackRearGain.gain.value = delayZone.mute ? 0 : Math.pow(10, delayZone.levelDb / 20);
-    }
-    const monZone = zones.find((z) => z.role === 'stage-monitor' || z.hardwareOutputId?.includes('jack-7-8'));
-    if (monZone && this.jackSideGain) {
-      this.jackSideGain.gain.value = monZone.mute ? 0 : Math.pow(10, monZone.levelDb / 20);
-    }
+  public applySpeakerZones(_zones: SpeakerZone[]): void {
+    // Zones are routed through the standalone stereo output bus gated by monitorGain.
   }
 
   public applyChannels(channels: InputChannel[]): void {
@@ -1099,7 +1035,7 @@ class LiveAudioEngine {
     }
     this.sourceNodes = [];
 
-    for (const [_, entry] of this.channelSourceStreams) {
+    for (const [, entry] of this.deviceStreams) {
       try {
         entry.node.disconnect();
         entry.stream.getTracks().forEach((t) => {
@@ -1110,8 +1046,8 @@ class LiveAudioEngine {
         // ignore
       }
     }
-    this.channelSourceStreams.clear();
-    this.lastAssignedInputs.clear();
+    this.deviceStreams.clear();
+    this.stripDeviceBindings.clear();
 
     for (const strip of this.channelStrips) {
       try {
@@ -1129,14 +1065,6 @@ class LiveAudioEngine {
     }
     this.channelStrips = [];
 
-    if (this.inputSplitter) {
-      try {
-        this.inputSplitter.disconnect();
-      } catch {
-        // ignore
-      }
-      this.inputSplitter = null;
-    }
     for (const a of this.channelAnalysers) {
       try {
         a.disconnect();
@@ -1161,29 +1089,12 @@ class LiveAudioEngine {
     this.persistentPeakFrames = 0;
   }
 
-  private attachPerChannelStrips(sourceNode: AudioNode, channelCount: number): void {
+  private ensureChannelStrips(requiredCount: number): void {
     if (!this.ctx || !this.busMixSum) return;
     const ctx = this.ctx;
-    // Instantiate full 8 standalone stereo console strips
-    const count = 8;
-    this.capturedChannels = count;
+    const targetCount = Math.max(8, requiredCount);
 
-    if (this.inputSplitter) {
-      try {
-        this.inputSplitter.disconnect();
-      } catch {
-        // ignore
-      }
-      this.inputSplitter = null;
-    }
-
-    this.channelAnalysers = [];
-    this.channelTimeBufs = [];
-    this.channelNoiseFloors = [];
-    this.channelStrips = [];
-
-    for (let ch = 0; ch < count; ch++) {
-      // Pre-fader hardware level analyser (stereo-capable FFT)
+    while (this.channelStrips.length < targetCount) {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.68;
@@ -1191,7 +1102,7 @@ class LiveAudioEngine {
       this.channelTimeBufs.push(new Float32Array(analyser.fftSize));
       this.channelNoiseFloors.push(-96);
 
-      // Per-channel strip DSP: true standalone 2-channel stereo signal path
+      // Per-channel strip DSP: standalone 2-channel stereo signal path
       const preampGain = ctx.createGain();
       preampGain.channelCount = 2;
       preampGain.channelCountMode = 'explicit';
@@ -1247,72 +1158,123 @@ class LiveAudioEngine {
       });
     }
 
-    // Connect sourceNode to Channel 1 (Strip 0) as full standalone stereo!
-    // Channel 1 receives both Left and Right channels without splitting.
-    // Channel 2 is completely independent and standalone.
-    sourceNode.connect(this.channelStrips[0].preampGain);
+    this.capturedChannels = this.channelStrips.length;
   }
 
-  public async assignChannelHardwareInput(channelIndex: number, deviceId: string): Promise<void> {
-    if (!this.ctx || !this.channelStrips[channelIndex]) return;
-    const strip = this.channelStrips[channelIndex];
+  private unbindStripDevice(stripIndex: number): void {
+    const prevId = this.stripDeviceBindings.get(stripIndex);
+    const strip = this.channelStrips[stripIndex];
+    if (!prevId) return;
 
-    const existing = this.channelSourceStreams.get(channelIndex);
-    if (existing) {
+    this.stripDeviceBindings.delete(stripIndex);
+    const entry = this.deviceStreams.get(prevId);
+    if (!entry) return;
+
+    entry.strips.delete(stripIndex);
+    if (strip) {
       try {
-        existing.node.disconnect();
-        existing.stream.getTracks().forEach((t) => {
+        entry.node.disconnect(strip.preampGain);
+      } catch {
+        // node may already be disconnected from this target
+      }
+    }
+
+    if (entry.strips.size === 0) {
+      try {
+        entry.node.disconnect();
+        entry.stream.getTracks().forEach((t) => {
           t.onended = null;
           t.stop();
         });
       } catch {
-        // ignore
+        // ignore track stop cleanup
       }
-      this.channelSourceStreams.delete(channelIndex);
-    }
-
-    if (!deviceId || deviceId === 'none' || deviceId === 'default') {
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: { exact: deviceId },
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: { ideal: 2 },
-          sampleRate: { ideal: 48000 },
-        },
-      });
-      const node = this.ctx.createMediaStreamSource(stream);
-      node.connect(strip.preampGain);
-      this.channelSourceStreams.set(channelIndex, { stream, node });
-    } catch (err) {
-      console.warn(`Failed to open dedicated stereo stream for CH${channelIndex + 1}:`, err);
+      this.deviceStreams.delete(prevId);
     }
   }
 
-  public syncChannelHardwareInputs(channels: InputChannel[]): void {
-    if (!this.ctx || this.channelStrips.length === 0 || !this.isRunning) return;
-    for (let i = 0; i < Math.min(this.channelStrips.length, channels.length); i++) {
+  public syncChannelHardwareInputs(channels: InputChannel[]): Promise<void> {
+    this.syncQueuePromise = this.syncQueuePromise
+      .then(() => this.applyChannelHardwareBindings(channels))
+      .catch(() => {});
+    return this.syncQueuePromise;
+  }
+
+  private async applyChannelHardwareBindings(channels: InputChannel[]): Promise<void> {
+    if (!this.ctx || !this.isRunning || this.sourceMode !== 'live-mic') return;
+
+    this.ensureChannelStrips(Math.max(8, channels.length));
+    this.applyChannels(channels);
+
+    const activeLabels: string[] = [];
+
+    for (let i = 0; i < this.channelStrips.length; i++) {
       const ch = channels[i];
-      const targetDevId = ch.hardwareInputId || '';
-      const currentDevId = this.lastAssignedInputs.get(i) || '';
+      const rawDevId = ch?.hardwareInputId || '';
+      const targetDevId =
+        !rawDevId || rawDevId === 'none' || rawDevId === 'default' || rawDevId === 'communications'
+          ? ''
+          : rawDevId;
+      const currentDevId = this.stripDeviceBindings.get(i) || '';
+
       if (targetDevId !== currentDevId) {
-        this.lastAssignedInputs.set(i, targetDevId);
+        this.unbindStripDevice(i);
+
         if (targetDevId) {
-          void this.assignChannelHardwareInput(i, targetDevId);
+          this.stripDeviceBindings.set(i, targetDevId);
+          const strip = this.channelStrips[i];
+          let entry = this.deviceStreams.get(targetDevId);
+
+          if (!entry && strip) {
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                  deviceId: { exact: targetDevId },
+                  echoCancellation: false,
+                  noiseSuppression: false,
+                  autoGainControl: false,
+                  channelCount: { ideal: 2 },
+                  sampleRate: { ideal: 48000 },
+                },
+              });
+
+              // Verify binding did not change while awaiting permission/stream open
+              if (this.stripDeviceBindings.get(i) !== targetDevId || !this.isRunning || !this.ctx) {
+                stream.getTracks().forEach((t) => t.stop());
+                continue;
+              }
+
+              const node = this.ctx.createMediaStreamSource(stream);
+              entry = { stream, node, strips: new Set() };
+              this.deviceStreams.set(targetDevId, entry);
+            } catch (err) {
+              this.stripDeviceBindings.delete(i);
+              console.warn(`Failed to open dedicated stereo stream for CH${i + 1}:`, err);
+            }
+          }
+
+          if (entry && strip) {
+            entry.node.connect(strip.preampGain);
+            entry.strips.add(i);
+          }
         }
       }
+
+      if (targetDevId && ch?.hardwareInputLabel) {
+        activeLabels.push(ch.hardwareInputLabel);
+      }
+    }
+
+    if (activeLabels.length === 1) {
+      this.activeInputLabel = activeLabels[0];
+    } else if (activeLabels.length > 1) {
+      this.activeInputLabel = `${activeLabels.length} Live Stereo Inputs`;
+    } else {
+      this.activeInputLabel = 'Ready — Assign or Scan Live Inputs';
     }
   }
 
-  private async setupSource(
-    mode: AudioSourceSimulation,
-    preferredDeviceId?: string
-  ): Promise<void> {
+  private async setupSource(mode: AudioSourceSimulation): Promise<void> {
     if (!this.ctx || !this.busMixSum) return;
     const ctx = this.ctx;
 
@@ -1331,7 +1293,7 @@ class LiveAudioEngine {
           channelCount: { ideal: 2 },
           sampleRate: { ideal: 48000 },
         },
-        // Non-standard Chromium hint to include system audio checkbox by default
+        // Opt-in desktop loopback explicitly requested by operator
         ...({ systemAudio: 'include' } as Record<string, unknown>),
       } as DisplayMediaStreamOptions);
 
@@ -1343,7 +1305,6 @@ class LiveAudioEngine {
         );
       }
 
-      // Mute companion video frames without calling .stop() (stopping video kills audio on some Chromium versions)
       stream.getVideoTracks().forEach((vt) => {
         vt.enabled = false;
       });
@@ -1355,14 +1316,13 @@ class LiveAudioEngine {
         this.onSourceEndedCb?.();
       };
 
-      const settings = audioTrack.getSettings ? audioTrack.getSettings() : {};
-      const chCount = Math.max(1, Math.min(8, settings.channelCount ?? 2));
       this.activeInputLabel = audioTrack.label
         ? `Desktop Loopback: ${audioTrack.label}`
         : 'Desktop Audio (System / Browser Loopback)';
 
+      this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
       const desktopNode = ctx.createMediaStreamSource(stream);
-      this.attachPerChannelStrips(desktopNode, chCount);
+      desktopNode.connect(this.channelStrips[0].preampGain);
       this.sourceNodes.push(desktopNode);
       return;
     }
@@ -1371,40 +1331,8 @@ class LiveAudioEngine {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('Browser mediaDevices.getUserMedia is unavailable in this environment.');
       }
-      const baseAudioConstraints: MediaTrackConstraints = {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        channelCount: { ideal: 8 },
-        sampleRate: { ideal: 48000 },
-      };
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio:
-            preferredDeviceId && preferredDeviceId !== 'default'
-              ? { ...baseAudioConstraints, deviceId: { exact: preferredDeviceId } }
-              : baseAudioConstraints,
-        });
-      } catch {
-        // Fallback to default capture device if exact ID changed or was unplugged
-        stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudioConstraints });
-      }
-      this.activeStream = stream;
-      const track = stream.getAudioTracks()[0];
-      if (track) {
-        track.onended = () => {
-          this.stop();
-          this.onSourceEndedCb?.();
-        };
-      }
-      const settings = track?.getSettings ? track.getSettings() : {};
-      const chCount = Math.max(1, Math.min(8, settings.channelCount ?? 2));
-      this.activeInputLabel = track?.label || 'System Audio Input';
-
-      const micNode = ctx.createMediaStreamSource(stream);
-      this.attachPerChannelStrips(micNode, chCount);
-      this.sourceNodes.push(micNode);
+      this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
+      await this.syncChannelHardwareInputs(this.lastChannels);
       return;
     }
 
@@ -1435,7 +1363,8 @@ class LiveAudioEngine {
     calGain.gain.value = 0.65;
     noiseSrc.connect(calGain);
     this.activeInputLabel = 'Calibration: Pink Noise (-20 dBFS)';
-    this.attachPerChannelStrips(calGain, 2);
+    this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
+    calGain.connect(this.channelStrips[0].preampGain);
     noiseSrc.start();
     this.sourceNodes.push(noiseSrc, calGain);
   }
@@ -1905,6 +1834,12 @@ async function enumerateAudioDevicesByKind(kind: MediaDeviceKind): Promise<Media
   }
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
+    if (kind === 'audioinput') {
+      return deduplicateMediaDevices(devices, 'audioinput', { excludeLoopbacks: true });
+    }
+    if (kind === 'audiooutput') {
+      return deduplicateMediaDevices(devices, 'audiooutput');
+    }
     return devices.filter((d) => d.kind === kind);
   } catch (err) {
     console.warn(`enumerateAudioDevices(${kind}) failed:`, err);

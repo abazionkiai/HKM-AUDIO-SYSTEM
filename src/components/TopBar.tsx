@@ -66,8 +66,6 @@ interface TopBarProps {
   onOpenShortcuts: () => void;
   shortcutsArmed: boolean;
   inputDevices?: MediaDeviceInfo[];
-  activeInputDeviceId?: string;
-  onSelectInputDevice?: (deviceId: string) => void;
   outputDevices?: MediaDeviceInfo[];
   activeOutputDeviceId?: string;
   onSelectOutputDevice?: (deviceId: string) => void;
@@ -122,8 +120,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenShortcuts,
   shortcutsArmed,
   inputDevices = [],
-  activeInputDeviceId,
-  onSelectInputDevice,
   outputDevices = [],
   activeOutputDeviceId = '',
   onSelectOutputDevice,
@@ -286,38 +282,24 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </button>
               </div>
 
-              {/* Quick Input & Master Output Selectors */}
+              {/* Quick Source Mode & Master Output Selectors */}
               <div className="space-y-2">
                 <div>
                   <label className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase mb-1">
                     <Mic className="w-3 h-3 text-teal-400" />
-                    <span>Primary Audio Input Source</span>
+                    <span>Audio Engine Source Mode ({inputDevices.length} Live In)</span>
                   </label>
                   <select
-                    aria-label="Audio Input Source"
-                    value={audioSource === 'live-mic' ? (activeInputDeviceId || '') : audioSource}
+                    aria-label="Audio Engine Source Mode"
+                    value={audioSource}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === 'desktop-audio' || val === 'pink-noise') {
-                        onSourceChange(val as AudioSourceSimulation);
-                      } else {
-                        onSourceChange('live-mic');
-                        if (onSelectInputDevice) onSelectInputDevice(val);
-                      }
+                      onSourceChange(e.target.value as AudioSourceSimulation);
                     }}
                     className="w-full h-8 px-2 rounded border border-[#293544] bg-[#090D12] text-slate-200 text-[11px] focus:outline-none focus:border-teal-400"
                   >
-                    {inputDevices.length === 0 ? (
-                      <option value="">System Default Live Mic</option>
-                    ) : (
-                      inputDevices.map((d, idx) => (
-                        <option key={`in-pop-${d.deviceId}-${idx}`} value={d.deviceId}>
-                          {d.label || `Audio Input ${idx + 1}`}
-                        </option>
-                      ))
-                    )}
-                    <option value="desktop-audio">Desktop Loopback (OBS/App)</option>
-                    <option value="pink-noise">Pink Noise Ref (-20dB)</option>
+                    <option value="live-mic">Live Console Inputs (Auto-Slotted CH1–CH{Math.max(1, inputDevices.length)})</option>
+                    <option value="desktop-audio">Desktop Audio Loopback (Manual Opt-In)</option>
+                    <option value="pink-noise">Calibration Pink Noise (-20 dBFS)</option>
                   </select>
                 </div>
 

@@ -42,7 +42,7 @@ export const SpeakerZonesModule: React.FC<SpeakerZonesModuleProps> = ({
   emergencyMuted = false,
   onToggleEmergencyMute,
 }) => {
-  const [selectedId, setSelectedId] = useState<string>(zones[0]?.id ?? 'zone-main-l');
+  const [selectedId, setSelectedId] = useState<string>(zones[0]?.id ?? 'zone-front-main');
   const [topologyTab, setTopologyTab] = useState<'live' | 'signal' | 'system'>('live');
   const [distributedMutes, setDistributedMutes] = useState<Record<string, boolean>>({});
   const selectedZone = zones.find((z) => z.id === selectedId) ?? zones[0];
