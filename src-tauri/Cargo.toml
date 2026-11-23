@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "church-audio-intelligence"
-version = "0.2.31"
+version = "0.2.32"
 description = "Church Audio Intelligence desktop application"
 authors = ["HKM Audio System"]
 edition = "2021"
