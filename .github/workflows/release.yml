@@ -35,6 +35,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build and stage Windows audio APO
+        shell: pwsh
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --package hkm_audio_apo --release --target x86_64-pc-windows-msvc
+          $apoBuild = "src-tauri/target/x86_64-pc-windows-msvc/release/hkm_audio_apo.dll"
+          if (-not (Test-Path $apoBuild -PathType Leaf)) {
+            throw "Windows audio APO build did not produce $apoBuild"
+          }
+          New-Item -ItemType Directory -Force -Path "src-tauri/resources" | Out-Null
+          Copy-Item $apoBuild "src-tauri/resources/hkm_audio_apo.dll" -Force
+
       - name: Build Tauri Desktop Application
         uses: tauri-apps/tauri-action@v0
         env:
