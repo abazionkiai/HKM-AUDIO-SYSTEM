@@ -40,15 +40,22 @@ export class SourceCaptureManager {
   >();
   private stripDeviceBindings = new Map<number, string>();
   private desktopWorkletPromise: Promise<void> | null = null;
+  private desktopWorkletCtx: AudioContext | null = null;
   private syncQueuePromise: Promise<void> = Promise.resolve();
+  private captureEpoch = 0;
 
   private activeInputLabel: string | null = null;
   private activeDisplaySurface: string | null = null;
   private activeSuppressLocalPlayback = false;
   private onSourceEndedCb: (() => void) | null = null;
+  private onInputsUnlockedCb: (() => void) | null = null;
 
   public setOnSourceEnded(cb: (() => void) | null): void {
     this.onSourceEndedCb = cb;
+  }
+
+  public setOnInputsUnlocked(cb: (() => void) | null): void {
+    this.onInputsUnlockedCb = cb;
   }
 
   public getActiveInputLabel(): string | null {
@@ -64,10 +71,41 @@ export class SourceCaptureManager {
   }
 
   private async ensureDesktopWorklet(ctx: AudioContext): Promise<void> {
-    if (!this.desktopWorkletPromise) {
+    if (this.desktopWorkletCtx !== ctx || !this.desktopWorkletPromise) {
+      this.desktopWorkletCtx = ctx;
       this.desktopWorkletPromise = ctx.audioWorklet.addModule('/desktop-loopback-worklet.js');
     }
     await this.desktopWorkletPromise;
+  }
+
+  private async openHardwareMicStream(targetDevId: string): Promise<MediaStream> {
+    const baseConstraints: MediaTrackConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: 2 },
+      sampleRate: { ideal: 48000 },
+    };
+
+    if (!targetDevId || targetDevId === 'default') {
+      return navigator.mediaDevices.getUserMedia({ audio: baseConstraints });
+    }
+
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...baseConstraints,
+          deviceId: { exact: targetDevId },
+        },
+      });
+    } catch (err) {
+      const errName = err instanceof Error ? err.name : '';
+      if (errName === 'OverconstrainedError' || errName === 'NotFoundError') {
+        // Retry clean OS default microphone when a persisted deviceId rotated across sessions
+        return navigator.mediaDevices.getUserMedia({ audio: baseConstraints });
+      }
+      throw err;
+    }
   }
 
   private unbindStripDevice(stripIndex: number, stripBank: ChannelStripBank): void {
@@ -133,8 +171,9 @@ export class SourceCaptureManager {
     channels: InputChannel[],
     stripBank: ChannelStripBank
   ): Promise<void> {
+    const epoch = this.captureEpoch;
     const pending = this.syncQueuePromise.then(() =>
-      this.applyBindings(ctx, isRunning, sourceMode, channels, stripBank)
+      this.applyBindings(ctx, epoch, isRunning, sourceMode, channels, stripBank)
     );
     this.syncQueuePromise = pending.catch(() => {});
     return pending;
@@ -142,26 +181,28 @@ export class SourceCaptureManager {
 
   private async applyBindings(
     ctx: AudioContext | null,
+    epoch: number,
     isRunning: boolean,
     sourceMode: AudioSourceSimulation,
     channels: InputChannel[],
     stripBank: ChannelStripBank
   ): Promise<void> {
-    if (!ctx || !isRunning || sourceMode !== 'live-mic') return;
+    if (!ctx || !isRunning || sourceMode !== 'live-mic' || epoch !== this.captureEpoch) return;
 
     stripBank.ensureStrips(Math.max(8, channels.length));
     stripBank.applyChannels(channels, sourceMode);
 
     const activeLabels: string[] = [];
     const totalStrips = stripBank.getStripCount();
+    let unlockedPermissionDuringBind = false;
+    let lastMicError: unknown = null;
 
     for (let i = 0; i < totalStrips; i++) {
+      if (epoch !== this.captureEpoch) return;
+
       const ch = channels[i];
       const rawDevId = ch?.hardwareInputId || '';
-      const targetDevId =
-        !rawDevId || rawDevId === 'none' || rawDevId === 'default' || rawDevId === 'communications'
-          ? ''
-          : rawDevId;
+      const targetDevId = !rawDevId || rawDevId === 'none' || rawDevId === 'communications' ? '' : rawDevId;
       const currentDevId = this.stripDeviceBindings.get(i) || '';
 
       if (targetDevId !== currentDevId) {
@@ -176,7 +217,7 @@ export class SourceCaptureManager {
             if (!nativeEntry && strip) {
               try {
                 await this.ensureDesktopWorklet(ctx);
-                if (this.stripDeviceBindings.get(i) !== targetDevId || !isRunning) {
+                if (epoch !== this.captureEpoch || this.stripDeviceBindings.get(i) !== targetDevId) {
                   continue;
                 }
                 const workletNode = new AudioWorkletNode(ctx, 'desktop-loopback-processor', {
@@ -193,7 +234,7 @@ export class SourceCaptureManager {
                   }
                 });
 
-                if (this.stripDeviceBindings.get(i) !== targetDevId || !isRunning) {
+                if (epoch !== this.captureEpoch || this.stripDeviceBindings.get(i) !== targetDevId) {
                   workletNode.disconnect();
                   void stopNativeDesktopCapture(targetDevId);
                   continue;
@@ -215,6 +256,7 @@ export class SourceCaptureManager {
               nativeEntry.node.connect(strip.preampGain);
               nativeEntry.strips.add(i);
               stripBank.setStripActiveConnection(i, true);
+              activeLabels.push(ch?.hardwareInputLabel || 'Desktop Audio');
             } else {
               stripBank.setStripActiveConnection(i, false);
             }
@@ -223,20 +265,15 @@ export class SourceCaptureManager {
 
             if (!entry && strip) {
               try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                  audio: {
-                    deviceId: { exact: targetDevId },
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false,
-                    channelCount: { ideal: 2 },
-                    sampleRate: { ideal: 48000 },
-                  },
-                });
+                const stream = await this.openHardwareMicStream(targetDevId);
 
-                if (this.stripDeviceBindings.get(i) !== targetDevId || !isRunning) {
+                if (epoch !== this.captureEpoch || this.stripDeviceBindings.get(i) !== targetDevId) {
                   stream.getTracks().forEach((t) => t.stop());
                   continue;
+                }
+
+                if (targetDevId === 'default') {
+                  unlockedPermissionDuringBind = true;
                 }
 
                 const node = ctx.createMediaStreamSource(stream);
@@ -244,6 +281,7 @@ export class SourceCaptureManager {
                 this.deviceStreams.set(targetDevId, entry);
               } catch (err) {
                 this.stripDeviceBindings.delete(i);
+                lastMicError = err;
                 console.warn(`Failed to open dedicated stereo stream for CH${i + 1}:`, err);
               }
             }
@@ -252,6 +290,8 @@ export class SourceCaptureManager {
               entry.node.connect(strip.preampGain);
               entry.strips.add(i);
               stripBank.setStripActiveConnection(i, true);
+              const trackLabel = entry.stream.getAudioTracks()[0]?.label;
+              activeLabels.push(ch?.hardwareInputLabel || trackLabel || `Input ${i + 1}`);
             } else {
               stripBank.setStripActiveConnection(i, false);
             }
@@ -259,11 +299,52 @@ export class SourceCaptureManager {
         } else {
           stripBank.setStripActiveConnection(i, false);
         }
+      } else if (targetDevId) {
+        const hasStream = isNativeDesktopInputId(targetDevId)
+          ? this.nativeStreams.has(targetDevId)
+          : this.deviceStreams.has(targetDevId);
+        if (hasStream) {
+          activeLabels.push(ch?.hardwareInputLabel || `Input ${i + 1}`);
+        }
+      }
+    }
+
+    if (epoch !== this.captureEpoch) return;
+
+    // If zero streams opened despite live-mic mode (e.g. first run before mic permission unlock),
+    // acquire default microphone onto CH1 and notify caller to refresh concrete device labels.
+    if (this.deviceStreams.size === 0 && this.nativeStreams.size === 0) {
+      if (lastMicError && channels.some((c) => Boolean(c.hardwareInputId))) {
+        throw lastMicError instanceof Error
+          ? lastMicError
+          : new Error('Unable to access any microphone input.');
       }
 
-      if (targetDevId && ch?.hardwareInputLabel) {
-        activeLabels.push(ch.hardwareInputLabel);
+      const strip0 = stripBank.getStrip(0);
+      if (strip0 && typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getUserMedia === 'function') {
+        const fallbackStream = await this.openHardwareMicStream('default');
+        if (epoch !== this.captureEpoch) {
+          fallbackStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        const fallbackNode = ctx.createMediaStreamSource(fallbackStream);
+        const fallbackEntry = {
+          stream: fallbackStream,
+          node: fallbackNode,
+          strips: new Set<number>([0]),
+        };
+        this.deviceStreams.set('default', fallbackEntry);
+        this.stripDeviceBindings.set(0, 'default');
+        fallbackNode.connect(strip0.preampGain);
+        stripBank.setStripActiveConnection(0, true);
+        const trackLabel = fallbackStream.getAudioTracks()[0]?.label || 'Default Audio Input';
+        activeLabels.push(trackLabel);
+        unlockedPermissionDuringBind = true;
       }
+    }
+
+    if (unlockedPermissionDuringBind) {
+      this.onInputsUnlockedCb?.();
     }
 
     if (activeLabels.length === 1) {
@@ -294,6 +375,7 @@ export class SourceCaptureManager {
       specializedDesktopLabel,
     } = params;
 
+    const epoch = ++this.captureEpoch;
     stripBank.ensureStrips(Math.max(8, channels.length));
 
     if (mode === 'desktop-audio') {
@@ -310,6 +392,7 @@ export class SourceCaptureManager {
 
       if (desktopCaptureMethod === 'native-wasapi' && isDesktopApp()) {
         await this.ensureDesktopWorklet(ctx);
+        if (epoch !== this.captureEpoch) return {};
         const workletNode = new AudioWorkletNode(ctx, 'desktop-loopback-processor', {
           numberOfInputs: 0,
           numberOfOutputs: 1,
@@ -323,6 +406,11 @@ export class SourceCaptureManager {
             // ignore
           }
         });
+        if (epoch !== this.captureEpoch) {
+          workletNode.disconnect();
+          void stopNativeDesktopCapture(streamKey);
+          return {};
+        }
         this.nativeStreams.set(streamKey, {
           node: workletNode,
           strips: new Set([0]),
@@ -346,6 +434,14 @@ export class SourceCaptureManager {
         specializedLabel: specializedDesktopLabel,
       });
 
+      if (epoch !== this.captureEpoch) {
+        acquired.stream.getTracks().forEach((t) => {
+          t.onended = null;
+          t.stop();
+        });
+        return {};
+      }
+
       this.activeStream = acquired.stream;
       this.activeDisplaySurface = acquired.displaySurface;
       this.activeSuppressLocalPlayback = acquired.suppressLocalAudioPlayback;
@@ -368,7 +464,7 @@ export class SourceCaptureManager {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('Browser mediaDevices.getUserMedia is unavailable in this environment.');
       }
-      await this.applyBindings(ctx, true, 'live-mic', channels, stripBank);
+      await this.applyBindings(ctx, epoch, true, 'live-mic', channels, stripBank);
       return {};
     }
 
@@ -406,6 +502,8 @@ export class SourceCaptureManager {
   }
 
   public teardown(stripBank: ChannelStripBank): void {
+    this.captureEpoch += 1;
+
     for (const node of this.sourceNodes) {
       try {
         node.disconnect();

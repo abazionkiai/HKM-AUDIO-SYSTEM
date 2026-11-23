@@ -185,7 +185,7 @@ export const MasterPreviewDock: React.FC<MasterPreviewDockProps> = ({
         ...dsp.cleanStandby,
         dcBlockerEnabled: true,
         adaptiveStandbyGate: true,
-        standbyGateThresholdDb: dsp.cleanStandby?.standbyGateThresholdDb ?? -56,
+        standbyGateThresholdDb: dsp.cleanStandby?.standbyGateThresholdDb ?? -64,
         mainsHumNotch:
           telemetry.humRisk.fundamentalHz === 50
             ? '50hz'

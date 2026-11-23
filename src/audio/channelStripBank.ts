@@ -206,14 +206,11 @@ export class ChannelStripBank {
 
       strip.pannerNode.pan.setTargetAtTime(clamp((ch.pan || 0) / 100, -1, 1), now, 0.015);
 
-      // An unassigned strip at default -48 dB floor should pass unity audio when acting as the Bridge/Pink strip
-      const useUnityFader = isBridgeStrip && !ch.hardwareInputId && ch.faderDb <= -47.5;
-      const effectiveFaderDb = useUnityFader ? 0 : ch.faderDb;
       const isSuppressed =
         ch.mute ||
         (anySolo && !ch.solo) ||
-        (!useUnityFader && effectiveFaderDb <= -47.5);
-      const faderLinear = isSuppressed ? 0 : dbToLinear(effectiveFaderDb);
+        ch.faderDb <= -47.5;
+      const faderLinear = isSuppressed ? 0 : dbToLinear(ch.faderDb);
 
       strip.faderGain.gain.setTargetAtTime(faderLinear, now, 0.015);
     }

@@ -370,7 +370,9 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             {bankChannels.map((ch, idx) => {
               const globalIdx = bankStart + idx;
               const isSelected = ch.id === selectedChannel?.id;
-              const isAssigned = Boolean(ch.hardwareInputId);
+              const isBridgeSlot =
+                ch.index === 1 && (audioSource === 'desktop-audio' || audioSource === 'pink-noise');
+              const isAssigned = Boolean(ch.hardwareInputId) || isBridgeSlot;
               const rmsDb =
                 isAssigned && engineRunning && !ch.mute
                   ? fastChRms[globalIdx] ?? telemetry.channelLevels?.[globalIdx]?.rmsDb ?? ch.levelDb
@@ -920,7 +922,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                       <button
                         type="button"
                         disabled={locked}
-                        onClick={() => onSelectStreamOutputDevice(dev.deviceId)}
+                        onClick={() => onSelectStreamOutputDevice(isStreamOut ? '' : dev.deviceId)}
                         className={`py-1 rounded font-mono text-[8.5px] font-bold cursor-pointer disabled:opacity-45 ${
                           isStreamOut
                             ? 'bg-violet-600 text-white border border-violet-300'

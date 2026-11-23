@@ -191,6 +191,7 @@ interface LiveConsoleModuleProps {
   dsp: DspConfig;
   onUpdateDsp: (patch: Partial<DspConfig>) => void;
   telemetry: SignalTelemetry;
+  audioSource?: 'live-mic' | 'desktop-audio' | 'pink-noise';
   presets?: ServicePreset[];
   activePreset?: ServicePreset;
   onSelectPreset?: (preset: ServicePreset) => void;
@@ -298,6 +299,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
   dsp,
   onUpdateDsp,
   telemetry,
+  audioSource,
   presets = [],
   activePreset,
   onSelectPreset,
@@ -429,7 +431,9 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
 
       curChannels.forEach((ch, idx) => {
         const refs = channelRefs.current[ch.id];
-        const isSuppressed = !ch.hardwareInputId || ch.mute || (anySolo && !ch.solo);
+        const isBridgeSlot = ch.index === 1 && (curTel.source === 'desktop-audio' || curTel.source === 'pink-noise');
+        const isAssigned = Boolean(ch.hardwareInputId) || isBridgeSlot;
+        const isSuppressed = !isAssigned || ch.mute || (anySolo && !ch.solo);
         let targetRms = -96;
         let instantPeak = -96;
 
@@ -1802,7 +1806,10 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
               <div className="overflow-x-auto pb-1 flex-1 min-w-0">
                 <div className="flex gap-2.5 min-w-max">
                   {channels.map((ch, idx) => {
-                    const isAssigned = Boolean(ch.hardwareInputId);
+                    const activeSource = audioSource ?? telemetry.source;
+                    const isAssigned =
+                      Boolean(ch.hardwareInputId) ||
+                      (ch.index === 1 && (activeSource === 'desktop-audio' || activeSource === 'pink-noise'));
                     const isLocked = ch.authority === 'observational';
                     const stripDisabled = isLocked || !isAssigned;
                     const isSelected = selectedChannel?.id === ch.id;

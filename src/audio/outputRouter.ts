@@ -1,4 +1,4 @@
-import type { AudioSourceSimulation } from '../types/audio.ts';
+import type { AudioSourceSimulation, SpeakerZone } from '../types/audio.ts';
 import { isDesktopApp } from '../utils/appApi.ts';
 import { pushRawOutputPcm, startRawOutput, stopRawOutput } from '../utils/nativeDesktopAudio.ts';
 import { clamp, dbToLinear } from './audioUtils.ts';
@@ -12,7 +12,7 @@ import {
 
 /**
  * Manages all Console Outputs + Desktop Audio Self-Loopback Firewall:
- *   1. Main Monitor / PA Output (`monitorGain -> ctx.destination`, supports setSinkId)
+ *   1. Main Monitor / PA Output (`monitorGain -> paZoneDelayNode -> paZoneGainNode -> ctx.destination`)
  *   2. Dedicated Stream / OBS Output (`streamOutputGain -> MediaStreamDestination -> Audio.setSinkId`)
  *   3. Native Windows WASAPI RAW / MFX Output Tap (`rawTapNode -> pushRawOutputPcm`)
  */
@@ -21,6 +21,10 @@ export class OutputRouter {
   private postAnalyser: AnalyserNode | null = null;
 
   private monitorGain: GainNode | null = null;
+  private paZoneDelayNode: DelayNode | null = null;
+  private paZoneGainNode: GainNode | null = null;
+  private lastZones: SpeakerZone[] = [];
+
   private streamOutputGain: GainNode | null = null;
   private streamMediaDest: MediaStreamAudioDestinationNode | null = null;
   private streamAudioEl: HTMLAudioElement | null = null;
@@ -28,6 +32,7 @@ export class OutputRouter {
   private rawTapNode: AudioWorkletNode | null = null;
   private rawTapSilentSink: GainNode | null = null;
   private rawWorkletPromise: Promise<void> | null = null;
+  private rawWorkletCtx: AudioContext | null = null;
 
   // Gain & routing state
   private monitorAudible = false;
@@ -38,6 +43,7 @@ export class OutputRouter {
   private rawOutputEndpointId: string | undefined = undefined;
   private preferredOutputDeviceId: string | undefined = undefined;
   private preferredStreamOutputDeviceId: string | undefined = undefined;
+  private onOutputFallbackCb: ((staleDeviceId: string, reason: string) => void) | null = null;
 
   // Desktop Audio Bridge safety tracking
   private bridgeState: SystemAudioBridgeState = { ...INITIAL_DESKTOP_BRIDGE_STATE };
@@ -51,6 +57,10 @@ export class OutputRouter {
   private outputDeviceMetaCache: MediaDeviceInfo[] = [];
   private bridgeListeners = new Set<(state: SystemAudioBridgeState) => void>();
 
+  public setOnOutputFallback(cb: ((staleDeviceId: string, reason: string) => void) | null): void {
+    this.onOutputFallbackCb = cb;
+  }
+
   public attachGraph(ctx: AudioContext, postAnalyser: AnalyserNode): void {
     this.ctx = ctx;
     this.postAnalyser = postAnalyser;
@@ -61,6 +71,15 @@ export class OutputRouter {
     this.monitorGain.channelCountMode = 'explicit';
     this.monitorGain.channelInterpretation = 'speakers';
 
+    this.paZoneDelayNode = ctx.createDelay(0.5);
+    this.paZoneDelayNode.delayTime.value = 0;
+
+    this.paZoneGainNode = ctx.createGain();
+    this.paZoneGainNode.gain.value = 1;
+    this.paZoneGainNode.channelCount = 2;
+    this.paZoneGainNode.channelCountMode = 'explicit';
+    this.paZoneGainNode.channelInterpretation = 'speakers';
+
     this.streamOutputGain = ctx.createGain();
     this.streamOutputGain.gain.value = 0;
     this.streamOutputGain.channelCount = 2;
@@ -69,16 +88,38 @@ export class OutputRouter {
 
     this.streamMediaDest = ctx.createMediaStreamDestination();
 
-    // Wire Post-DSP output to both physical monitor and secondary broadcast sink
+    // Wire Post-DSP output to PA Monitor + PA Zone Delay/Trim -> Speakers, plus isolated Stream/OBS bus
     this.postAnalyser.connect(this.monitorGain);
-    this.monitorGain.connect(ctx.destination);
+    this.monitorGain.connect(this.paZoneDelayNode);
+    this.paZoneDelayNode.connect(this.paZoneGainNode);
+    this.paZoneGainNode.connect(ctx.destination);
 
     this.postAnalyser.connect(this.streamOutputGain);
     this.streamOutputGain.connect(this.streamMediaDest);
 
+    if (this.lastZones.length > 0) {
+      this.applySpeakerZones(this.lastZones);
+    }
+
     if (this.preferredStreamOutputDeviceId) {
       void this.setStreamOutputDevice(this.preferredStreamOutputDeviceId);
     }
+  }
+
+  public applySpeakerZones(zones: SpeakerZone[]): void {
+    this.lastZones = zones;
+    if (!this.ctx || !this.paZoneDelayNode || !this.paZoneGainNode || zones.length === 0) return;
+
+    const mainZone = zones.find((z) => z.role === 'main-lr') ?? zones[0];
+    if (!mainZone) return;
+
+    const now = this.ctx.currentTime;
+    const delaySec = clamp((mainZone.delayMs || 0) / 1000, 0, 0.5);
+    const sign = mainZone.polarityInverted ? -1 : 1;
+    const gainLinear = mainZone.mute ? 0 : dbToLinear(clamp(mainZone.levelDb ?? 0, -48, 12)) * sign;
+
+    this.paZoneDelayNode.delayTime.setTargetAtTime(delaySec, now, 0.015);
+    this.paZoneGainNode.gain.setTargetAtTime(gainLinear, now, 0.015);
   }
 
   public getDesktopBridgeState(): SystemAudioBridgeState {
@@ -252,6 +293,15 @@ export class OutputRouter {
         params.isRunning &&
         !streamBlocked;
       this.streamOutputGain.gain.setTargetAtTime(streamActive ? 1 : 0, this.ctx.currentTime, 0.02);
+
+      if (streamActive && this.streamAudioEl) {
+        if (!this.streamAudioEl.srcObject && this.streamMediaDest) {
+          this.streamAudioEl.srcObject = this.streamMediaDest.stream;
+        }
+        if (this.streamAudioEl.paused) {
+          void this.streamAudioEl.play().catch(() => {});
+        }
+      }
     }
   }
 
@@ -291,21 +341,52 @@ export class OutputRouter {
     return this.rawOutputEndpointId;
   }
 
-  public async setOutputDevice(deviceId?: string): Promise<boolean> {
+  public async setOutputDevice(
+    deviceId?: string,
+    options?: { allowFallbackToDefault?: boolean }
+  ): Promise<boolean> {
     const cleanId = (deviceId || '').split('::')[0];
     this.preferredOutputDeviceId = cleanId || undefined;
     if (!this.ctx) return true;
 
-    if ('setSinkId' in this.ctx && typeof (this.ctx as unknown as { setSinkId?: (id: string) => Promise<void> }).setSinkId === 'function') {
+    const ctxWithSink = this.ctx as unknown as { setSinkId?: (id: string) => Promise<void> };
+    const hasSetSinkId = 'setSinkId' in this.ctx && typeof ctxWithSink.setSinkId === 'function';
+
+    if (hasSetSinkId && ctxWithSink.setSinkId) {
       try {
-        await (this.ctx as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(cleanId || '');
+        await ctxWithSink.setSinkId(cleanId || '');
         return true;
       } catch (err) {
         console.warn('AudioContext.setSinkId failed:', err);
+        if (cleanId && options?.allowFallbackToDefault) {
+          this.preferredOutputDeviceId = undefined;
+          try {
+            await ctxWithSink.setSinkId('');
+          } catch {
+            // ignore fallback sink reset failure
+          }
+          this.onOutputFallbackCb?.(
+            cleanId,
+            'Saved audio output device is unavailable; routed safely to System Default Output.'
+          );
+          return true;
+        }
         return false;
       }
     }
-    return !cleanId || cleanId === 'default';
+
+    if (!cleanId || cleanId === 'default') return true;
+
+    if (options?.allowFallbackToDefault) {
+      this.preferredOutputDeviceId = undefined;
+      this.onOutputFallbackCb?.(
+        cleanId,
+        'AudioContext output selection is unsupported in this browser; using System Default Output.'
+      );
+      return true;
+    }
+
+    return false;
   }
 
   public async setStreamOutputDevice(deviceId?: string): Promise<boolean> {
@@ -319,7 +400,8 @@ export class OutputRouter {
       return true;
     }
     if (!this.ctx || !this.streamMediaDest) {
-      return false;
+      // Stored in preferredStreamOutputDeviceId; attachGraph() will wire it when engine starts
+      return true;
     }
     try {
       if (!this.streamAudioEl && typeof Audio !== 'undefined') {
@@ -342,7 +424,8 @@ export class OutputRouter {
 
   private async ensureRawTapWorklet(): Promise<void> {
     if (!this.ctx) throw new Error('AudioContext not initialized');
-    if (!this.rawWorkletPromise) {
+    if (this.rawWorkletCtx !== this.ctx || !this.rawWorkletPromise) {
+      this.rawWorkletCtx = this.ctx;
       this.rawWorkletPromise = this.ctx.audioWorklet.addModule('/raw-output-tap-worklet.js');
     }
     await this.rawWorkletPromise;

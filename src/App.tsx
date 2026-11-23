@@ -214,6 +214,24 @@ export default function App() {
     [setFindings]
   );
 
+  const handlePrepareBridgeStrip = useCallback(
+    (mode: 'live-mic' | 'desktop-audio' | 'pink-noise') => {
+      if (mode !== 'desktop-audio' && mode !== 'pink-noise') return;
+      setChannels((prev) => {
+        const ch0 = prev[0];
+        if (!ch0 || ch0.hardwareInputId || ch0.faderDb > -47.5) return prev;
+        return prev.map((c, idx) =>
+          idx === 0 ? { ...c, faderDb: 0, gainDb: 24, mute: false } : c
+        );
+      });
+    },
+    [setChannels]
+  );
+
+  const handleInputsUnlocked = useCallback(() => {
+    void hardware.refreshAudioDevices(false, 'slot-new');
+  }, [hardware.refreshAudioDevices]);
+
   // 3. Live Web Audio DSP Engine Runtime
   const audio = useAudioEngine({
     dsp: session.dsp,
@@ -227,6 +245,8 @@ export default function App() {
     onSendWsTelemetry: handleSendWsTelemetry,
     logAudit,
     onAddFinding: handleAddAutoFinding,
+    onPrepareBridgeStrip: handlePrepareBridgeStrip,
+    onInputsUnlocked: handleInputsUnlocked,
   });
 
   const desktopLoopbackMonitorActive = useMemo(
@@ -904,7 +924,12 @@ export default function App() {
             audioSource={audio.audioSource}
             desktopBridgeState={audio.desktopBridgeState}
             specializedDesktopInputs={hardware.specializedDesktopInputs}
-            onActivateSystemAudioBridge={() => void audio.setDesktopCaptureMethod('display-media', true)}
+            onActivateSystemAudioBridge={() =>
+              void audio.setDesktopCaptureMethod(
+                isDesktopApp() ? 'native-wasapi' : 'display-media',
+                true
+              )
+            }
           />
 
           {/* CENTER PANEL: ALL 16 MODULES DELIVER THEIR CONTENT HERE */}
@@ -938,6 +963,7 @@ export default function App() {
                 onToggleMonitor={audio.handleToggleMonitor}
                 emergencyMuted={session.emergencyMuted}
                 locked={consoleLocked}
+                audioSource={audio.audioSource}
                 onAddEqBand={guardedAddEqBand}
               />
             ) : activeModule === 'console' ? (
@@ -958,6 +984,7 @@ export default function App() {
                 selectedChannelId={selectedChannel?.id ?? 'ch-1'}
                 onSelectChannel={setSelectedChannelId}
                 locked={consoleLocked}
+                audioSource={audio.audioSource}
                 onAddChannel={guardedAddChannel}
                 onAddEqBand={guardedAddEqBand}
                 onRemoveEqBand={session.handleRemoveEqBand}

@@ -154,6 +154,20 @@ export function useHardwareManager({
     }
   }, [preferredOutputDeviceId]);
 
+  useEffect(() => {
+    liveAudioEngine.setOnOutputFallback((staleId, reason) => {
+      setPreferredOutputDeviceId('');
+      setOutputRouteError(null);
+      try {
+        window.localStorage.setItem('church_audio_output_device_id', '');
+      } catch {
+        // ignore storage error
+      }
+      latestRef.current.logAudit('Recovered Audio Output Routing', `${reason} (Cleared stale ID: ${staleId})`, 'system');
+    });
+    return () => liveAudioEngine.setOnOutputFallback(null);
+  }, []);
+
   const handleSelectOutputDevice = useCallback(
     async (deviceId: string) => {
       const cleanId = (deviceId || '').split('::')[0];

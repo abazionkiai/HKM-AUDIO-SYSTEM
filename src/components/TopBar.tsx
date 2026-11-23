@@ -250,7 +250,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           ) : (
             <VolumeX className="w-3.5 h-3.5 text-slate-400" />
           )}
-          <span className="hidden lg:inline">MON</span>
+          <span className="hidden sm:inline">
+            {monitorAudible && !emergencyMuted ? 'MON ON' : 'MON'}
+          </span>
         </button>
 
         {/* System CPU and telemetry scheduling status (opens Hardware Diagnostics) */}

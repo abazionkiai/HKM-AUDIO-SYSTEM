@@ -323,8 +323,8 @@ export class TelemetryAnalyzer {
       const standbyEnabled = standbyCfg
         ? (standbyCfg.standbyGateEnabled ?? standbyCfg.adaptiveStandbyGate) !== false
         : true;
-      const thresholdDb = standbyCfg?.standbyGateThresholdDb ?? -56;
-      const holdSec = (standbyCfg?.standbyGateHoldMs ?? 1000) / 1000;
+      const thresholdDb = standbyCfg?.standbyGateThresholdDb ?? -64;
+      const holdSec = (standbyCfg?.standbyGateHoldMs ?? 2000) / 1000;
 
       if (standbyEnabled) {
         if (preStats.rmsDb < thresholdDb) {

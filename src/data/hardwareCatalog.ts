@@ -692,7 +692,7 @@ export const DEFAULT_DSP_CONFIG: DspConfig = {
     dcBlockerEnabled: true,
     mainsHumNotch: '60hz',
     adaptiveStandbyGate: true,
-    standbyGateThresholdDb: -56,
+    standbyGateThresholdDb: -64,
   },
 };
 

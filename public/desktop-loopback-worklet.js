@@ -2,10 +2,16 @@
  * AudioWorkletProcessor that receives 48 kHz interleaved Float32 stereo frames
  * streamed from the Rust WASAPI process-exclusion loopback engine (or APO bridge)
  * over Tauri v2 binary IPC and outputs smooth stereo audio into a console strip.
+ * Includes a zero-glitch linear resampler whenever the AudioContext runs at a rate != 48 kHz.
  */
 class DesktopLoopbackProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
+    this.inputSampleRate = 48000;
+    this.outputSampleRate = typeof sampleRate === 'number' && sampleRate > 0 ? sampleRate : 48000;
+    this.ratio = this.inputSampleRate / this.outputSampleRate;
+    this.fracPhase = 0;
+
     this.ringFrames = 16384; // ~341ms @ 48kHz
     this.ringL = new Float32Array(this.ringFrames);
     this.ringR = new Float32Array(this.ringFrames);
@@ -13,8 +19,8 @@ class DesktopLoopbackProcessor extends AudioWorkletProcessor {
     this.readPos = 0;
     this.bufferedFrames = 0;
     this.prebuffered = false;
-    this.minPrebufferFrames = 480; // 10ms startup cushion
-    this.maxLatencyFrames = 3840; // 80ms ceiling to stay tight with zero drift
+    this.minPrebufferFrames = 480; // 10ms startup cushion @ 48kHz
+    this.maxLatencyFrames = 3840; // 80ms ceiling @ 48kHz
     this.lastL = 0;
     this.lastR = 0;
 
@@ -33,6 +39,7 @@ class DesktopLoopbackProcessor extends AudioWorkletProcessor {
         const skip = Math.min(this.bufferedFrames, Math.max(0, excess));
         this.readPos = (this.readPos + skip) % this.ringFrames;
         this.bufferedFrames -= skip;
+        this.fracPhase = 0;
       }
 
       for (let i = 0; i < frameCount; i++) {
@@ -73,34 +80,68 @@ class DesktopLoopbackProcessor extends AudioWorkletProcessor {
       this.prebuffered = true;
     }
 
-    if (this.bufferedFrames >= framesNeeded) {
-      for (let i = 0; i < framesNeeded; i++) {
-        const l = this.ringL[this.readPos];
-        const r = this.ringR[this.readPos];
-        this.readPos = (this.readPos + 1) % this.ringFrames;
+    if (Math.abs(this.ratio - 1) < 1e-6) {
+      // Exact 48 kHz 1:1 fast path
+      if (this.bufferedFrames >= framesNeeded) {
+        for (let i = 0; i < framesNeeded; i++) {
+          const l = this.ringL[this.readPos];
+          const r = this.ringR[this.readPos];
+          this.readPos = (this.readPos + 1) % this.ringFrames;
+          outL[i] = l;
+          if (outR !== outL) outR[i] = r;
+          this.lastL = l;
+          this.lastR = r;
+        }
+        this.bufferedFrames -= framesNeeded;
+      } else {
+        for (let i = 0; i < framesNeeded; i++) {
+          if (this.bufferedFrames > 0) {
+            this.lastL = this.ringL[this.readPos];
+            this.lastR = this.ringR[this.readPos];
+            this.readPos = (this.readPos + 1) % this.ringFrames;
+            this.bufferedFrames -= 1;
+          } else {
+            this.lastL = Math.abs(this.lastL) < 1e-5 ? 0 : this.lastL * 0.85;
+            this.lastR = Math.abs(this.lastR) < 1e-5 ? 0 : this.lastR * 0.85;
+          }
+          outL[i] = this.lastL;
+          if (outR !== outL) outR[i] = this.lastR;
+        }
+        if (this.bufferedFrames === 0) {
+          this.prebuffered = false;
+        }
+      }
+      return true;
+    }
+
+    // Fractional linear resampling path (48 kHz WASAPI -> device sampleRate, e.g. 44.1 kHz / 96 kHz)
+    for (let i = 0; i < framesNeeded; i++) {
+      if (this.bufferedFrames >= 2) {
+        const idx0 = this.readPos;
+        const idx1 = (this.readPos + 1) % this.ringFrames;
+        const frac = this.fracPhase;
+        const l = this.ringL[idx0] + (this.ringL[idx1] - this.ringL[idx0]) * frac;
+        const r = this.ringR[idx0] + (this.ringR[idx1] - this.ringR[idx0]) * frac;
         outL[i] = l;
         if (outR !== outL) outR[i] = r;
         this.lastL = l;
         this.lastR = r;
-      }
-      this.bufferedFrames -= framesNeeded;
-    } else {
-      // Smooth exponential decay on underrun to avoid clicks/pops
-      for (let i = 0; i < framesNeeded; i++) {
-        if (this.bufferedFrames > 0) {
-          this.lastL = this.ringL[this.readPos];
-          this.lastR = this.ringR[this.readPos];
-          this.readPos = (this.readPos + 1) % this.ringFrames;
-          this.bufferedFrames -= 1;
-        } else {
-          this.lastL = Math.abs(this.lastL) < 1e-5 ? 0 : this.lastL * 0.85;
-          this.lastR = Math.abs(this.lastR) < 1e-5 ? 0 : this.lastR * 0.85;
+
+        this.fracPhase += this.ratio;
+        const advance = Math.floor(this.fracPhase);
+        if (advance > 0) {
+          const step = Math.min(this.bufferedFrames - 1, advance);
+          this.readPos = (this.readPos + step) % this.ringFrames;
+          this.bufferedFrames -= step;
+          this.fracPhase -= advance;
         }
+      } else {
+        this.lastL = Math.abs(this.lastL) < 1e-5 ? 0 : this.lastL * 0.85;
+        this.lastR = Math.abs(this.lastR) < 1e-5 ? 0 : this.lastR * 0.85;
         outL[i] = this.lastL;
         if (outR !== outL) outR[i] = this.lastR;
-      }
-      if (this.bufferedFrames === 0) {
         this.prebuffered = false;
+        this.fracPhase = 0;
       }
     }
 

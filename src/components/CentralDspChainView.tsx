@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Copy, Check, RotateCcw, Plus } from 'lucide-react';
 import type {
+  AudioSourceSimulation,
   DriverBackend,
   DspConfig,
   HardwareDevice,
@@ -33,6 +34,7 @@ interface CentralDspChainViewProps {
   onToggleMonitor: () => void;
   emergencyMuted: boolean;
   locked?: boolean;
+  audioSource?: AudioSourceSimulation;
   onAddEqBand?: () => void;
 }
 
@@ -361,6 +363,7 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
   onToggleMonitor,
   emergencyMuted,
   locked = false,
+  audioSource,
   onAddEqBand,
 }) => {
   const uid = useId().replace(/:/g, '');
@@ -473,7 +476,9 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
   const fbxActive = !dsp.bypassed && ((dsp.qualityGate?.enabled ?? true) || dsp.hpfEnabled);
   const agcActive = Boolean(dsp.smartAgc?.enabled && !dsp.bypassed);
   const compActive = Boolean(dsp.compressor.enabled && !dsp.bypassed);
-  const chAssigned = Boolean(selectedChannel.hardwareInputId);
+  const chAssigned =
+    Boolean(selectedChannel.hardwareInputId) ||
+    (selectedChannel.index === 1 && (audioSource === 'desktop-audio' || audioSource === 'pink-noise'));
   const chActive = chAssigned && !selectedChannel.mute;
   const monActive = monitorAudible && !emergencyMuted;
   const streamAssigned = selectedChannel.streamAssign ?? true;
@@ -1232,7 +1237,7 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
                           ...dsp.cleanStandby,
                           dcBlockerEnabled: true,
                           adaptiveStandbyGate: true,
-                          standbyGateThresholdDb: dsp.cleanStandby?.standbyGateThresholdDb ?? -56,
+                          standbyGateThresholdDb: dsp.cleanStandby?.standbyGateThresholdDb ?? -64,
                           mainsHumNotch: nextHum,
                         },
                       });

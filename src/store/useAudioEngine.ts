@@ -65,6 +65,22 @@ interface UseAudioEngineProps {
   onSendWsTelemetry?: (telemetry: SignalTelemetry) => void;
   logAudit: (action: string, detail: string, authority?: AuditAuthority) => void;
   onAddFinding?: (finding: DiagnosticFinding) => void;
+  onPrepareBridgeStrip?: (mode: AudioSourceSimulation) => void;
+  onInputsUnlocked?: () => void;
+}
+
+function prepareChannelsForSource(
+  currentChannels: InputChannel[],
+  source: AudioSourceSimulation
+): InputChannel[] {
+  if (source !== 'desktop-audio' && source !== 'pink-noise') {
+    return currentChannels;
+  }
+  return currentChannels.map((ch, idx) =>
+    idx === 0 && !ch.hardwareInputId && ch.faderDb <= -47.5
+      ? { ...ch, faderDb: 0, gainDb: 24, mute: false }
+      : ch
+  );
 }
 
 export function useAudioEngine({
@@ -79,6 +95,8 @@ export function useAudioEngine({
   onSendWsTelemetry,
   logAudit,
   onAddFinding,
+  onPrepareBridgeStrip,
+  onInputsUnlocked,
 }: UseAudioEngineProps) {
   const [audioSource, setAudioSource] = useState<AudioSourceSimulation>('live-mic');
   const [engineRunning, setEngineRunning] = useState(false);
@@ -115,6 +133,10 @@ export function useAudioEngine({
   audioSourceRef.current = audioSource;
   const engineRunningRef = useRef(engineRunning);
   engineRunningRef.current = engineRunning;
+  const onPrepareBridgeStripRef = useRef(onPrepareBridgeStrip);
+  onPrepareBridgeStripRef.current = onPrepareBridgeStrip;
+  const onInputsUnlockedRef = useRef(onInputsUnlocked);
+  onInputsUnlockedRef.current = onInputsUnlocked;
 
   // Subscribe to System Audio Input Bridge state & Self-Loopback Firewall
   useEffect(() => {
@@ -226,6 +248,14 @@ export function useAudioEngine({
       );
     });
     return () => liveAudioEngine.setOnSourceEnded(null);
+  }, []);
+
+  // Refresh hardware device list cleanly when live-mic start unlocks browser media permissions
+  useEffect(() => {
+    liveAudioEngine.setOnInputsUnlocked(() => {
+      onInputsUnlockedRef.current?.();
+    });
+    return () => liveAudioEngine.setOnInputsUnlocked(null);
   }, []);
 
   // 5Hz visible / 2Hz hidden telemetry and FFT sampling.
@@ -405,9 +435,10 @@ export function useAudioEngine({
       onSendWsTelemetryRef.current?.(stoppedTelemetry);
       logAuditRef.current('Stopped Audio Engine', 'Audio DSP processing placed into standby.', 'operator');
     } else {
-      const currentChannels = channelsRef.current;
-      const currentDsp = dspRef.current;
       const currentSource = audioSourceRef.current;
+      onPrepareBridgeStripRef.current?.(currentSource);
+      const currentChannels = prepareChannelsForSource(channelsRef.current, currentSource);
+      const currentDsp = dspRef.current;
       try {
         await liveAudioEngine.start(currentSource, currentDsp, currentChannels);
         liveAudioEngine.applyChannels(currentChannels);
@@ -438,7 +469,8 @@ export function useAudioEngine({
     seenAutoIssuesRef.current.clear();
     setAudioError(null);
     if (engineRunningRef.current) {
-      const currentChannels = channelsRef.current;
+      onPrepareBridgeStripRef.current?.(nextSrc);
+      const currentChannels = prepareChannelsForSource(channelsRef.current, nextSrc);
       const currentDsp = dspRef.current;
       try {
         await liveAudioEngine.start(nextSrc, currentDsp, currentChannels);
@@ -469,9 +501,11 @@ export function useAudioEngine({
       if (autoStartOrRestart || (engineRunningRef.current && audioSourceRef.current === 'desktop-audio')) {
         setAudioSource('desktop-audio');
         setAudioError(null);
+        onPrepareBridgeStripRef.current?.('desktop-audio');
+        const preparedChannels = prepareChannelsForSource(channelsRef.current, 'desktop-audio');
         try {
-          await liveAudioEngine.start('desktop-audio', dspRef.current, channelsRef.current);
-          liveAudioEngine.applyChannels(channelsRef.current);
+          await liveAudioEngine.start('desktop-audio', dspRef.current, preparedChannels);
+          liveAudioEngine.applyChannels(preparedChannels);
           lastSyncedBindingsRef.current = null;
           setEngineRunning(true);
           logAuditRef.current(
@@ -500,9 +534,11 @@ export function useAudioEngine({
       if (autoStartOrRestart || (engineRunningRef.current && audioSourceRef.current === 'desktop-audio')) {
         setAudioSource('desktop-audio');
         setAudioError(null);
+        onPrepareBridgeStripRef.current?.('desktop-audio');
+        const preparedChannels = prepareChannelsForSource(channelsRef.current, 'desktop-audio');
         try {
-          await liveAudioEngine.start('desktop-audio', dspRef.current, channelsRef.current);
-          liveAudioEngine.applyChannels(channelsRef.current);
+          await liveAudioEngine.start('desktop-audio', dspRef.current, preparedChannels);
+          liveAudioEngine.applyChannels(preparedChannels);
           lastSyncedBindingsRef.current = null;
           setEngineRunning(true);
           logAuditRef.current(

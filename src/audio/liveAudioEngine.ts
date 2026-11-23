@@ -75,6 +75,14 @@ class LiveAudioEngine {
     this.onSourceEndedCb = cb;
   }
 
+  public setOnInputsUnlocked(cb: (() => void) | null): void {
+    this.sourceCapture.setOnInputsUnlocked(cb);
+  }
+
+  public setOnOutputFallback(cb: ((staleDeviceId: string, reason: string) => void) | null): void {
+    this.outputRouter.setOnOutputFallback(cb);
+  }
+
   public getDesktopBridgeState(): SystemAudioBridgeState {
     return this.outputRouter.getDesktopBridgeState();
   }
@@ -133,7 +141,11 @@ class LiveAudioEngine {
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx({ latencyHint: 'balanced' });
+      try {
+        this.ctx = new AudioCtx({ latencyHint: 'balanced', sampleRate: 48000 });
+      } catch {
+        this.ctx = new AudioCtx({ latencyHint: 'balanced' });
+      }
       this.dspGraph.build(this.ctx);
       this.stripBank.attachContext(this.ctx, this.dspGraph.busMixSum);
       this.outputRouter.attachGraph(this.ctx, this.dspGraph.postAnalyser);
@@ -142,12 +154,7 @@ class LiveAudioEngine {
 
     const preferredOut = this.outputRouter.getPreferredOutputDeviceId();
     if (preferredOut) {
-      const applied = await this.outputRouter.setOutputDevice(preferredOut);
-      if (!applied) {
-        throw new Error(
-          'The selected audio output could not be applied. Choose System Default or another available output.'
-        );
-      }
+      await this.outputRouter.setOutputDevice(preferredOut, { allowFallbackToDefault: true });
     }
 
     if (this.ctx.state === 'suspended') {
@@ -231,12 +238,12 @@ class LiveAudioEngine {
     this.dspGraph.applyDsp(dsp);
   }
 
-  public applySpeakerZones(_zones: SpeakerZone[]): void {
-    // Master PA stereo bus routes through OutputRouter gated by monitorGain
+  public applySpeakerZones(zones: SpeakerZone[]): void {
+    this.outputRouter.applySpeakerZones(zones);
   }
 
   public async setOutputDevice(deviceId?: string): Promise<boolean> {
-    const ok = await this.outputRouter.setOutputDevice(deviceId);
+    const ok = await this.outputRouter.setOutputDevice(deviceId, { allowFallbackToDefault: false });
     this.syncOutputsAndSafety();
     return ok;
   }

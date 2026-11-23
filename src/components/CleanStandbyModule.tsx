@@ -22,8 +22,8 @@ export const CleanStandbyModule: React.FC<CleanStandbyModuleProps> = ({
     mainsHumNotch: '60hz',
     adaptiveStandbyGate: true,
     standbyGateEnabled: true,
-    standbyGateThresholdDb: -56,
-    standbyGateHoldMs: 1000,
+    standbyGateThresholdDb: -64,
+    standbyGateHoldMs: 2000,
   };
 
   const updateStandby = (patch: Partial<CleanStandbyConfig>) => {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Zap, ShieldAlert, ArrowRight, RotateCcw } from 'lucide-react';
 import type {
+  AudioSourceSimulation,
   DspConfig,
   InputChannel,
   ServicePreset,
@@ -39,6 +40,7 @@ interface ConsoleInstrumentDeckProps {
   selectedChannelId?: string;
   onSelectChannel?: (id: string) => void;
   locked?: boolean;
+  audioSource?: AudioSourceSimulation;
   onAddChannel?: (name?: string, role?: string) => void;
   onAddEqBand?: () => void;
   onRemoveEqBand?: (bandId: string) => void;
@@ -107,6 +109,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
   selectedChannelId: controlledChannelId,
   onSelectChannel: onControlledSelectChannel,
   locked = false,
+  audioSource,
   onAddChannel,
   onAddEqBand,
 }) => {
@@ -159,7 +162,9 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
       stereoLinked: false,
     };
 
-  const selectedAssigned = Boolean(selectedChannel.hardwareInputId);
+  const isBridgeSlot = (ch: InputChannel) =>
+    ch.index === 1 && (audioSource === 'desktop-audio' || audioSource === 'pink-noise');
+  const selectedAssigned = Boolean(selectedChannel.hardwareInputId) || isBridgeSlot(selectedChannel);
 
   const totalBanks = Math.max(1, Math.ceil(channels.length / 8));
   const safeBankIdx = Math.min(bankIdx, totalBanks - 1);
@@ -580,7 +585,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                             mainsHumNotch: mode,
                             dcBlockerEnabled: true,
                             adaptiveStandbyGate: true,
-                            standbyGateThresholdDb: -56,
+                            standbyGateThresholdDb: dsp.cleanStandby?.standbyGateThresholdDb ?? -64,
                           },
                         })
                       }
@@ -1254,7 +1259,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
         {/* 8 Channel Strips Side-by-Side (Professional Proportions & Zero Squeeze) */}
         <div className="flex-1 min-h-0 flex items-stretch gap-1.5 pt-1.5 overflow-x-auto">
           {bankChannels.map((ch, idx) => {
-            const isAssigned = Boolean(ch.hardwareInputId);
+            const isAssigned = Boolean(ch.hardwareInputId) || isBridgeSlot(ch);
             const stripDisabled = Boolean(locked || !isAssigned);
             const isSelected = ch.id === selectedChannel.id;
             const chNum = safeBankIdx * 8 + idx + 1;

@@ -9,6 +9,7 @@ import type { InputChannel } from '../types/audio.ts';
 
 export const NATIVE_DESKTOP_AUDIO_ID = 'native-desktop-audio';
 export const NATIVE_APP_AUDIO_PREFIX = 'native-app-audio:';
+export const DEFAULT_FALLBACK_INPUT_ID = 'default';
 
 export function isNativeDesktopInputId(deviceId?: string): boolean {
   if (!deviceId) return false;
@@ -270,10 +271,13 @@ export function createOpenChannelSlot(index: number, authority: InputChannel['au
   };
 }
 
-function isUsableHardwareInput(dev: MediaDeviceInfo): boolean {
-  if (dev.deviceId === 'default' || dev.deviceId === 'communications') return false;
+function isUsableHardwareInput(dev: MediaDeviceInfo, allowDefaultFallback = false): boolean {
+  if (dev.deviceId === 'communications') return false;
   if (isNativeDesktopInputId(dev.deviceId)) return true;
   if (isLoopbackInputLabel(dev.label)) return false;
+  if (dev.deviceId === DEFAULT_FALLBACK_INPUT_ID || !dev.deviceId) {
+    return allowDefaultFallback;
+  }
   return Boolean(dev.deviceId || normalizeDeviceLabel(dev.label));
 }
 
@@ -309,6 +313,12 @@ export function sanitizeAndAutoNameChannels(
 ): InputChannel[] {
   const seenIds = new Set<string>();
   const seenLabels = new Set<string>();
+  const hasConcreteAssigned = channels.some(
+    (c) =>
+      Boolean(c.hardwareInputId) &&
+      c.hardwareInputId !== DEFAULT_FALLBACK_INPUT_ID &&
+      c.hardwareInputId !== 'communications'
+  );
 
   return channels.map((ch, idx) => {
     const chNum = ch.index || idx + 1;
@@ -318,8 +328,8 @@ export function sanitizeAndAutoNameChannels(
 
     const invalidOrDuplicate =
       !rawDevId ||
-      rawDevId === 'default' ||
       rawDevId === 'communications' ||
+      (rawDevId === DEFAULT_FALLBACK_INPUT_ID && hasConcreteAssigned) ||
       (!isNativeDesktopInputId(rawDevId) && isLoopbackInputLabel(rawLabel)) ||
       seenIds.has(rawDevId) ||
       (labelKey.length > 0 && seenLabels.has(labelKey));
@@ -389,9 +399,16 @@ export function reconcileLiveInputsToChannels(
   options: { isStartupSync: boolean; minSlots?: number }
 ): ReconcileInputsResult {
   const minSlots = options.minSlots ?? 8;
-  const deduped = deduplicateMediaDevices(liveInputs, 'audioinput', {
+  const rawDeduped = deduplicateMediaDevices(liveInputs, 'audioinput', {
     excludeLoopbacks: true,
-  }).filter(isUsableHardwareInput);
+  });
+  const hasConcreteHardware = rawDeduped.some(
+    (d) =>
+      Boolean(d.deviceId) &&
+      d.deviceId !== DEFAULT_FALLBACK_INPUT_ID &&
+      d.deviceId !== 'communications'
+  );
+  const deduped = rawDeduped.filter((d) => isUsableHardwareInput(d, !hasConcreteHardware));
 
   // Place physical hardware mics/interfaces first (CH1..CHN), followed immediately by native desktop/app inputs (CHN+1)
   const usableInputs = [
@@ -410,10 +427,15 @@ export function reconcileLiveInputsToChannels(
       const dev = usableInputs[i];
 
       if (dev) {
-        const cleanLabel = normalizeDeviceLabel(dev.label) || `Live Audio Input ${chNum}`;
+        const resolvedDevId = dev.deviceId || DEFAULT_FALLBACK_INPUT_ID;
+        const cleanLabel =
+          normalizeDeviceLabel(dev.label) ||
+          (resolvedDevId === DEFAULT_FALLBACK_INPUT_ID
+            ? 'Default Audio Input'
+            : `Live Audio Input ${chNum}`);
         const canonKey = cleanLabel.toLowerCase();
         const donor =
-          existingChannels.find((c) => c.hardwareInputId && c.hardwareInputId === dev.deviceId) ??
+          existingChannels.find((c) => c.hardwareInputId && c.hardwareInputId === resolvedDevId) ??
           existingChannels.find(
             (c) => c.hardwareInputLabel && normalizeDeviceLabel(c.hardwareInputLabel).toLowerCase() === canonKey
           ) ??
@@ -425,7 +447,7 @@ export function reconcileLiveInputsToChannels(
         const hadExistingHardware = Boolean(donor?.hardwareInputId);
         const derived = deriveAutoChannelNameAndRole(cleanLabel, chNum);
         const keepCustomName =
-          Boolean(donor?.hardwareInputId === dev.deviceId && donor?.name) &&
+          Boolean(donor?.hardwareInputId === resolvedDevId && donor?.name) &&
           !isLegacyMockName(donor?.name) &&
           !/^Input \d+$/i.test(donor?.name || '');
 
@@ -440,7 +462,7 @@ export function reconcileLiveInputsToChannels(
           mute: hadExistingHardware ? base.mute : false,
           solo: hadExistingHardware ? base.solo : false,
           stereoLinked: false,
-          hardwareInputId: dev.deviceId || cleanLabel,
+          hardwareInputId: resolvedDevId,
           hardwareInputLabel: cleanLabel,
         };
         nextChannels.push(slotted);
@@ -487,10 +509,25 @@ export function reconcileLiveInputsToChannels(
 
   // Post-startup hot-plug / manual scan: clean existing duplicates first, then place new inputs into open slots
   const cleaned = sanitizeAndAutoNameChannels(existingChannels);
-  const nextChannels: InputChannel[] = cleaned.map((c, idx) => ({
-    ...c,
-    index: idx + 1,
-  }));
+  const nextChannels: InputChannel[] = cleaned.map((c, idx) => {
+    const chNum = idx + 1;
+    // Vacate temporary pre-permission 'default' placeholder once concrete hardware arrives
+    if (hasConcreteHardware && c.hardwareInputId === DEFAULT_FALLBACK_INPUT_ID) {
+      return {
+        ...c,
+        index: chNum,
+        name: `Input ${chNum}`,
+        role: 'Open Slot',
+        gainDb: 0,
+        faderDb: -48,
+        mute: false,
+        solo: false,
+        hardwareInputId: undefined,
+        hardwareInputLabel: undefined,
+      };
+    }
+    return { ...c, index: chNum };
+  });
 
   while (nextChannels.length < minSlots) {
     nextChannels.push(createOpenChannelSlot(nextChannels.length + 1));
@@ -509,21 +546,24 @@ export function reconcileLiveInputsToChannels(
   }
 
   for (const dev of usableInputs) {
-    const cleanLabel = normalizeDeviceLabel(dev.label) || dev.deviceId;
+    const resolvedDevId = dev.deviceId || DEFAULT_FALLBACK_INPUT_ID;
+    const cleanLabel =
+      normalizeDeviceLabel(dev.label) ||
+      (resolvedDevId === DEFAULT_FALLBACK_INPUT_ID ? 'Default Audio Input' : resolvedDevId);
     const normKey = cleanLabel.toLowerCase();
 
-    if (dev.deviceId && occupiedIds.has(dev.deviceId)) continue;
+    if (occupiedIds.has(resolvedDevId)) continue;
 
     // Refresh rotating OS deviceId in-place if the exact same physical input label already occupies a strip
     if (normKey && occupiedLabels.has(normKey)) {
       const matchIdx = nextChannels.findIndex(
         (c) => c.hardwareInputLabel && normalizeDeviceLabel(c.hardwareInputLabel).toLowerCase() === normKey
       );
-      if (matchIdx >= 0 && dev.deviceId && nextChannels[matchIdx].hardwareInputId !== dev.deviceId) {
-        occupiedIds.add(dev.deviceId);
+      if (matchIdx >= 0 && nextChannels[matchIdx].hardwareInputId !== resolvedDevId) {
+        occupiedIds.add(resolvedDevId);
         nextChannels[matchIdx] = {
           ...nextChannels[matchIdx],
-          hardwareInputId: dev.deviceId,
+          hardwareInputId: resolvedDevId,
         };
       }
       continue;
@@ -538,7 +578,6 @@ export function reconcileLiveInputsToChannels(
 
     const slot = nextChannels[openIdx];
     const derived = deriveAutoChannelNameAndRole(cleanLabel, slot.index);
-    const assignedId = dev.deviceId || cleanLabel;
     nextChannels[openIdx] = {
       ...slot,
       name: derived.name,
@@ -548,16 +587,16 @@ export function reconcileLiveInputsToChannels(
       mute: false,
       solo: false,
       stereoLinked: false,
-      hardwareInputId: assignedId,
+      hardwareInputId: resolvedDevId,
       hardwareInputLabel: cleanLabel,
     };
 
-    occupiedIds.add(assignedId);
+    occupiedIds.add(resolvedDevId);
     if (normKey) occupiedLabels.add(normKey);
     newlyAssigned.push({
       channelId: slot.id,
       channelIndex: slot.index,
-      deviceId: assignedId,
+      deviceId: resolvedDevId,
       label: cleanLabel,
     });
   }
