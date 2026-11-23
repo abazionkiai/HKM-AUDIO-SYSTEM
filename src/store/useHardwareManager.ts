@@ -19,6 +19,10 @@ import {
   liveAudioEngine,
   subscribeHardwareChanges,
 } from '../audio/liveAudioEngine.ts';
+import {
+  enumerateSpecializedDesktopInterfaces,
+  type SpecializedDesktopInterface,
+} from '../audio/systemAudioBridge.ts';
 import { appFetch, isDesktopApp } from '../utils/appApi.ts';
 import {
   NATIVE_DESKTOP_AUDIO_ID,
@@ -91,6 +95,7 @@ export function useHardwareManager({
   const [hotPlugEndpoint, setHotPlugEndpoint] = useState<DetectedHardwareEndpoint | null>(null);
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [specializedDesktopInputs, setSpecializedDesktopInputs] = useState<SpecializedDesktopInterface[]>([]);
   const [outputRouteError, setOutputRouteError] = useState<string | null>(null);
 
   const [{ outputId: initOutId, streamOutputId: initStreamId }] = useState(() =>
@@ -113,10 +118,28 @@ export function useHardwareManager({
   const activeOnBusSignaturesRef = useRef<Set<string>>(new Set());
   const cachedSynthDevicesRef = useRef<HardwareDevice[]>([]);
   const startupSyncedRef = useRef<boolean>(false);
+  const scanInFlightRef = useRef<boolean>(false);
   const lastInputSigRef = useRef<string>('');
   const lastOutputSigRef = useRef<string>('');
+  const lastSpecializedSigRef = useRef<string>('');
   const onSyncLiveInputsRef = useRef(onSyncLiveInputsToChannels);
   onSyncLiveInputsRef.current = onSyncLiveInputsToChannels;
+  const latestRef = useRef({
+    activeDevice,
+    platform,
+    devices,
+    onRegisterDevices,
+    onSelectDevice,
+    logAudit,
+  });
+  latestRef.current = {
+    activeDevice,
+    platform,
+    devices,
+    onRegisterDevices,
+    onSelectDevice,
+    logAudit,
+  };
 
   // Apply persisted standalone stereo output device selection without enabling loopback
   useEffect(() => {
@@ -311,10 +334,18 @@ export function useHardwareManager({
           // Proceed even if permission prompt dismissed or no microphone exists
         }
       }
-      const [inputs, outputs] = await Promise.all([
+      const [inputs, outputs, specialized] = await Promise.all([
         enumerateAudioInputs(),
         enumerateAudioOutputs(),
+        enumerateSpecializedDesktopInterfaces(),
       ]);
+
+      liveAudioEngine.updateOutputDeviceMetadata(outputs);
+      const specSig = specialized.map((s) => `${s.deviceId}::${s.label}`).join('|');
+      if (specSig !== lastSpecializedSigRef.current) {
+        lastSpecializedSigRef.current = specSig;
+        setSpecializedDesktopInputs(specialized);
+      }
 
       if (isDesktopApp()) {
         let supported = desktopSupportedRef.current;
@@ -428,8 +459,17 @@ export function useHardwareManager({
   // Proactive USB, Internal, and LAN Audio endpoint hardware scanner
   const runHardwareScan = useCallback(
     async (requestPermission = false, announceHotPlug = true) => {
+      if (scanInFlightRef.current) return;
+      scanInFlightRef.current = true;
       setScanningHardware(true);
       try {
+        const {
+          activeDevice: curDev,
+          logAudit: curLogAudit,
+          onRegisterDevices: curRegisterDevices,
+          platform: curPlatform,
+        } = latestRef.current;
+
         const cachedBeforeScan = await loadCachedHardwareEndpoints();
         if (requestPermission && navigator.mediaDevices?.getUserMedia) {
           try {
@@ -440,12 +480,19 @@ export function useHardwareManager({
           }
         }
 
-        const [serverRes, browserEndpoints] = await Promise.all([
+        const [serverRes, browserEndpoints, specialized] = await Promise.all([
           appFetch('/api/hardware/scan')
             .then((r) => (r.ok ? r.json() : { endpoints: [] }))
             .catch(() => ({ endpoints: [] })),
-          scanBrowserMediaDevices(platform),
+          scanBrowserMediaDevices(curPlatform),
+          enumerateSpecializedDesktopInterfaces(),
         ]);
+
+        const specSig = specialized.map((s) => `${s.deviceId}::${s.label}`).join('|');
+        if (specSig !== lastSpecializedSigRef.current) {
+          lastSpecializedSigRef.current = specSig;
+          setSpecializedDesktopInputs(specialized);
+        }
 
         const osEndpoints: DetectedHardwareEndpoint[] = Array.isArray(serverRes?.endpoints)
           ? serverRes.endpoints
@@ -471,7 +518,7 @@ export function useHardwareManager({
         const liveEndpoints = Array.from(mergedMap.values());
         const persistedMerged = await saveDetectedHardwareEndpoints(
           liveEndpoints,
-          activeDevice.id
+          curDev.id
         );
         setDetectedEndpoints(persistedMerged);
 
@@ -481,7 +528,7 @@ export function useHardwareManager({
 
         if (allSynthDevices.length > 0) {
           cachedSynthDevicesRef.current = allSynthDevices;
-          onRegisterDevices(allSynthDevices);
+          curRegisterDevices(allSynthDevices);
         }
 
         if (announceHotPlug) {
@@ -489,7 +536,7 @@ export function useHardwareManager({
             const sig = buildEndpointSignature(ep);
             return (
               !activeOnBusSignaturesRef.current.has(sig) &&
-              ep.matchedDeviceId !== activeDevice.id &&
+              ep.matchedDeviceId !== curDev.id &&
               (ep.kind === 'usb-audio' ||
                 ep.kind === 'network-console' ||
                 ep.kind === 'thunderbolt')
@@ -500,7 +547,7 @@ export function useHardwareManager({
               (c) => buildEndpointSignature(c) === buildEndpointSignature(newlyAdded)
             );
             setHotPlugEndpoint(newlyAdded);
-            logAudit(
+            curLogAudit(
               wasCached
                 ? 'Recognized Remembered Hardware Plug-In'
                 : 'Hardware Hot-Plug Detected',
@@ -514,29 +561,36 @@ export function useHardwareManager({
           liveEndpoints.map((ep) => buildEndpointSignature(ep))
         );
       } finally {
+        scanInFlightRef.current = false;
         setScanningHardware(false);
       }
     },
-    [activeDevice.id, logAudit, onRegisterDevices, platform]
+    []
   );
 
   const handleClearHardwareCache = useCallback(async () => {
     await clearCachedHardwareEndpoints();
     activeOnBusSignaturesRef.current.clear();
     await runHardwareScan(false, false);
-    logAudit(
+    latestRef.current.logAudit(
       'Cleared IndexedDB Hardware Cache',
       'Reset locally remembered hardware signatures and re-scanned active endpoints.',
       'operator'
     );
-  }, [logAudit, runHardwareScan]);
+  }, [runHardwareScan]);
 
   const handleBindDetectedEndpoint = useCallback(
     async (ep: DetectedHardwareEndpoint) => {
-      let targetDevice = devices.find((d) => d.id === ep.matchedDeviceId);
+      const {
+        devices: curDevices,
+        onRegisterDevices: curRegisterDevices,
+        onSelectDevice: curSelectDevice,
+      } = latestRef.current;
+
+      let targetDevice = curDevices.find((d) => d.id === ep.matchedDeviceId);
       if (!targetDevice && ep.synthesizedDevice) {
         targetDevice = ep.synthesizedDevice;
-        onRegisterDevices([targetDevice]);
+        curRegisterDevices([targetDevice]);
       }
       if (!targetDevice) return;
 
@@ -548,19 +602,19 @@ export function useHardwareManager({
         }
       }
       setHotPlugEndpoint(null);
-      await onSelectDevice(targetDevice, ep.recommendedDriver);
+      await curSelectDevice(targetDevice, ep.recommendedDriver);
     },
-    [devices, handleSelectOutputDevice, onRegisterDevices, onSelectDevice, refreshAudioDevices]
+    [handleSelectOutputDevice, refreshAudioDevices]
   );
 
-  // Initial IndexedDB hydration
+  // Initial IndexedDB hydration (ONCE on mount)
   useEffect(() => {
     let mounted = true;
     void loadCachedHardwareEndpoints().then((cached) => {
       if (!mounted) return;
       if (cached.synthesizedDevices.length > 0) {
         cachedSynthDevicesRef.current = cached.synthesizedDevices;
-        onRegisterDevices(cached.synthesizedDevices);
+        latestRef.current.onRegisterDevices(cached.synthesizedDevices);
       }
       if (cached.endpoints.length > 0) {
         setDetectedEndpoints(cached.endpoints);
@@ -576,7 +630,7 @@ export function useHardwareManager({
       mounted = false;
       unsubHardware();
     };
-  }, [onRegisterDevices, runHardwareScan]);
+  }, [runHardwareScan]);
 
   return {
     detectedEndpoints,
@@ -584,6 +638,7 @@ export function useHardwareManager({
     hotPlugEndpoint,
     inputDevices,
     outputDevices,
+    specializedDesktopInputs,
     outputRouteError,
     preferredOutputDeviceId,
     preferredStreamOutputDeviceId,

@@ -15,8 +15,17 @@ import {
   Check,
   Cable,
 } from 'lucide-react';
-import type { InputChannel, SpeakerZone, SignalTelemetry } from '../types/audio.ts';
+import type {
+  AudioSourceSimulation,
+  InputChannel,
+  SpeakerZone,
+  SignalTelemetry,
+} from '../types/audio.ts';
 import { liveAudioEngine } from '../audio/liveAudioEngine.ts';
+import type {
+  SpecializedDesktopInterface,
+  SystemAudioBridgeState,
+} from '../audio/systemAudioBridge.ts';
 import {
   NATIVE_APP_AUDIO_PREFIX,
   type DesktopAudioSession,
@@ -48,6 +57,10 @@ interface ConsoleLeftPanelProps {
   onScanAudioDevices?: (
     requestPermission?: boolean
   ) => Promise<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }>;
+  audioSource?: AudioSourceSimulation;
+  desktopBridgeState?: SystemAudioBridgeState;
+  specializedDesktopInputs?: SpecializedDesktopInterface[];
+  onActivateSystemAudioBridge?: () => void;
 }
 
 const SEGMENTS_10 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -73,6 +86,10 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
   onSelectOutputDevice,
   onSelectStreamOutputDevice,
   onScanAudioDevices,
+  audioSource = 'live-mic',
+  desktopBridgeState,
+  specializedDesktopInputs = [],
+  onActivateSystemAudioBridge,
 }) => {
   const [activeTab, setActiveTab] = useState<'inputs' | 'outputs'>('inputs');
   const [collapsed, setCollapsed] = useState(false);
@@ -618,7 +635,40 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             </button>
 
             {patchTrayOpen && (
-              <div className="max-h-[146px] overflow-y-auto px-1.5 py-1.5 space-y-1">
+              <div className="max-h-[168px] overflow-y-auto px-1.5 py-1.5 space-y-1">
+                {onActivateSystemAudioBridge && (
+                  <button
+                    type="button"
+                    disabled={locked}
+                    onClick={onActivateSystemAudioBridge}
+                    title="Route browser tab, media player, or system audio via the isolated System Audio Input Bridge (zero loopback)"
+                    className={`w-full px-2 py-1 rounded border font-mono text-[8.5px] font-bold flex items-center justify-between gap-1 cursor-pointer disabled:opacity-45 ${
+                      audioSource === 'desktop-audio' && engineRunning
+                        ? desktopBridgeState?.selfLoopbackBlocked
+                          ? 'border-amber-400/75 bg-amber-950/45 text-amber-200'
+                          : 'border-emerald-400/75 bg-emerald-950/45 text-emerald-200'
+                        : 'border-cyan-500/45 bg-cyan-950/35 hover:bg-cyan-900/50 text-cyan-200'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1 min-w-0 truncate">
+                      <Radio className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">
+                        {audioSource === 'desktop-audio' && engineRunning
+                          ? 'Desktop Audio Bridge ON'
+                          : 'System Audio Bridge'}
+                      </span>
+                    </span>
+                    <span className="text-[7.5px] opacity-85 shrink-0">
+                      {audioSource === 'desktop-audio' && engineRunning
+                        ? desktopBridgeState?.selfLoopbackBlocked
+                          ? 'SAFEWALL'
+                          : 'ISOLATED'
+                        : specializedDesktopInputs.length > 0
+                          ? `${specializedDesktopInputs.length} VIRT`
+                          : 'TAB/OS'}
+                    </span>
+                  </button>
+                )}
                 {desktopAudioStatus?.supported && onEnableBrowserDspSpeakers && (
                   <button
                     type="button"

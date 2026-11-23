@@ -45,6 +45,11 @@ import type {
   DesktopAudioStatus,
   DesktopSourceIsolationStatus,
 } from '../utils/nativeDesktopAudio.ts';
+import type {
+  SpecializedDesktopInterface,
+  SystemAudioBridgeState,
+  SystemAudioCaptureMethod,
+} from '../audio/systemAudioBridge.ts';
 import { ArcGauge, ConsolePushButton } from './StudioControls.tsx';
 
 interface HardwareDiagnosticsModuleProps {
@@ -96,6 +101,16 @@ interface HardwareDiagnosticsModuleProps {
   onUninstallApo?: (endpointId: string) => void;
   onEnableBrowserDspSpeakers?: () => void;
   onOpenWindowsSoundMixer?: () => void;
+  desktopBridgeState?: SystemAudioBridgeState;
+  specializedDesktopInputs?: SpecializedDesktopInterface[];
+  onSelectDesktopCaptureMethod?: (
+    method: SystemAudioCaptureMethod,
+    autoStartOrRestart?: boolean
+  ) => void;
+  onSelectSpecializedDesktopDevice?: (
+    device: { deviceId: string | null; label?: string | null; groupId?: string | null },
+    autoStartOrRestart?: boolean
+  ) => void;
 }
 
 const PLATFORM_SPECS: Record<
@@ -187,6 +202,10 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onUninstallApo,
   onEnableBrowserDspSpeakers,
   onOpenWindowsSoundMixer,
+  desktopBridgeState,
+  specializedDesktopInputs = [],
+  onSelectDesktopCaptureMethod,
+  onSelectSpecializedDesktopDevice,
 }) => {
   const [tab, setTab] = useState<'hardware' | 'remote' | 'plugins' | 'crossplatform' | 'watchdog'>(
     'hardware'
@@ -649,24 +668,51 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
 
       {tab === 'hardware' && (
         <div className="space-y-4">
-          {/* Dual-Engine Hassle-Free Desktop Audio Card (Option 1 Process Loopback + Option 2 MFX APO RAW) */}
+          {/* System Audio Input Bridge & Self-Loopback Firewall Card */}
           <div className="rounded-lg border border-cyan-500/45 bg-gradient-to-b from-[#091821] to-[#070E14] text-slate-100 p-4 space-y-3.5 shadow-lg shadow-cyan-950/30">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-cyan-500/20 pb-3">
               <div className="space-y-1">
-                <div className="font-mono text-xs font-bold text-cyan-300 uppercase tracking-wide flex items-center gap-2">
+                <div className="font-mono text-xs font-bold text-cyan-300 uppercase tracking-wide flex flex-wrap items-center gap-2">
                   <span
                     className={`w-2.5 h-2.5 rounded-full ${
-                      desktopBuild && desktopAudioStatus?.supported
-                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
-                        : 'bg-sky-400'
+                      audioSource === 'desktop-audio' && engineRunning
+                        ? desktopBridgeState?.selfLoopbackBlocked
+                          ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.9)]'
+                          : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
+                        : desktopBuild && desktopAudioStatus?.supported
+                          ? 'bg-emerald-400/70'
+                          : 'bg-sky-400'
                     }`}
                   />
-                  <span>Hassle-Free Desktop Audio Capture (Dual Engine · Zero Virtual Cable)</span>
+                  <span>System Audio Input Bridge (Desktop / Media / Browser Audio · Loopback Guarded)</span>
+                  {desktopBridgeState && (
+                    <span
+                      className={`px-2 py-0.5 rounded text-[9.5px] font-mono border ${
+                        desktopBridgeState.selfLoopbackBlocked
+                          ? 'border-amber-400/60 bg-amber-500/15 text-amber-300'
+                          : desktopBridgeState.active
+                            ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-300'
+                            : 'border-slate-700 bg-slate-900 text-slate-400'
+                      }`}
+                    >
+                      {desktopBridgeState.loopbackRisk === 'unsafe-shared-bus'
+                        ? 'FIREWALL: MON MUTED (SHARED BUS)'
+                        : desktopBridgeState.loopbackRisk === 'safe-tab-isolated'
+                          ? 'SAFE · TAB ISOLATED'
+                          : desktopBridgeState.loopbackRisk === 'safe-separate-output'
+                            ? 'SAFE · SEPARATE OUTPUT'
+                            : desktopBridgeState.loopbackRisk === 'safe-process-excluded'
+                              ? 'SAFE · PROCESS EXCLUDED'
+                              : 'BRIDGE STANDBY'}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed max-w-4xl">
-                  {desktopBuild
-                    ? 'Engine 1 (WASAPI Process-Exclusion Loopback) runs automatically out of the box—capturing Chrome, Edge, Spotify, VLC, and all desktop audio while excluding this console (zero feedback) and auto-assigning to the next open channel.'
-                    : 'Running in web preview mode. Install or launch the Windows Desktop App for driverless WASAPI Process-Exclusion Loopback & APO single-speaker routing.'}
+                  {desktopBridgeState?.safetyReason
+                    ? desktopBridgeState.safetyReason
+                    : desktopBuild
+                      ? 'Engine 1 (WASAPI Process-Exclusion Loopback) runs automatically out of the box—capturing Chrome, Edge, Spotify, VLC, and all desktop audio while excluding this console (zero feedback).'
+                      : 'Routes browser tabs, Spotify, YouTube, or OS media audio directly into the DSP via getDisplayMedia (with self-browser & local playback suppression) or specialized virtual cables — guarded by an automatic Self-Loopback Firewall.'}
                 </p>
               </div>
 
@@ -685,24 +731,104 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                   <button
                     type="button"
                     onClick={() => {
-                      onSelectAudioSource('desktop-audio');
-                      if (!engineRunning && onToggleEngine) {
-                        onToggleEngine();
+                      if (onSelectDesktopCaptureMethod) {
+                        void onSelectDesktopCaptureMethod('display-media', true);
+                      } else {
+                        onSelectAudioSource('desktop-audio');
+                        if (!engineRunning && onToggleEngine) {
+                          onToggleEngine();
+                        }
                       }
                     }}
                     className={`px-3 py-1.5 rounded font-mono text-[11px] font-semibold border transition-colors cursor-pointer ${
-                      audioSource === 'desktop-audio'
+                      audioSource === 'desktop-audio' && engineRunning
                         ? 'bg-emerald-600 border-emerald-400 text-white'
                         : 'bg-[#091015] border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/15'
                     }`}
                   >
                     {audioSource === 'desktop-audio' && engineRunning
-                      ? 'WEB DESKTOP LOOPBACK ACTIVE'
+                      ? 'RE-PICK TAB / SYSTEM AUDIO'
                       : 'SHARE BROWSER / SYSTEM AUDIO'}
                   </button>
                 )}
               </div>
             </div>
+
+            {!desktopBuild && desktopBridgeState && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                <div className="lg:col-span-6 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[11px] font-bold text-cyan-300 uppercase">
+                      Method 1 · Web Audio getDisplayMedia (Zero Driver)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onSelectDesktopCaptureMethod?.('display-media', true)}
+                      className={`px-2 py-0.5 rounded border font-mono text-[10px] font-bold cursor-pointer ${
+                        desktopBridgeState.method === 'display-media' && desktopBridgeState.active
+                          ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
+                          : 'border-cyan-500/45 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25'
+                      }`}
+                    >
+                      {desktopBridgeState.method === 'display-media' && desktopBridgeState.active
+                        ? 'ACTIVE (RE-PICK)'
+                        : 'USE PICKER'}
+                    </button>
+                  </div>
+                  <div className="font-mono text-[10px] text-slate-400 space-y-1">
+                    <div>• Enforces <code className="text-cyan-300">selfBrowserSurface: &apos;exclude&apos;</code> so this console cannot capture itself</div>
+                    <div>• Requests <code className="text-cyan-300">suppressLocalAudioPlayback: true</code> on browser tabs to prevent echo</div>
+                    <div>• Automatically mutes monitor output if capturing Whole Screen on shared default speakers</div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-6 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[11px] font-bold text-emerald-300 uppercase">
+                      Method 2 · Specialized Virtual Interface ({specializedDesktopInputs.length})
+                    </span>
+                  </div>
+                  {specializedDesktopInputs.length === 0 ? (
+                    <div className="font-mono text-[10px] text-slate-400 leading-relaxed">
+                      No virtual audio bridge detected yet (VB-Audio Cable, BlackHole, Stereo Mix, or VoiceMeeter). Click Refresh Hardware after installing or enabling Stereo Mix in Windows Sound settings.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                      {specializedDesktopInputs.map((iface) => {
+                        const isSelected =
+                          desktopBridgeState.specializedDeviceId === iface.deviceId &&
+                          desktopBridgeState.method !== 'display-media';
+                        return (
+                          <div
+                            key={iface.deviceId}
+                            className={`px-2.5 py-1.5 rounded border flex items-center justify-between gap-2 font-mono text-[10px] ${
+                              isSelected
+                                ? 'border-emerald-400/70 bg-emerald-950/30 text-emerald-100'
+                                : 'border-slate-800 bg-[#0B1018] text-slate-300'
+                            }`}
+                          >
+                            <span className="truncate" title={iface.label}>
+                              {iface.label}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void onSelectSpecializedDesktopDevice?.(iface, true)}
+                              className={`px-2 py-0.5 rounded border text-[9.5px] font-bold shrink-0 cursor-pointer ${
+                                isSelected
+                                  ? 'border-emerald-300 bg-emerald-500 text-slate-950'
+                                  : 'border-cyan-500/45 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25'
+                              }`}
+                            >
+                              {isSelected ? 'ACTIVE' : 'ROUTE BRIDGE'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {desktopBuild && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">

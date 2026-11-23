@@ -667,6 +667,7 @@ mod win_impl {
         let _com = ComGuard::enter();
         let mut sessions_out = Vec::new();
         let own_pid = std::process::id();
+        let own_tree = process_tree_ids().unwrap_or_else(|_| HashSet::from([own_pid]));
         let mut seen_pids = HashSet::new();
 
         unsafe {
@@ -708,7 +709,7 @@ mod win_impl {
                 let Ok(pid) = ctrl2.GetProcessId() else {
                     continue;
                 };
-                if pid == 0 || pid == own_pid || seen_pids.contains(&pid) {
+                if pid == 0 || own_tree.contains(&pid) || seen_pids.contains(&pid) {
                     continue;
                 }
 

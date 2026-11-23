@@ -39,7 +39,7 @@ export const VerticalVuMeter: React.FC<VerticalVuMeterProps> = ({
 
   useEffect(() => {
     if (muted || effectivePeak <= minDb + 0.5) {
-      setHeldPeakDb(minDb);
+      setHeldPeakDb((prev) => (prev === minDb ? prev : minDb));
       return;
     }
 
@@ -48,9 +48,12 @@ export const VerticalVuMeter: React.FC<VerticalVuMeterProps> = ({
     lastDecayTsRef.current = now;
 
     setHeldPeakDb((prev) => {
-      if (effectivePeak >= prev) return effectivePeak;
+      if (effectivePeak >= prev) {
+        return Math.abs(effectivePeak - prev) < 0.05 ? prev : effectivePeak;
+      }
       const decayed = prev - dtSec * 12; // ~12 dB/s broadcast peak release
-      return Math.max(effectivePeak, minDb, decayed);
+      const next = Math.max(effectivePeak, minDb, decayed);
+      return Math.abs(next - prev) < 0.05 ? prev : next;
     });
   }, [effectivePeak, muted, minDb]);
 

@@ -169,6 +169,26 @@ export function useConsoleSession({
   const [hydrated, setHydrated] = useState<boolean>(false);
   const channelsRef = useRef<InputChannel[]>(channels);
   channelsRef.current = channels;
+  const activeDeviceRef = useRef<HardwareDevice>(activeDevice);
+  activeDeviceRef.current = activeDevice;
+  const sampleRateRef = useRef<number>(sampleRate);
+  sampleRateRef.current = sampleRate;
+  const bufferSizeRef = useRef<number>(bufferSize);
+  bufferSizeRef.current = bufferSize;
+  const driverRef = useRef<DriverBackend>(driver);
+  driverRef.current = driver;
+  const dspRef = useRef<DspConfig>(dsp);
+  dspRef.current = dsp;
+  const broadcastDspRef = useRef<BroadcastDspConfig>(broadcastDsp);
+  broadcastDspRef.current = broadcastDsp;
+  const zonesRef = useRef<SpeakerZone[]>(zones);
+  zonesRef.current = zones;
+  const platformRef = useRef<PlatformTarget>(platform);
+  platformRef.current = platform;
+  const activePresetRef = useRef<ServicePreset>(activePreset);
+  activePresetRef.current = activePreset;
+  const versionsRef = useRef<ConfigurationVersion[]>(versions);
+  versionsRef.current = versions;
   const suppressSyncCountRef = useRef<number>(0);
   const cachedSynthDevicesRef = useRef<HardwareDevice[]>([]);
 
@@ -396,7 +416,7 @@ export function useConsoleSession({
             if (typeof msg.emergencyMuted === 'boolean') {
               setEmergencyMuted(msg.emergencyMuted);
               liveAudioEngine.setEmergencyMute(msg.emergencyMuted);
-              onEmergencyMuteChanged?.(msg.emergencyMuted);
+              onEmergencyMuteChangedRef.current?.(msg.emergencyMuted);
             }
           }
         } catch {
@@ -422,7 +442,7 @@ export function useConsoleSession({
         desktopWsRef.current = null;
       }
     };
-  }, [onEmergencyMuteChanged, remoteCompanionToken]);
+  }, [remoteCompanionToken]);
 
   // Debounced sync to SQLite backend
   useEffect(() => {
@@ -505,7 +525,7 @@ export function useConsoleSession({
     };
   }, [pairingUrl, remoteAccess.sessionToken]);
 
-  const handleSelectPlatform = (p: PlatformTarget) => {
+  const handleSelectPlatform = useCallback((p: PlatformTarget) => {
     setPlatform(p);
     const supportedDrivers: DriverBackend[] =
       p === 'windows'
@@ -513,22 +533,22 @@ export function useConsoleSession({
         : p === 'macos'
           ? ['CoreAudio']
           : ['ALSA', 'PipeWire'];
-    if (!supportedDrivers.includes(driver)) {
+    if (!supportedDrivers.includes(driverRef.current)) {
       setDriver(supportedDrivers[0]);
     }
-  };
+  }, []);
 
-  const handleSelectDriver = (d: DriverBackend) => {
+  const handleSelectDriver = useCallback((d: DriverBackend) => {
     setDriver(d);
-  };
+  }, []);
 
-  const handleSelectSampleRate = (sr: number) => {
+  const handleSelectSampleRate = useCallback((sr: number) => {
     setSampleRate(sr);
-  };
+  }, []);
 
-  const handleSelectBufferSize = (bs: number) => {
+  const handleSelectBufferSize = useCallback((bs: number) => {
     setBufferSize(bs);
-  };
+  }, []);
 
   const handleRegisterDevices = useCallback((newDevices: HardwareDevice[]) => {
     setDevices((prev) => {
@@ -540,15 +560,17 @@ export function useConsoleSession({
 
   const handleSelectDevice = useCallback(
     async (dev: HardwareDevice, overrideDriver?: DriverBackend) => {
-      if (activeDevice.id !== dev.id) {
-        appFetch(`/api/hardware/profiles/${encodeURIComponent(activeDevice.id)}`, {
+      const prevDevId = activeDeviceRef.current.id;
+      const curDriver = driverRef.current;
+      if (prevDevId !== dev.id) {
+        appFetch(`/api/hardware/profiles/${encodeURIComponent(prevDevId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            channels,
-            sampleRate,
-            bufferSize,
-            driver,
+            channels: channelsRef.current,
+            sampleRate: sampleRateRef.current,
+            bufferSize: bufferSizeRef.current,
+            driver: curDriver,
           }),
         }).catch(() => {});
       }
@@ -556,7 +578,7 @@ export function useConsoleSession({
       setActiveDevice(dev);
       let nextSr = dev.defaultSampleRate;
       let nextBs = dev.defaultBufferSize;
-      let nextDriver = overrideDriver ?? driver;
+      let nextDriver = overrideDriver ?? curDriver;
       if (
         dev.capabilities.supportedDrivers.length > 0 &&
         !dev.capabilities.supportedDrivers.includes(nextDriver)
@@ -585,81 +607,91 @@ export function useConsoleSession({
       void saveLastActiveHardwareId(dev.id);
       logAudit('Switched Hardware Adapter', `${dev.manufacturer} ${dev.model} (${dev.tierLabel})`, 'operator');
     },
-    [activeDevice.id, bufferSize, channels, driver, logAudit, sampleRate]
+    [logAudit]
   );
 
-  const handleSelectPreset = (preset: ServicePreset) => {
-    setUndoStack((u) => [dsp, ...u].slice(0, 15));
-    setActivePreset(preset);
-    setDsp(preset.dsp);
-    setBroadcastDsp(preset.broadcastDsp);
-    logAudit('Loaded Service Preset', `${preset.name} (v${preset.version})`, 'operator');
-  };
+  const handleSelectPreset = useCallback(
+    (preset: ServicePreset) => {
+      setUndoStack((u) => [dspRef.current, ...u].slice(0, 15));
+      setActivePreset(preset);
+      setDsp(preset.dsp);
+      setBroadcastDsp(preset.broadcastDsp);
+      logAudit('Loaded Service Preset', `${preset.name} (v${preset.version})`, 'operator');
+    },
+    [logAudit]
+  );
 
-  const handleSavePreset = (name: string, description: string) => {
-    const newPreset: ServicePreset = {
-      id: `custom-${Date.now()}`,
-      name,
-      category: 'Contemporary Worship',
-      description,
-      version: '1.0',
-      updatedAt: new Date().toISOString(),
-      dsp,
-      broadcastDsp,
-    };
-    setPresets((prev) => [newPreset, ...prev]);
-    setActivePreset(newPreset);
-    appFetch('/api/presets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newPreset),
-    }).catch(() => {});
-    logAudit('Created Service Preset', `${name} based on current live mix`, 'operator');
-  };
+  const handleSavePreset = useCallback(
+    (name: string, description: string) => {
+      const newPreset: ServicePreset = {
+        id: `custom-${Date.now()}`,
+        name,
+        category: 'Contemporary Worship',
+        description,
+        version: '1.0',
+        updatedAt: new Date().toISOString(),
+        dsp: dspRef.current,
+        broadcastDsp: broadcastDspRef.current,
+      };
+      setPresets((prev) => [newPreset, ...prev]);
+      setActivePreset(newPreset);
+      appFetch('/api/presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newPreset),
+      }).catch(() => {});
+      logAudit('Created Service Preset', `${name} based on current live mix`, 'operator');
+    },
+    [logAudit]
+  );
 
-  const handleUpdatePreset = (id: string, patch: Partial<ServicePreset>) => {
+  const handleUpdatePreset = useCallback((id: string, patch: Partial<ServicePreset>) => {
     setPresets((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-    if (activePreset.id === id) {
-      setActivePreset((prev) => ({ ...prev, ...patch }));
-    }
-  };
+    setActivePreset((prev) => (prev.id === id ? { ...prev, ...patch } : prev));
+  }, []);
 
-  const handleSaveVersion = (summary: string) => {
-    const snapshot: ConfigurationVersion = {
-      id: `ver-${Date.now()}`,
-      version: `v${versions.length + 1}.0`,
-      presetName: activePreset.name,
-      timestamp: new Date().toISOString(),
-      author: 'Sound Engineer',
-      summary,
-      deviceId: activeDevice.id,
-      platform,
-      dsp,
-      broadcastDsp,
-      zones,
-    };
-    setVersions((prev) => [snapshot, ...prev]);
-    appFetch('/api/versions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(snapshot),
-    }).catch(() => {});
-    logAudit('Saved Configuration Snapshot', `${snapshot.version}: ${summary}`, 'operator');
-  };
+  const handleSaveVersion = useCallback(
+    (summary: string) => {
+      const snapshot: ConfigurationVersion = {
+        id: `ver-${Date.now()}`,
+        version: `v${versionsRef.current.length + 1}.0`,
+        presetName: activePresetRef.current.name,
+        timestamp: new Date().toISOString(),
+        author: 'Sound Engineer',
+        summary,
+        deviceId: activeDeviceRef.current.id,
+        platform: platformRef.current,
+        dsp: dspRef.current,
+        broadcastDsp: broadcastDspRef.current,
+        zones: zonesRef.current,
+      };
+      setVersions((prev) => [snapshot, ...prev]);
+      appFetch('/api/versions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot),
+      }).catch(() => {});
+      logAudit('Saved Configuration Snapshot', `${snapshot.version}: ${summary}`, 'operator');
+    },
+    [logAudit]
+  );
 
-  const handleRollbackVersion = (ver: ConfigurationVersion) => {
-    setUndoStack((u) => [dsp, ...u].slice(0, 15));
-    setDsp(ver.dsp);
-    setBroadcastDsp(ver.broadcastDsp);
-    setZones(ver.zones);
-    logAudit('Rolled Back Configuration', `Restored ${ver.presetName} (${ver.version})`, 'operator');
-  };
+  const handleRollbackVersion = useCallback(
+    (ver: ConfigurationVersion) => {
+      setUndoStack((u) => [dspRef.current, ...u].slice(0, 15));
+      setDsp(ver.dsp);
+      setBroadcastDsp(ver.broadcastDsp);
+      setZones(ver.zones);
+      logAudit('Rolled Back Configuration', `Restored ${ver.presetName} (${ver.version})`, 'operator');
+    },
+    [logAudit]
+  );
 
   const handleToggleEmergencyMute = useCallback(() => {
     setEmergencyMuted((prev) => {
       const next = !prev;
       liveAudioEngine.setEmergencyMute(next);
-      onEmergencyMuteChanged?.(next);
+      onEmergencyMuteChangedRef.current?.(next);
       if (desktopWsRef.current?.readyState === WebSocket.OPEN) {
         desktopWsRef.current.send(
           JSON.stringify({ type: 'master:patch', emergencyMuted: next })
@@ -672,7 +704,7 @@ export function useConsoleSession({
       );
       return next;
     });
-  }, [logAudit, onEmergencyMuteChanged]);
+  }, [logAudit]);
 
   const handleToggleTotalBypass = useCallback(() => {
     setDsp((prev) => {
@@ -865,12 +897,12 @@ export function useConsoleSession({
         setEmergencyMuted((prev) => {
           if (prev === nextMute) return prev;
           liveAudioEngine.setEmergencyMute(nextMute);
-          onEmergencyMuteChanged?.(nextMute);
+          onEmergencyMuteChangedRef.current?.(nextMute);
           return nextMute;
         });
       }
     },
-    [onEmergencyMuteChanged]
+    []
   );
 
   const handleAddChannel = useCallback(

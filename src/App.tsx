@@ -14,6 +14,7 @@ import {
   type DesktopSourceIsolationStatus,
 } from './utils/nativeDesktopAudio.ts';
 import { checkDesktopUpdate } from './utils/appUpdater.ts';
+import { liveAudioEngine } from './audio/liveAudioEngine.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { ConsoleInstrumentDeck } from './components/ConsoleInstrumentDeck.tsx';
@@ -161,17 +162,57 @@ export default function App() {
     onKeyboardShortcutsLoaded: handleKeyboardShortcutsLoaded,
   });
 
+  const {
+    desktopWsRef,
+    setFindings,
+    handleUpdateChannel,
+    handleUpdateDsp,
+    handleSelectPreset,
+    handleAddChannel,
+    handleAddEqBand,
+    handleResetDsp,
+    handleClearAllSolos,
+    setChannels,
+    logAudit,
+    setObsStatus,
+    handleSaveVersion,
+    handleBatchMute,
+    handleToggleEmergencyMute,
+    handleToggleTotalBypass,
+    handleUndoLastDsp,
+    handleSelectDevice,
+    handleRegisterDevices,
+    handleReconcileLiveInputs,
+  } = session;
+
   // 2. Physical Hardware Discovery + Unified Startup & Hot-Plug 1-to-1 Input Auto-Slotting
   const hardware = useHardwareManager({
     activeDevice: session.activeDevice,
     platform: session.platform,
     devices: session.devices,
-    onRegisterDevices: session.handleRegisterDevices,
-    onSelectDevice: session.handleSelectDevice,
-    logAudit: session.logAudit,
+    onRegisterDevices: handleRegisterDevices,
+    onSelectDevice: handleSelectDevice,
+    logAudit,
     hydrated: session.hydrated,
-    onSyncLiveInputsToChannels: session.handleReconcileLiveInputs,
+    onSyncLiveInputsToChannels: handleReconcileLiveInputs,
   });
+
+  const handleSendWsTelemetry = useCallback(
+    (tel: Parameters<NonNullable<Parameters<typeof useAudioEngine>[0]['onSendWsTelemetry']>>[0]) => {
+      const ws = desktopWsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'telemetry:frame', telemetry: tel }));
+      }
+    },
+    [desktopWsRef]
+  );
+
+  const handleAddAutoFinding = useCallback(
+    (finding: Parameters<NonNullable<Parameters<typeof useAudioEngine>[0]['onAddFinding']>>[0]) => {
+      setFindings((prev) => [finding, ...prev]);
+    },
+    [setFindings]
+  );
 
   // 3. Live Web Audio DSP Engine Runtime
   const audio = useAudioEngine({
@@ -183,33 +224,44 @@ export default function App() {
     sampleRate: session.sampleRate,
     plugins: session.plugins,
     needsSpectrumState: activeModule === 'feedback' || activeModule === 'virtual-di',
-    onSendWsTelemetry: (tel) => {
-      const ws = session.desktopWsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'telemetry:frame', telemetry: tel }));
-      }
-    },
-    logAudit: session.logAudit,
-    onAddFinding: (finding) => session.setFindings((prev) => [finding, ...prev]),
+    onSendWsTelemetry: handleSendWsTelemetry,
+    logAudit,
+    onAddFinding: handleAddAutoFinding,
   });
 
   const desktopLoopbackMonitorActive = useMemo(
     () =>
       audio.engineRunning &&
       audio.monitorAudible &&
-      session.channels.some((channel) => isNativeDesktopInputId(channel.hardwareInputId) && !channel.mute),
-    [audio.engineRunning, audio.monitorAudible, session.channels]
+      (audio.audioSource === 'desktop-audio' ||
+        session.channels.some((channel) => isNativeDesktopInputId(channel.hardwareInputId) && !channel.mute)),
+    [audio.engineRunning, audio.monitorAudible, audio.audioSource, session.channels]
   );
 
   useEffect(() => {
-    if (!isDesktopApp()) return;
+    if (!isDesktopApp()) {
+      liveAudioEngine.setTauriSourceIsolationActive(false);
+      return;
+    }
+    if (!desktopLoopbackMonitorActive) {
+      liveAudioEngine.setTauriSourceIsolationActive(false);
+    }
     let cancelled = false;
     void syncDesktopSourceIsolation(desktopLoopbackMonitorActive)
       .then((status) => {
-        if (!cancelled && status) setDesktopSourceIsolationStatus(status);
+        if (cancelled) return;
+        if (status) {
+          setDesktopSourceIsolationStatus(status);
+          liveAudioEngine.setTauriSourceIsolationActive(
+            Boolean(desktopLoopbackMonitorActive && status.enabled && status.skippedSessions === 0)
+          );
+        } else {
+          liveAudioEngine.setTauriSourceIsolationActive(false);
+        }
       })
       .catch((error) => {
         if (!cancelled) {
+          liveAudioEngine.setTauriSourceIsolationActive(false);
           setDesktopSourceIsolationStatus({
             enabled: false,
             mutedSessions: 0,
@@ -226,23 +278,38 @@ export default function App() {
   // 4. Web MIDI Controller Hardware Integration
   const midi = useMidiManager({
     onUpdateDsp: session.setDsp,
-    onUpdateChannels: session.setChannels,
+    onUpdateChannels: setChannels,
     onUpdateEmergencyMute: session.setEmergencyMuted,
-    logAudit: session.logAudit,
+    logAudit,
   });
   midiRef.current = midi;
 
+  const handleMuteBandShortcut = useCallback(() => {
+    handleBatchMute('band', true);
+  }, [handleBatchMute]);
+
+  const handleSaveSnapshotShortcut = useCallback(
+    (label: string) => {
+      handleSaveVersion(label);
+    },
+    [handleSaveVersion]
+  );
+
+  const handleNavigateModuleShortcut = useCallback((mod: string) => {
+    setActiveModule(mod as ModuleId);
+  }, []);
+
   // 5. Global Keyboard Shortcuts & Tap Tempo Manager
   const shortcuts = useKeyboardShortcutsManager({
-    onToggleEmergencyMute: session.handleToggleEmergencyMute,
-    onToggleTotalBypass: session.handleToggleTotalBypass,
-    onUndoLastDsp: session.handleUndoLastDsp,
+    onToggleEmergencyMute: handleToggleEmergencyMute,
+    onToggleTotalBypass: handleToggleTotalBypass,
+    onUndoLastDsp: handleUndoLastDsp,
     onToggleEngine: audio.handleToggleEngine,
     onToggleMonitor: audio.handleToggleMonitor,
-    onMuteBand: () => session.handleBatchMute('band', true),
-    onClearSolos: session.handleClearAllSolos,
-    onSaveSnapshot: (label) => session.handleSaveVersion(label),
-    onNavigateModule: (mod) => setActiveModule(mod as ModuleId),
+    onMuteBand: handleMuteBandShortcut,
+    onClearSolos: handleClearAllSolos,
+    onSaveSnapshot: handleSaveSnapshotShortcut,
+    onNavigateModule: handleNavigateModuleShortcut,
   });
   shortcutsRef.current = shortcuts;
 
@@ -300,53 +367,53 @@ export default function App() {
   );
 
   const guardedUpdateChannel = useCallback(
-    (id: string, patch: Parameters<typeof session.handleUpdateChannel>[1]) => {
+    (id: string, patch: Parameters<typeof handleUpdateChannel>[1]) => {
       if (consoleLocked) return;
-      session.handleUpdateChannel(id, patch);
+      handleUpdateChannel(id, patch);
     },
-    [consoleLocked, session]
+    [consoleLocked, handleUpdateChannel]
   );
 
   const guardedUpdateDsp = useCallback(
-    (patch: Parameters<typeof session.handleUpdateDsp>[0]) => {
+    (patch: Parameters<typeof handleUpdateDsp>[0]) => {
       if (consoleLocked) return;
-      session.handleUpdateDsp(patch);
+      handleUpdateDsp(patch);
     },
-    [consoleLocked, session]
+    [consoleLocked, handleUpdateDsp]
   );
 
   const guardedSelectPreset = useCallback(
-    (preset: Parameters<typeof session.handleSelectPreset>[0]) => {
+    (preset: Parameters<typeof handleSelectPreset>[0]) => {
       if (consoleLocked) return;
-      session.handleSelectPreset(preset);
+      handleSelectPreset(preset);
     },
-    [consoleLocked, session]
+    [consoleLocked, handleSelectPreset]
   );
 
   const guardedAddChannel = useCallback(
     (name?: string, role?: string) => {
       if (consoleLocked) return;
-      session.handleAddChannel(name, role);
+      handleAddChannel(name, role);
     },
-    [consoleLocked, session]
+    [consoleLocked, handleAddChannel]
   );
 
   const guardedAddEqBand = useCallback(() => {
     if (consoleLocked) return;
-    session.handleAddEqBand();
-  }, [consoleLocked, session]);
+    handleAddEqBand();
+  }, [consoleLocked, handleAddEqBand]);
 
   const handleResetAll = useCallback(() => {
     if (consoleLocked) return;
-    session.handleResetDsp();
-    session.handleClearAllSolos();
-  }, [consoleLocked, session]);
+    handleResetDsp();
+    handleClearAllSolos();
+  }, [consoleLocked, handleResetDsp, handleClearAllSolos]);
 
   const handleUpdateObs = useCallback(
     (patch: Partial<typeof session.obsStatus>) => {
-      session.setObsStatus((prev) => ({ ...prev, ...patch }));
+      setObsStatus((prev) => ({ ...prev, ...patch }));
     },
-    [session.setObsStatus]
+    [setObsStatus]
   );
 
   const dspValidation = useMemo(
@@ -403,21 +470,59 @@ export default function App() {
 
   const handleMuteAllPhysicalMics = useCallback(() => {
     if (consoleLocked) return;
-    session.setChannels((prev) =>
+    setChannels((prev) =>
       prev.map((c) =>
         c.hardwareInputId && !isNativeDesktopInputId(c.hardwareInputId) ? { ...c, mute: true } : c
       )
     );
-    session.logAudit(
+    logAudit(
       'Muted Built-In / Physical Mics',
       'Muted physical microphone channels via Acoustic Loopback Guard to stop speaker feedback.',
       'operator'
     );
-  }, [consoleLocked, session]);
+  }, [consoleLocked, logAudit, setChannels]);
+
+  const {
+    outputDevices,
+    preferredOutputDeviceId,
+    handleSelectOutputDevice,
+  } = hardware;
+
+  const {
+    setMonitorAudibleState,
+    ensureEngineStarted,
+  } = audio;
+
+  const secondaryMonitorCandidate = useMemo(() => {
+    const nonDefaultOutputs = outputDevices.filter(
+      (d) =>
+        d.deviceId &&
+        d.deviceId !== 'default' &&
+        d.deviceId !== 'communications' &&
+        d.deviceId !== preferredOutputDeviceId
+    );
+    return (
+      nonDefaultOutputs.find((d) => /headphone|usb|interface|focusrite|scarlett|behringer|motu|rme/i.test(d.label || '')) ??
+      nonDefaultOutputs.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
+      null
+    );
+  }, [outputDevices, preferredOutputDeviceId]);
+
+  const handleRouteMonitorToSecondaryOutput = useCallback(async () => {
+    if (consoleLocked || !secondaryMonitorCandidate?.deviceId) return;
+    const ok = await handleSelectOutputDevice(secondaryMonitorCandidate.deviceId);
+    if (!ok) return;
+    setMonitorAudibleState(true);
+    logAudit(
+      'Routed MON to Secondary Output',
+      `Isolated Desktop Audio monitor bus onto ${secondaryMonitorCandidate.label || 'Secondary Audio Output'} to break loopback.`,
+      'operator'
+    );
+  }, [consoleLocked, handleSelectOutputDevice, logAudit, secondaryMonitorCandidate, setMonitorAudibleState]);
 
   const handleBrowserDspToSpeakers = useCallback(async () => {
     if (consoleLocked) return;
-    audio.setMonitorAudibleState(false);
+    setMonitorAudibleState(false);
     if (isDesktopApp()) {
       try {
         await syncDesktopSourceIsolation(false);
@@ -431,10 +536,10 @@ export default function App() {
       }
     }
     const builtInSpeaker =
-      hardware.outputDevices.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
-      hardware.outputDevices[0];
+      outputDevices.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
+      outputDevices[0];
     if (builtInSpeaker?.deviceId) {
-      const outputApplied = await hardware.handleSelectOutputDevice(builtInSpeaker.deviceId);
+      const outputApplied = await handleSelectOutputDevice(builtInSpeaker.deviceId);
       if (!outputApplied) return;
     }
 
@@ -477,8 +582,8 @@ export default function App() {
       setSelectedChannelId(desktopCh.id);
     }
 
-    session.setChannels(nextChannels);
-    const started = await audio.ensureEngineStarted(nextChannels);
+    setChannels(nextChannels);
+    const started = await ensureEngineStarted(nextChannels);
     if (!started) return;
     if (isDesktopApp()) {
       try {
@@ -492,7 +597,7 @@ export default function App() {
             skippedSessions: isolation?.skippedSessions ?? 1,
             message: isolation?.message || 'Windows could not safely isolate every active render session.',
           });
-          session.logAudit(
+          logAudit(
             'Desktop Source Isolation Incomplete',
             isolation?.message || `Could not safely isolate ${isolation?.skippedSessions ?? 0} Windows audio session(s); speaker monitoring remains off.`,
             'system'
@@ -510,13 +615,23 @@ export default function App() {
         return;
       }
     }
-    audio.setMonitorAudibleState(true);
-    session.logAudit(
+    setMonitorAudibleState(true);
+    logAudit(
       'Enabled Browser → DSP → Speakers',
       `Locked Master PA to ${builtInSpeaker?.label || 'Built-in Speakers'}, muted physical mics, and enabled MON on Desktop Audio.`,
       'operator'
     );
-  }, [audio, consoleLocked, hardware, session, syncDesktopSourceIsolation]);
+  }, [
+    consoleLocked,
+    ensureEngineStarted,
+    handleSelectOutputDevice,
+    logAudit,
+    outputDevices,
+    session.channels,
+    setChannels,
+    setMonitorAudibleState,
+    syncDesktopSourceIsolation,
+  ]);
 
   if (remoteCompanionToken) {
     return (
@@ -606,6 +721,10 @@ export default function App() {
         activeSurgicalFilters={audio.telemetry.activeSurgicalFilters ?? []}
         onOpenGainStaging={() => setShowGainStaging(true)}
         onOpenSignalJourney={() => setSignalJourneyChannelId(selectedChannel?.id ?? 'ch-1')}
+        desktopBridgeState={audio.desktopBridgeState}
+        specializedDesktopInputs={hardware.specializedDesktopInputs}
+        onSelectDesktopCaptureMethod={audio.setDesktopCaptureMethod}
+        onSelectSpecializedDesktopDevice={audio.setSpecializedDesktopDevice}
       />
 
       {session.navDockPosition === 'top' && (
@@ -704,6 +823,45 @@ export default function App() {
           </button>
         </div>
       )}
+      {audio.audioSource === 'desktop-audio' && audio.engineRunning && (
+        <div
+          className={`shrink-0 px-4 py-1 border-b font-mono text-[11px] flex flex-wrap items-center justify-between gap-2 ${
+            audio.desktopBridgeState.selfLoopbackBlocked
+              ? 'bg-amber-950/80 border-amber-500/60 text-amber-100'
+              : 'bg-emerald-950/75 border-emerald-500/45 text-emerald-100'
+          }`}
+        >
+          <span>
+            {audio.desktopBridgeState.selfLoopbackBlocked
+              ? `SELF-LOOPBACK FIREWALL: ${audio.desktopBridgeState.safetyReason}`
+              : `SYSTEM AUDIO BRIDGE ISOLATED: ${audio.desktopBridgeState.safetyReason}`}
+          </span>
+          <div className="flex items-center gap-2">
+            {audio.desktopBridgeState.selfLoopbackBlocked && secondaryMonitorCandidate && (
+              <button
+                type="button"
+                disabled={consoleLocked}
+                onClick={() => void handleRouteMonitorToSecondaryOutput()}
+                className="px-2.5 py-0.5 rounded border border-teal-300/60 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-[10px] cursor-pointer disabled:opacity-45"
+              >
+                ROUTE MON TO {secondaryMonitorCandidate.label?.slice(0, 22) || 'HEADPHONES'}
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={consoleLocked}
+              onClick={() => void audio.setDesktopCaptureMethod('display-media', true)}
+              className={`px-2.5 py-0.5 rounded border text-[10px] font-bold cursor-pointer disabled:opacity-45 ${
+                audio.desktopBridgeState.selfLoopbackBlocked
+                  ? 'border-amber-300/70 bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  : 'border-emerald-400/50 bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-100'
+              }`}
+            >
+              {audio.desktopBridgeState.selfLoopbackBlocked ? 'RE-PICK ISOLATED TAB' : 'RE-PICK SOURCE'}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
         {session.navDockPosition === 'left' && (
           <Sidebar
@@ -743,6 +901,10 @@ export default function App() {
               if (!consoleLocked) void hardware.handleSelectStreamOutputDevice(devId);
             }}
             onScanAudioDevices={hardware.refreshAudioDevices}
+            audioSource={audio.audioSource}
+            desktopBridgeState={audio.desktopBridgeState}
+            specializedDesktopInputs={hardware.specializedDesktopInputs}
+            onActivateSystemAudioBridge={() => void audio.setDesktopCaptureMethod('display-media', true)}
           />
 
           {/* CENTER PANEL: ALL 16 MODULES DELIVER THEIR CONTENT HERE */}
@@ -1038,6 +1200,10 @@ export default function App() {
                     onUninstallApo={(epId) => void hardware.handleUninstallApo(epId)}
                     onEnableBrowserDspSpeakers={() => void handleBrowserDspToSpeakers()}
                     onOpenWindowsSoundMixer={() => void openWindowsSoundSettings('apps-volume')}
+                    desktopBridgeState={audio.desktopBridgeState}
+                    specializedDesktopInputs={hardware.specializedDesktopInputs}
+                    onSelectDesktopCaptureMethod={audio.setDesktopCaptureMethod}
+                    onSelectSpecializedDesktopDevice={audio.setSpecializedDesktopDevice}
                   />
                 )}
               </div>

@@ -17,6 +17,17 @@ import {
   stopNativeDesktopCapture,
   stopRawOutput,
 } from '../utils/nativeDesktopAudio.ts';
+import { isDesktopApp } from '../utils/appApi.ts';
+import {
+  INITIAL_DESKTOP_BRIDGE_STATE,
+  acquireSystemAudioStream,
+  evaluateDesktopLoopbackSafety,
+  type SpecializedDesktopInterface,
+  type SystemAudioBridgeState,
+  type SystemAudioCaptureMethod,
+} from './systemAudioBridge.ts';
+
+export type { SpecializedDesktopInterface, SystemAudioBridgeState, SystemAudioCaptureMethod };
 
 export interface SpectrumSnapshot {
   frequencies: Float32Array;
@@ -218,8 +229,142 @@ class LiveAudioEngine {
   private emergencyMuted = false;
   private lastDsp: DspConfig | null = null;
 
+  // Dedicated System Audio Input Bridge & Self-Loopback Firewall state
+  private desktopBridgeState: SystemAudioBridgeState = { ...INITIAL_DESKTOP_BRIDGE_STATE };
+  private desktopCaptureMethod: SystemAudioCaptureMethod = isDesktopApp()
+    ? 'native-wasapi'
+    : 'display-media';
+  private specializedDesktopDeviceId: string | null = null;
+  private specializedDesktopLabel: string | null = null;
+  private specializedDesktopGroupId: string | null = null;
+  private activeDisplaySurface: string | null = null;
+  private activeSuppressLocalPlayback = false;
+  private tauriSourceIsolationActive = false;
+  private outputDeviceMetaCache: MediaDeviceInfo[] = [];
+  private bridgeListeners: Set<(state: SystemAudioBridgeState) => void> = new Set();
+
   public setOnSourceEnded(cb: (() => void) | null): void {
     this.onSourceEndedCb = cb;
+  }
+
+  public getDesktopBridgeState(): SystemAudioBridgeState {
+    return this.desktopBridgeState;
+  }
+
+  public subscribeDesktopBridge(cb: (state: SystemAudioBridgeState) => void): () => void {
+    this.bridgeListeners.add(cb);
+    cb(this.desktopBridgeState);
+    return () => {
+      this.bridgeListeners.delete(cb);
+    };
+  }
+
+  private emitDesktopBridgeState(): void {
+    for (const cb of this.bridgeListeners) {
+      try {
+        cb(this.desktopBridgeState);
+      } catch {
+        // ignore subscriber errors
+      }
+    }
+  }
+
+  public updateOutputDeviceMetadata(devices: MediaDeviceInfo[]): void {
+    this.outputDeviceMetaCache = devices;
+    this.refreshDesktopBridgeSafety();
+    this.syncMonitorGain();
+  }
+
+  public setDesktopCaptureMethod(method: SystemAudioCaptureMethod): void {
+    this.desktopCaptureMethod = method;
+    this.refreshDesktopBridgeSafety();
+  }
+
+  public setSpecializedDesktopDevice(device: {
+    deviceId: string | null;
+    label?: string | null;
+    groupId?: string | null;
+  }): void {
+    this.specializedDesktopDeviceId = device.deviceId || null;
+    this.specializedDesktopLabel = device.label || null;
+    this.specializedDesktopGroupId = device.groupId || null;
+    if (device.deviceId) {
+      this.desktopCaptureMethod =
+        device.deviceId === 'native-desktop-audio' ? 'native-wasapi' : 'specialized-interface';
+    }
+    this.refreshDesktopBridgeSafety();
+  }
+
+  public setTauriSourceIsolationActive(active: boolean): void {
+    this.tauriSourceIsolationActive = active;
+    this.refreshDesktopBridgeSafety();
+    this.syncMonitorGain();
+  }
+
+  private findOutputMeta(deviceId?: string): MediaDeviceInfo | undefined {
+    if (!deviceId) return undefined;
+    return this.outputDeviceMetaCache.find((d) => d.deviceId === deviceId);
+  }
+
+  private refreshDesktopBridgeSafety(): ReturnType<typeof evaluateDesktopLoopbackSafety> {
+    const defaultMeta =
+      this.outputDeviceMetaCache.find((d) => d.deviceId === 'default') ??
+      this.outputDeviceMetaCache[0];
+    const preferredOutMeta = this.findOutputMeta(this.preferredOutputDeviceId);
+    const preferredStreamMeta = this.findOutputMeta(this.preferredStreamOutputDeviceId);
+
+    const isDesktopActive = this.isRunning && this.sourceMode === 'desktop-audio';
+    const safety = evaluateDesktopLoopbackSafety({
+      active: isDesktopActive,
+      method: this.desktopCaptureMethod,
+      displaySurface: this.activeDisplaySurface,
+      suppressLocalAudioPlayback: this.activeSuppressLocalPlayback,
+      specializedDeviceId: this.specializedDesktopDeviceId,
+      specializedInputLabel: this.specializedDesktopLabel,
+      specializedInputGroupId: this.specializedDesktopGroupId,
+      preferredOutputDeviceId: this.preferredOutputDeviceId,
+      preferredOutputLabel: preferredOutMeta?.label,
+      preferredOutputGroupId: preferredOutMeta?.groupId,
+      defaultOutputDeviceId: defaultMeta?.deviceId,
+      defaultOutputGroupId: defaultMeta?.groupId,
+      defaultOutputLabel: defaultMeta?.label,
+      preferredStreamOutputDeviceId: this.preferredStreamOutputDeviceId,
+      preferredStreamOutputLabel: preferredStreamMeta?.label,
+      preferredStreamOutputGroupId: preferredStreamMeta?.groupId,
+      tauriSourceIsolationActive: this.tauriSourceIsolationActive,
+      tauriRawOutputActive: this.rawOutputActive,
+    });
+
+    const nextState: SystemAudioBridgeState = {
+      active: isDesktopActive,
+      method: this.desktopCaptureMethod,
+      displaySurface: isDesktopActive ? this.activeDisplaySurface : null,
+      inputLabel: isDesktopActive ? this.activeInputLabel : null,
+      specializedDeviceId: this.specializedDesktopDeviceId,
+      loopbackRisk: safety.loopbackRisk,
+      selfLoopbackBlocked: safety.selfLoopbackBlocked,
+      streamLoopbackBlocked: safety.streamLoopbackBlocked,
+      safetyReason: safety.safetyReason,
+      sampleRate: isDesktopActive ? this.getSampleRate() : null,
+    };
+
+    const changed =
+      nextState.active !== this.desktopBridgeState.active ||
+      nextState.method !== this.desktopBridgeState.method ||
+      nextState.displaySurface !== this.desktopBridgeState.displaySurface ||
+      nextState.inputLabel !== this.desktopBridgeState.inputLabel ||
+      nextState.specializedDeviceId !== this.desktopBridgeState.specializedDeviceId ||
+      nextState.loopbackRisk !== this.desktopBridgeState.loopbackRisk ||
+      nextState.selfLoopbackBlocked !== this.desktopBridgeState.selfLoopbackBlocked ||
+      nextState.streamLoopbackBlocked !== this.desktopBridgeState.streamLoopbackBlocked ||
+      nextState.safetyReason !== this.desktopBridgeState.safetyReason ||
+      nextState.sampleRate !== this.desktopBridgeState.sampleRate;
+
+    this.desktopBridgeState = nextState;
+    if (changed) {
+      this.emitDesktopBridgeState();
+    }
+    return safety;
   }
 
   public async start(
@@ -265,6 +410,8 @@ class LiveAudioEngine {
       await this.setupSource(source);
       this.applyChannels(this.lastChannels);
       this.applyDsp(dsp);
+      this.desktopBridgeState = { ...this.desktopBridgeState, active: true };
+      this.refreshDesktopBridgeSafety();
       this.syncMonitorGain();
       if (this.rawOutputActive) {
         await this.setRawOutputEnabled(true, this.rawOutputEndpointId);
@@ -272,6 +419,7 @@ class LiveAudioEngine {
     } catch (err) {
       this.teardownSource();
       this.isRunning = false;
+      this.refreshDesktopBridgeSafety();
       throw err;
     }
   }
@@ -283,6 +431,8 @@ class LiveAudioEngine {
   public async setOutputDevice(deviceId?: string): Promise<boolean> {
     const cleanId = (deviceId || '').split('::')[0];
     this.preferredOutputDeviceId = cleanId || undefined;
+    this.refreshDesktopBridgeSafety();
+    this.syncMonitorGain();
     // The preference is retained before startup and applied by start() once the
     // AudioContext exists. This makes selecting an output before engine start valid.
     if (!this.ctx) return true;
@@ -313,10 +463,12 @@ class LiveAudioEngine {
         this.streamAudioEl.pause();
         this.streamAudioEl.srcObject = null;
       }
+      this.refreshDesktopBridgeSafety();
       this.syncMonitorGain();
       return true;
     }
     if (!this.ctx || !this.streamMediaDest) {
+      this.refreshDesktopBridgeSafety();
       this.syncMonitorGain();
       return false;
     }
@@ -332,10 +484,12 @@ class LiveAudioEngine {
         }
         await this.streamAudioEl.play().catch(() => {});
       }
+      this.refreshDesktopBridgeSafety();
       this.syncMonitorGain();
       return true;
     } catch (err) {
       console.warn('Stream output setSinkId failed:', err);
+      this.refreshDesktopBridgeSafety();
       this.syncMonitorGain();
       return false;
     }
@@ -352,6 +506,7 @@ class LiveAudioEngine {
     this.gateIsClosed = false;
     this.lastFastSnap = null;
     this.lastFastSnapTs = 0;
+    this.refreshDesktopBridgeSafety();
     this.syncMonitorGain();
     if (this.ctx && this.ctx.state === 'running') {
       void this.ctx.suspend().catch(() => {});
@@ -360,17 +515,30 @@ class LiveAudioEngine {
 
   private syncMonitorGain(): void {
     if (!this.ctx) return;
+    const safety = this.refreshDesktopBridgeSafety();
+    const desktopMonitorLoopbackBlocked =
+      this.sourceMode === 'desktop-audio' && safety.selfLoopbackBlocked;
+    const desktopStreamLoopbackBlocked =
+      this.sourceMode === 'desktop-audio' && safety.streamLoopbackBlocked;
+
     if (this.monitorGain) {
       const baseLinear = dbToLinear(this.monitorLevelDb);
       const tbFactor = this.talkbackActive ? 0.2 : 1.0; // -14 dB Cue Dim during Talkback
       const target =
-        this.monitorAudible && !this.emergencyMuted && !this.rawOutputActive
+        this.monitorAudible &&
+        !this.emergencyMuted &&
+        !this.rawOutputActive &&
+        !desktopMonitorLoopbackBlocked
           ? baseLinear * tbFactor
           : 0;
       this.monitorGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.02);
     }
     if (this.streamOutputGain) {
-      const streamActive = Boolean(this.preferredStreamOutputDeviceId) && !this.emergencyMuted && this.isRunning;
+      const streamActive =
+        Boolean(this.preferredStreamOutputDeviceId) &&
+        !this.emergencyMuted &&
+        this.isRunning &&
+        !desktopStreamLoopbackBlocked;
       this.streamOutputGain.gain.setTargetAtTime(streamActive ? 1 : 0, this.ctx.currentTime, 0.02);
     }
   }
@@ -1037,8 +1205,22 @@ class LiveAudioEngine {
       const panVal = Math.max(-1, Math.min(1, (ch.pan || 0) / 100));
       strip.pannerNode.pan.setTargetAtTime(panVal, now, 0.015);
 
-      const isSuppressed = ch.mute || (anySolo && !ch.solo) || ch.faderDb <= -47.5;
-      const faderLinear = isSuppressed ? 0 : dbToLinear(ch.faderDb);
+      const isEmptySlotInBridgeMode =
+        (this.sourceMode === 'desktop-audio' || this.sourceMode === 'pink-noise') &&
+        i === 0 &&
+        !ch.hardwareInputId &&
+        ch.faderDb <= -47.5;
+      const effectiveFaderDb = isEmptySlotInBridgeMode ? 0 : ch.faderDb;
+      const effectivePreampDb =
+        this.sourceMode === 'desktop-audio' && i === 0
+          ? 0 + (ch.padDb ? -20 : 0)
+          : preampDb;
+      if (this.sourceMode === 'desktop-audio' && i === 0) {
+        strip.preampGain.gain.setTargetAtTime(dbToLinear(effectivePreampDb) * sign, now, 0.015);
+      }
+
+      const isSuppressed = ch.mute || (anySolo && !ch.solo) || (!isEmptySlotInBridgeMode && effectiveFaderDb <= -47.5);
+      const faderLinear = isSuppressed ? 0 : dbToLinear(effectiveFaderDb);
       strip.faderGain.gain.setTargetAtTime(faderLinear, now, 0.015);
     }
   }
@@ -1369,6 +1551,8 @@ class LiveAudioEngine {
       });
       this.activeStream = null;
     }
+    this.activeDisplaySurface = null;
+    this.activeSuppressLocalPlayback = false;
     this.persistentPeakBin = -1;
     this.persistentPeakFrames = 0;
   }
@@ -1672,52 +1856,75 @@ class LiveAudioEngine {
     const ctx = this.ctx;
 
     if (mode === 'desktop-audio') {
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        throw new Error(
-          'Desktop audio loopback (getDisplayMedia) is unavailable in this browser context.'
-        );
-      }
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: 1, height: 1, frameRate: 1 },
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: { ideal: 2 },
-          sampleRate: { ideal: 48000 },
-        },
-        // Opt-in desktop loopback explicitly requested by operator
-        ...({ systemAudio: 'include' } as Record<string, unknown>),
-      } as DisplayMediaStreamOptions);
-
-      const audioTracks = stream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        stream.getTracks().forEach((t) => t.stop());
-        throw new Error(
-          'No audio track was shared. Re-click Start Engine and check "Share system audio" or "Share tab audio" in the picker.'
-        );
+      this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
+      // Strictly isolate desktop-audio source from all microphone / auxiliary strips
+      for (let i = 0; i < this.channelStrips.length; i++) {
+        this.unbindStripDevice(i);
+        this.setStripActiveConnection(i, i === 0);
       }
 
-      stream.getVideoTracks().forEach((vt) => {
-        vt.enabled = false;
+      // Path A: Native Windows Tauri WASAPI Process-Exclusion Loopback
+      if (this.desktopCaptureMethod === 'native-wasapi' && isDesktopApp()) {
+        await this.ensureDesktopWorklet();
+        const workletNode = new AudioWorkletNode(ctx, 'desktop-loopback-processor', {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+        });
+        const streamKey = 'bridge-native-desktop-audio';
+        await startNativeDesktopCapture(streamKey, null, (buf) => {
+          try {
+            workletNode.port.postMessage(buf, [buf]);
+          } catch {
+            // ignore if node torn down
+          }
+        });
+        this.nativeStreams.set(streamKey, {
+          node: workletNode,
+          strips: new Set([0]),
+          streamKey,
+        });
+        workletNode.connect(this.channelStrips[0].preampGain);
+        this.activeDisplaySurface = 'wasapi-process-exclusion';
+        this.activeSuppressLocalPlayback = false;
+        this.activeInputLabel = 'System Audio Bridge (WASAPI Process-Exclusion)';
+        this.refreshDesktopBridgeSafety();
+        return;
+      }
+
+      // Path B & C: Web Audio getDisplayMedia or Specialized Virtual Audio Interface
+      const methodToUse: SystemAudioCaptureMethod =
+        this.desktopCaptureMethod === 'specialized-interface' && this.specializedDesktopDeviceId
+          ? 'specialized-interface'
+          : 'display-media';
+
+      if (this.desktopCaptureMethod !== methodToUse) {
+        this.desktopCaptureMethod = methodToUse;
+      }
+
+      const acquired = await acquireSystemAudioStream({
+        method: methodToUse,
+        specializedDeviceId: this.specializedDesktopDeviceId,
+        specializedLabel: this.specializedDesktopLabel,
       });
 
-      this.activeStream = stream;
-      const audioTrack = audioTracks[0];
-      audioTrack.onended = () => {
-        this.stop();
-        this.onSourceEndedCb?.();
-      };
+      this.activeStream = acquired.stream;
+      this.activeDisplaySurface = acquired.displaySurface;
+      this.activeSuppressLocalPlayback = acquired.suppressLocalAudioPlayback;
+      this.activeInputLabel = acquired.label;
 
-      this.activeInputLabel = audioTrack.label
-        ? `Desktop Loopback: ${audioTrack.label}`
-        : 'Desktop Audio (System / Browser Loopback)';
+      const audioTrack = acquired.stream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.onended = () => {
+          this.stop();
+          this.onSourceEndedCb?.();
+        };
+      }
 
-      this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
-      this.setStripActiveConnection(0, true);
-      const desktopNode = ctx.createMediaStreamSource(stream);
+      const desktopNode = ctx.createMediaStreamSource(acquired.stream);
       desktopNode.connect(this.channelStrips[0].preampGain);
       this.sourceNodes.push(desktopNode);
+      this.refreshDesktopBridgeSafety();
       return;
     }
 

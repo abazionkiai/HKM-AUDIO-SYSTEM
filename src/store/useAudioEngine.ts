@@ -12,7 +12,10 @@ import type {
 import {
   liveAudioEngine,
   type SpectrumSnapshot,
+  type SystemAudioBridgeState,
+  type SystemAudioCaptureMethod,
 } from '../audio/liveAudioEngine.ts';
+import { INITIAL_DESKTOP_BRIDGE_STATE } from '../audio/systemAudioBridge.ts';
 import {
   applyDspPluginToConfig,
   type LoadedPluginRecord,
@@ -85,12 +88,56 @@ export function useAudioEngine({
   const [spectrum, setSpectrum] = useState<SpectrumSnapshot>(INITIAL_SPECTRUM);
   const [systemCpuPercent, setSystemCpuPercent] = useState<number | null>(null);
   const [schedulingRisk, setSchedulingRisk] = useState<'low' | 'elevated' | 'critical'>('low');
+  const [desktopBridgeState, setDesktopBridgeState] = useState<SystemAudioBridgeState>(
+    INITIAL_DESKTOP_BRIDGE_STATE
+  );
 
   const lastTickTsRef = useRef<number>(performance.now());
   const lastTelemetryWsSentRef = useRef<number>(0);
   const lastSilentSigRef = useRef<string | null>(null);
   const schedulingStreakRef = useRef<{ elevated: number; critical: number }>({ elevated: 0, critical: 0 });
   const seenAutoIssuesRef = useRef<Set<string>>(new Set());
+  const lastSyncedBindingsRef = useRef<string | null>(null);
+
+  const onSendWsTelemetryRef = useRef(onSendWsTelemetry);
+  onSendWsTelemetryRef.current = onSendWsTelemetry;
+  const onAddFindingRef = useRef(onAddFinding);
+  onAddFindingRef.current = onAddFinding;
+  const logAuditRef = useRef(logAudit);
+  logAuditRef.current = logAudit;
+  const activeDeviceRef = useRef(activeDevice);
+  activeDeviceRef.current = activeDevice;
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  const dspRef = useRef(dsp);
+  dspRef.current = dsp;
+  const audioSourceRef = useRef(audioSource);
+  audioSourceRef.current = audioSource;
+  const engineRunningRef = useRef(engineRunning);
+  engineRunningRef.current = engineRunning;
+
+  // Subscribe to System Audio Input Bridge state & Self-Loopback Firewall
+  useEffect(() => {
+    return liveAudioEngine.subscribeDesktopBridge((next) => {
+      setDesktopBridgeState((prev) => {
+        if (
+          prev.active === next.active &&
+          prev.method === next.method &&
+          prev.displaySurface === next.displaySurface &&
+          prev.inputLabel === next.inputLabel &&
+          prev.specializedDeviceId === next.specializedDeviceId &&
+          prev.loopbackRisk === next.loopbackRisk &&
+          prev.selfLoopbackBlocked === next.selfLoopbackBlocked &&
+          prev.streamLoopbackBlocked === next.streamLoopbackBlocked &&
+          prev.safetyReason === next.safetyReason &&
+          prev.sampleRate === next.sampleRate
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    });
+  }, []);
 
   // Sample real Windows system CPU once per second, slower while hidden. This is
   // intentionally independent of engine state so standby resource use is visible.
@@ -136,15 +183,23 @@ export function useAudioEngine({
     liveAudioEngine.applyDsp(effectiveDsp);
   }, [dsp, plugins]);
 
-  // Sync per-channel strip fader/gain/mute and dedicated stereo inputs into Web Audio Engine
+  // Sync per-channel strip fader/gain/mute and ONLY re-bind hardware streams when device bindings change in live-mic mode
   useEffect(() => {
     liveAudioEngine.applyChannels(channels);
-    if (engineRunning) {
-      void liveAudioEngine.syncChannelHardwareInputs(channels).catch((err) => {
-        setAudioError(err instanceof Error ? err.message : String(err));
-      });
+    if (engineRunning && audioSource === 'live-mic') {
+      const bindingSig = channels
+        .map((c) => `${c.id}:${c.hardwareInputId ?? ''}`)
+        .join('|');
+      if (lastSyncedBindingsRef.current !== bindingSig) {
+        lastSyncedBindingsRef.current = bindingSig;
+        void liveAudioEngine.syncChannelHardwareInputs(channels).catch((err) => {
+          setAudioError(err instanceof Error ? err.message : String(err));
+        });
+      }
+    } else {
+      lastSyncedBindingsRef.current = null;
     }
-  }, [channels, engineRunning]);
+  }, [audioSource, channels, engineRunning]);
 
   // Sync speaker zone routing to multi-channel physical soundcard rear jacks
   useEffect(() => {
@@ -156,28 +211,29 @@ export function useAudioEngine({
   // Handle source stream unexpected ending (e.g., user clicked "Stop sharing" in browser)
   useEffect(() => {
     liveAudioEngine.setOnSourceEnded(() => {
+      lastSyncedBindingsRef.current = null;
       setEngineRunning(false);
       setTelemetry({
         ...INITIAL_TELEMETRY,
-        source: audioSource,
+        source: audioSourceRef.current,
         sampleRate: liveAudioEngine.getSampleRate(),
       });
       setSpectrum(INITIAL_SPECTRUM);
-      logAudit(
+      logAuditRef.current(
         'Audio Capture Ended',
-        'System desktop loopback or microphone capture stream was stopped.',
+        'System desktop bridge or microphone capture stream was stopped.',
         'system'
       );
     });
     return () => liveAudioEngine.setOnSourceEnded(null);
-  }, [audioSource, logAudit]);
+  }, []);
 
   // 5Hz visible / 2Hz hidden telemetry and FFT sampling.
   useEffect(() => {
     if (!engineRunning) {
       schedulingStreakRef.current = { elevated: 0, critical: 0 };
       lastSilentSigRef.current = null;
-      setSchedulingRisk('low');
+      setSchedulingRisk((prev) => (prev === 'low' ? prev : 'low'));
       return;
     }
 
@@ -215,7 +271,7 @@ export function useAudioEngine({
       const nowTs = performance.now();
       if (nowTs - lastTelemetryWsSentRef.current >= 200) {
         lastTelemetryWsSentRef.current = nowTs;
-        onSendWsTelemetry?.(snap.telemetry);
+        onSendWsTelemetryRef.current?.(snap.telemetry);
       }
 
       const quantumMs = (bufferSize / Math.max(8000, sampleRate)) * 1000;
@@ -252,7 +308,7 @@ export function useAudioEngine({
       ) {
         const freq = snap.telemetry.feedbackRisk.frequencyHz;
         seenAutoIssuesRef.current.add(`fb-${freq}`);
-        onAddFinding?.({
+        onAddFindingRef.current?.({
           id: `fb-${Date.now()}`,
           timestamp: new Date().toISOString(),
           severity: 'critical',
@@ -260,7 +316,7 @@ export function useAudioEngine({
           title: `Sustained Narrow-Band Ringing Detected @ ${freq} Hz`,
           evidence: `+${snap.telemetry.feedbackRisk.prominenceDb.toFixed(1)} dB prominence for ${snap.telemetry.feedbackRisk.persistenceSec}s`,
           confidence: snap.telemetry.feedbackRisk.confidence,
-          explanation: `A persistent narrow-band peak at ${freq} Hz has remained dominant above neighboring frequencies. Approve a surgical notch cut or reduce wedge/mic gain physically on ${activeDevice.model}.`,
+          explanation: `A persistent narrow-band peak at ${freq} Hz has remained dominant above neighboring frequencies. Approve a surgical notch cut or reduce wedge/mic gain physically on ${activeDeviceRef.current.model}.`,
           physicalChecks: [
             'Verify pulpit/handheld mic is not pointed directly toward stage monitors or main PA.',
             'Reduce channel preamp gain slightly if ringing returns after notching.',
@@ -286,7 +342,7 @@ export function useAudioEngine({
         !seenAutoIssuesRef.current.has('hum-50')
       ) {
         seenAutoIssuesRef.current.add('hum-50');
-        onAddFinding?.({
+        onAddFindingRef.current?.({
           id: `hum-${Date.now()}`,
           timestamp: new Date().toISOString(),
           severity: 'warning',
@@ -331,37 +387,42 @@ export function useAudioEngine({
       if (timerId !== null) window.clearTimeout(timerId);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [
-    engineRunning,
-    needsSpectrumState,
-    activeDevice.model,
-    bufferSize,
-    sampleRate,
-    onSendWsTelemetry,
-    onAddFinding,
-  ]);
+  }, [engineRunning, needsSpectrumState, bufferSize, sampleRate]);
 
   const handleToggleEngine = useCallback(async () => {
     setAudioError(null);
-    if (engineRunning) {
+    if (engineRunningRef.current) {
       liveAudioEngine.stop();
+      lastSyncedBindingsRef.current = null;
       setEngineRunning(false);
       const stoppedTelemetry: SignalTelemetry = {
         ...INITIAL_TELEMETRY,
-        source: audioSource,
+        source: audioSourceRef.current,
         sampleRate: liveAudioEngine.getSampleRate(),
       };
       setTelemetry(stoppedTelemetry);
       setSpectrum(INITIAL_SPECTRUM);
-      onSendWsTelemetry?.(stoppedTelemetry);
-      logAudit('Stopped Audio Engine', 'Audio DSP processing placed into standby.', 'operator');
+      onSendWsTelemetryRef.current?.(stoppedTelemetry);
+      logAuditRef.current('Stopped Audio Engine', 'Audio DSP processing placed into standby.', 'operator');
     } else {
+      const currentChannels = channelsRef.current;
+      const currentDsp = dspRef.current;
+      const currentSource = audioSourceRef.current;
       try {
-        await liveAudioEngine.start(audioSource, dsp, channels);
-        liveAudioEngine.applyChannels(channels);
+        await liveAudioEngine.start(currentSource, currentDsp, currentChannels);
+        liveAudioEngine.applyChannels(currentChannels);
+        lastSyncedBindingsRef.current =
+          currentSource === 'live-mic'
+            ? currentChannels.map((c) => `${c.id}:${c.hardwareInputId ?? ''}`).join('|')
+            : null;
         setEngineRunning(true);
-        logAudit('Started Audio Engine', `Source: ${audioSource} · Device: ${activeDevice.model}`, 'operator');
+        logAuditRef.current(
+          'Started Audio Engine',
+          `Source: ${currentSource} · Device: ${activeDeviceRef.current.model}`,
+          'operator'
+        );
       } catch (err) {
+        lastSyncedBindingsRef.current = null;
         setEngineRunning(false);
         setAudioError(
           err instanceof Error
@@ -370,27 +431,26 @@ export function useAudioEngine({
         );
       }
     }
-  }, [
-    activeDevice.model,
-    audioSource,
-    channels,
-    dsp,
-    engineRunning,
-    logAudit,
-    onSendWsTelemetry,
-  ]);
+  }, []);
 
   const handleSourceChange = useCallback(async (nextSrc: AudioSourceSimulation) => {
     setAudioSource(nextSrc);
     seenAutoIssuesRef.current.clear();
     setAudioError(null);
-    if (engineRunning) {
+    if (engineRunningRef.current) {
+      const currentChannels = channelsRef.current;
+      const currentDsp = dspRef.current;
       try {
-        await liveAudioEngine.start(nextSrc, dsp, channels);
-        liveAudioEngine.applyChannels(channels);
-        logAudit('Switched Audio Source', `Input switched to ${nextSrc}`, 'operator');
+        await liveAudioEngine.start(nextSrc, currentDsp, currentChannels);
+        liveAudioEngine.applyChannels(currentChannels);
+        lastSyncedBindingsRef.current =
+          nextSrc === 'live-mic'
+            ? currentChannels.map((c) => `${c.id}:${c.hardwareInputId ?? ''}`).join('|')
+            : null;
+        logAuditRef.current('Switched Audio Source', `Input switched to ${nextSrc}`, 'operator');
       } catch (err) {
         liveAudioEngine.stop();
+        lastSyncedBindingsRef.current = null;
         setEngineRunning(false);
         setTelemetry({
           ...INITIAL_TELEMETRY,
@@ -401,7 +461,66 @@ export function useAudioEngine({
         setAudioError(err instanceof Error ? err.message : 'Failed to switch audio source.');
       }
     }
-  }, [channels, dsp, engineRunning, logAudit]);
+  }, []);
+
+  const setDesktopCaptureMethod = useCallback(
+    async (method: SystemAudioCaptureMethod, autoStartOrRestart = false) => {
+      liveAudioEngine.setDesktopCaptureMethod(method);
+      if (autoStartOrRestart || (engineRunningRef.current && audioSourceRef.current === 'desktop-audio')) {
+        setAudioSource('desktop-audio');
+        setAudioError(null);
+        try {
+          await liveAudioEngine.start('desktop-audio', dspRef.current, channelsRef.current);
+          liveAudioEngine.applyChannels(channelsRef.current);
+          lastSyncedBindingsRef.current = null;
+          setEngineRunning(true);
+          logAuditRef.current(
+            'Activated System Audio Input Bridge',
+            `Method: ${method}`,
+            'operator'
+          );
+        } catch (err) {
+          liveAudioEngine.stop();
+          setEngineRunning(false);
+          setAudioError(
+            err instanceof Error ? err.message : 'Failed to activate System Audio Input Bridge.'
+          );
+        }
+      }
+    },
+    []
+  );
+
+  const setSpecializedDesktopDevice = useCallback(
+    async (
+      device: { deviceId: string | null; label?: string | null; groupId?: string | null },
+      autoStartOrRestart = false
+    ) => {
+      liveAudioEngine.setSpecializedDesktopDevice(device);
+      if (autoStartOrRestart || (engineRunningRef.current && audioSourceRef.current === 'desktop-audio')) {
+        setAudioSource('desktop-audio');
+        setAudioError(null);
+        try {
+          await liveAudioEngine.start('desktop-audio', dspRef.current, channelsRef.current);
+          liveAudioEngine.applyChannels(channelsRef.current);
+          lastSyncedBindingsRef.current = null;
+          setEngineRunning(true);
+          logAuditRef.current(
+            'Bound Specialized Desktop Bridge',
+            device.label || device.deviceId || 'Virtual Interface',
+            'operator'
+          );
+        } catch (err) {
+          liveAudioEngine.stop();
+          setEngineRunning(false);
+          setAudioError(
+            err instanceof Error ? err.message : 'Failed to open specialized desktop audio interface.'
+          );
+        }
+      }
+    },
+    []
+  );
 
   const handleToggleMonitor = useCallback(() => {
     setMonitorAudible((prev) => {
@@ -418,12 +537,18 @@ export function useAudioEngine({
 
   const ensureEngineStarted = useCallback(
     async (channelsOverride?: InputChannel[]): Promise<boolean> => {
-      const targetChannels = channelsOverride ?? channels;
+      const targetChannels = channelsOverride ?? channelsRef.current;
+      const currentSource = audioSourceRef.current;
       setAudioError(null);
       if (liveAudioEngine.getIsRunning()) {
         liveAudioEngine.applyChannels(targetChannels);
         try {
-          await liveAudioEngine.syncChannelHardwareInputs(targetChannels);
+          if (currentSource === 'live-mic') {
+            lastSyncedBindingsRef.current = targetChannels
+              .map((c) => `${c.id}:${c.hardwareInputId ?? ''}`)
+              .join('|');
+            await liveAudioEngine.syncChannelHardwareInputs(targetChannels);
+          }
           return true;
         } catch (err) {
           setAudioError(err instanceof Error ? err.message : String(err));
@@ -431,12 +556,21 @@ export function useAudioEngine({
         }
       }
       try {
-        await liveAudioEngine.start(audioSource, dsp, targetChannels);
+        await liveAudioEngine.start(currentSource, dspRef.current, targetChannels);
         liveAudioEngine.applyChannels(targetChannels);
+        lastSyncedBindingsRef.current =
+          currentSource === 'live-mic'
+            ? targetChannels.map((c) => `${c.id}:${c.hardwareInputId ?? ''}`).join('|')
+            : null;
         setEngineRunning(true);
-        logAudit('Started Audio Engine', `Source: ${audioSource} · Device: ${activeDevice.model}`, 'operator');
+        logAuditRef.current(
+          'Started Audio Engine',
+          `Source: ${currentSource} · Device: ${activeDeviceRef.current.model}`,
+          'operator'
+        );
         return true;
       } catch (err) {
+        lastSyncedBindingsRef.current = null;
         setEngineRunning(false);
         setAudioError(
           err instanceof Error
@@ -446,7 +580,7 @@ export function useAudioEngine({
         return false;
       }
     },
-    [activeDevice.model, audioSource, channels, dsp, logAudit]
+    []
   );
 
   return {
@@ -463,6 +597,9 @@ export function useAudioEngine({
     setSpectrum,
     systemCpuPercent,
     schedulingRisk,
+    desktopBridgeState,
+    setDesktopCaptureMethod,
+    setSpecializedDesktopDevice,
     handleToggleEngine,
     handleSourceChange,
     handleToggleMonitor,

@@ -63,6 +63,7 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   const [fastStreamPeakDb, setFastStreamPeakDb] = useState<number>(-96);
   const [designatedObsInput, setDesignatedObsInput] = useState<string>('');
   const [exclusiveAudioLock, setExclusiveAudioLock] = useState<boolean>(false);
+  const lastAutoMutedRef = useRef<Map<string, boolean>>(new Map());
   const scopeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const waveformHistoryRef = useRef<number[]>(new Array(96).fill(0.02));
 
@@ -188,20 +189,32 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
 
   // Auto-select designated OBS broadcast input & enforce exclusive audio lock if enabled
   useEffect(() => {
-    if (!obsState.connected || obsState.audioInputs.length === 0) return;
-    if (!designatedObsInput) {
+    if (!obsState.connected || obsState.audioInputs.length === 0) {
+      lastAutoMutedRef.current.clear();
+      return;
+    }
+    let resolvedDesignated = designatedObsInput;
+    if (!resolvedDesignated) {
       const preferred =
         obsState.audioInputs.find((i) =>
           i.inputName.trim().toLocaleLowerCase() === 'hkm processed audio'
         ) ?? obsState.audioInputs.find((i) =>
           /cable|desktop|loopback|hkm|church/i.test(i.inputName)
         ) ?? obsState.audioInputs[0];
-      if (preferred) setDesignatedObsInput(preferred.inputName);
+      if (preferred) {
+        resolvedDesignated = preferred.inputName;
+        setDesignatedObsInput(preferred.inputName);
+      }
     }
-    if (exclusiveAudioLock && designatedObsInput) {
+    if (!exclusiveAudioLock) {
+      lastAutoMutedRef.current.clear();
+      return;
+    }
+    if (resolvedDesignated) {
       obsState.audioInputs.forEach((inp) => {
-        const shouldMute = inp.inputName !== designatedObsInput;
-        if (inp.muted !== shouldMute) {
+        const shouldMute = inp.inputName !== resolvedDesignated;
+        if (inp.muted !== shouldMute && lastAutoMutedRef.current.get(inp.inputName) !== shouldMute) {
+          lastAutoMutedRef.current.set(inp.inputName, shouldMute);
           void obsWsService.setInputMute(inp.inputName, shouldMute);
         }
       });
