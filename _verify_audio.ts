@@ -77,7 +77,7 @@ console.log('2. Testing System Audio Bridge Self-Loopback Firewall...');
     defaultOutputDeviceId: 'spk-1',
   });
   assert.equal(wholeScreenUnsafe.selfLoopbackBlocked, true);
-  assert.equal(wholeScreenUnsafe.loopbackRisk, 'critical');
+  assert.equal(wholeScreenUnsafe.loopbackRisk, 'unsafe-shared-bus');
 
   const tabIsolatedSafe = evaluateDesktopLoopbackSafety({
     active: true,
@@ -88,7 +88,7 @@ console.log('2. Testing System Audio Bridge Self-Loopback Firewall...');
     defaultOutputDeviceId: 'spk-1',
   });
   assert.equal(tabIsolatedSafe.selfLoopbackBlocked, false);
-  assert.equal(tabIsolatedSafe.loopbackRisk, 'none');
+  assert.equal(tabIsolatedSafe.loopbackRisk, 'safe-tab-isolated');
 
   const wasapiWithIsolationSafe = evaluateDesktopLoopbackSafety({
     active: true,

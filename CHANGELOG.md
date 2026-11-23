@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.2.35
+
+- Implemented cross-rate resampling in `desktop-loopback-worklet.js` and `raw-output-tap-worklet.js` so 48 kHz native WASAPI streams and arbitrary Web Audio `AudioContext` sample rates (e.g. 44.1 kHz / 48 kHz / 96 kHz) bridge cleanly without pitch shift or drift.
+- Hardened output routing (`outputRouter.ts`), source capture (`sourceCaptureManager.ts`), and device naming/auto-slotting (`audioNaming.ts`, `_verify_audio.ts`).
+
 ## 0.2.34
 
 - Refactored the Web Audio engine (`liveAudioEngine.ts`) into modular DSP blocks: `audioUtils.ts`, `channelStripBank.ts`, `masterDspGraph.ts`, `outputRouter.ts`, `sourceCaptureManager.ts`, and `telemetryAnalyzer.ts`.
