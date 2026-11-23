@@ -7,6 +7,14 @@
 
 import type { InputChannel } from '../types/audio.ts';
 
+export const NATIVE_DESKTOP_AUDIO_ID = 'native-desktop-audio';
+export const NATIVE_APP_AUDIO_PREFIX = 'native-app-audio:';
+
+export function isNativeDesktopInputId(deviceId?: string): boolean {
+  if (!deviceId) return false;
+  return deviceId === NATIVE_DESKTOP_AUDIO_ID || deviceId.startsWith(NATIVE_APP_AUDIO_PREFIX);
+}
+
 const LEGACY_MOCK_NAMES = new Set([
   'main preacher',
   'assistant pastor',
@@ -83,7 +91,7 @@ export function deduplicateMediaDevices(
   const excludeLoopbacks = kind === 'audioinput' && options?.excludeLoopbacks !== false;
 
   const filtered = excludeLoopbacks
-    ? byKind.filter((d) => !isLoopbackInputLabel(d.label))
+    ? byKind.filter((d) => isNativeDesktopInputId(d.deviceId) || !isLoopbackInputLabel(d.label))
     : byKind;
 
   const concrete = filtered.filter((d) => !isAliasEntry(d));
@@ -150,7 +158,11 @@ export function deriveAutoChannelNameAndRole(
   const lower = cleanLabel.toLowerCase();
 
   let role = 'Live Stereo';
-  if (lower.includes('cable') || lower.includes('virtual') || lower.includes('voicemeeter')) {
+  if (lower.startsWith('app:') || lower.includes('app audio')) {
+    role = 'App Audio';
+  } else if (lower.includes('desktop audio')) {
+    role = 'Desktop Audio';
+  } else if (lower.includes('cable') || lower.includes('virtual') || lower.includes('voicemeeter')) {
     role = 'Virtual In';
   } else if (lower.includes('line in') || lower.includes('line-in')) {
     role = 'Line In';
@@ -173,7 +185,11 @@ export function deriveAutoChannelNameAndRole(
   }
 
   let name = cleanLabel;
-  if (lower.includes('vb-audio') || lower.includes('virtual cable')) {
+  if (lower.startsWith('app:')) {
+    name = cleanLabel.slice(4).trim() || 'App Audio';
+  } else if (lower.includes('desktop audio')) {
+    name = 'Desktop Audio';
+  } else if (lower.includes('vb-audio') || lower.includes('virtual cable')) {
     name = 'VB-Audio Cable';
   } else if (lower.includes('voicemeeter')) {
     name = lower.includes('aux') ? 'VoiceMeeter AUX' : 'VoiceMeeter VAIO';
@@ -256,6 +272,7 @@ export function createOpenChannelSlot(index: number, authority: InputChannel['au
 
 function isUsableHardwareInput(dev: MediaDeviceInfo): boolean {
   if (dev.deviceId === 'default' || dev.deviceId === 'communications') return false;
+  if (isNativeDesktopInputId(dev.deviceId)) return true;
   if (isLoopbackInputLabel(dev.label)) return false;
   return Boolean(dev.deviceId || normalizeDeviceLabel(dev.label));
 }
@@ -303,7 +320,7 @@ export function sanitizeAndAutoNameChannels(
       !rawDevId ||
       rawDevId === 'default' ||
       rawDevId === 'communications' ||
-      isLoopbackInputLabel(rawLabel) ||
+      (!isNativeDesktopInputId(rawDevId) && isLoopbackInputLabel(rawLabel)) ||
       seenIds.has(rawDevId) ||
       (labelKey.length > 0 && seenLabels.has(labelKey));
 
@@ -372,9 +389,15 @@ export function reconcileLiveInputsToChannels(
   options: { isStartupSync: boolean; minSlots?: number }
 ): ReconcileInputsResult {
   const minSlots = options.minSlots ?? 8;
-  const usableInputs = deduplicateMediaDevices(liveInputs, 'audioinput', {
+  const deduped = deduplicateMediaDevices(liveInputs, 'audioinput', {
     excludeLoopbacks: true,
   }).filter(isUsableHardwareInput);
+
+  // Place physical hardware mics/interfaces first (CH1..CHN), followed immediately by native desktop/app inputs (CHN+1)
+  const usableInputs = [
+    ...deduped.filter((d) => !isNativeDesktopInputId(d.deviceId)),
+    ...deduped.filter((d) => isNativeDesktopInputId(d.deviceId)),
+  ];
 
   const newlyAssigned: ReconcileInputsResult['newlyAssigned'] = [];
 

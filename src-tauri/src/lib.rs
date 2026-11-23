@@ -1,10 +1,18 @@
+mod apo_manager;
+mod desktop_audio;
+mod raw_output;
+
+use apo_manager::{ApoManager, ApoSystemStatus};
 use chrono::Utc;
+use desktop_audio::{enumerate_active_audio_sessions, DesktopAudioManager, DesktopAudioSession, DesktopAudioStatus};
+use raw_output::RawOutputManager;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::{fs, io::Write, path::PathBuf, sync::Mutex};
 use tauri::{
+    ipc::{Channel, InvokeBody, Request, Response},
     webview::{PermissionKind, PermissionResponse, WebviewWindowBuilder},
-    AppHandle, Manager, State,
+    AppHandle, Manager, RunEvent, State,
 };
 
 const MAX_STATE_BYTES: usize = 10 * 1024 * 1024;
@@ -370,10 +378,112 @@ fn desktop_api_request(
     }
 }
 
+#[tauri::command]
+fn desktop_audio_status(
+    audio_mgr: State<'_, DesktopAudioManager>,
+    apo_mgr: State<'_, ApoManager>,
+    raw_out: State<'_, RawOutputManager>,
+    app: AppHandle,
+) -> DesktopAudioStatus {
+    let apo = apo_mgr.status(&app, raw_out.is_running());
+    audio_mgr.status(apo.apo_loaded_in_audiodg && apo.dry_suppression_active)
+}
+
+#[tauri::command]
+fn list_desktop_audio_sessions() -> Vec<DesktopAudioSession> {
+    enumerate_active_audio_sessions()
+}
+
+#[tauri::command]
+fn start_desktop_audio_capture(
+    audio_mgr: State<'_, DesktopAudioManager>,
+    stream_key: String,
+    target_pid: Option<u32>,
+    audio_channel: Channel<Response>,
+) -> Result<(), String> {
+    audio_mgr.start_stream(stream_key, target_pid, audio_channel)
+}
+
+#[tauri::command]
+fn stop_desktop_audio_capture(
+    audio_mgr: State<'_, DesktopAudioManager>,
+    stream_key: String,
+) {
+    audio_mgr.stop_stream(&stream_key);
+}
+
+#[tauri::command]
+fn stop_all_desktop_audio_captures(audio_mgr: State<'_, DesktopAudioManager>) {
+    audio_mgr.stop_all();
+}
+
+#[tauri::command]
+fn get_apo_status(
+    apo_mgr: State<'_, ApoManager>,
+    raw_out: State<'_, RawOutputManager>,
+    app: AppHandle,
+) -> ApoSystemStatus {
+    apo_mgr.status(&app, raw_out.is_running())
+}
+
+#[tauri::command]
+fn set_apo_dry_suppression(
+    apo_mgr: State<'_, ApoManager>,
+    enabled: bool,
+    endpoint_id: Option<String>,
+) -> bool {
+    apo_mgr.set_dry_suppression(enabled, endpoint_id)
+}
+
+#[tauri::command]
+fn install_system_apo(
+    apo_mgr: State<'_, ApoManager>,
+    app: AppHandle,
+    endpoint_id: String,
+) -> Result<String, String> {
+    apo_mgr.install(&app, &endpoint_id)
+}
+
+#[tauri::command]
+fn uninstall_system_apo(
+    apo_mgr: State<'_, ApoManager>,
+    app: AppHandle,
+    endpoint_id: String,
+) -> Result<String, String> {
+    apo_mgr.uninstall(&app, &endpoint_id)
+}
+
+#[tauri::command]
+fn start_raw_output(
+    raw_out: State<'_, RawOutputManager>,
+    endpoint_id: Option<String>,
+) -> Result<(), String> {
+    raw_out.start(endpoint_id)
+}
+
+#[tauri::command]
+fn push_raw_output_pcm(raw_out: State<'_, RawOutputManager>, request: Request<'_>) -> Result<(), String> {
+    match request.body() {
+        InvokeBody::Raw(bytes) => {
+            raw_out.push_pcm_bytes(bytes);
+            Ok(())
+        }
+        InvokeBody::Json(_) => Err("Expected raw binary Float32 PCM buffer".to_string()),
+    }
+}
+
+#[tauri::command]
+fn stop_raw_output(raw_out: State<'_, RawOutputManager>) {
+    raw_out.stop();
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopState::default())
+        .manage(DesktopAudioManager::default())
+        .manage(ApoManager::default())
+        .manage(RawOutputManager::default())
         .setup(|app| {
             let window_config = &app.config().app.windows[0];
             let mut builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
@@ -406,7 +516,28 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![desktop_api_request])
-        .run(tauri::generate_context!())
-        .expect("failed to run Church Audio Intelligence desktop application");
+        .invoke_handler(tauri::generate_handler![
+            desktop_api_request,
+            desktop_audio_status,
+            list_desktop_audio_sessions,
+            start_desktop_audio_capture,
+            stop_desktop_audio_capture,
+            stop_all_desktop_audio_captures,
+            get_apo_status,
+            set_apo_dry_suppression,
+            install_system_apo,
+            uninstall_system_apo,
+            start_raw_output,
+            push_raw_output_pcm,
+            stop_raw_output
+        ])
+        .build(tauri::generate_context!())
+        .expect("failed to build Church Audio Intelligence desktop application")
+        .run(|app_handle, event| {
+            if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
+                app_handle.state::<DesktopAudioManager>().stop_all();
+                app_handle.state::<RawOutputManager>().stop();
+                app_handle.state::<ApoManager>().set_dry_suppression(false, None);
+            }
+        });
 }

@@ -39,6 +39,11 @@ import {
   SAMPLE_CUSTOM_HARDWARE_PLUGIN,
 } from '../plugins/pluginManager.ts';
 import { calculateRoundTripLatencyMs } from '../utils/camillaDsp.ts';
+import type {
+  ApoSystemStatus,
+  DesktopAudioSession,
+  DesktopAudioStatus,
+} from '../utils/nativeDesktopAudio.ts';
 import { ArcGauge, ConsolePushButton } from './StudioControls.tsx';
 
 interface HardwareDiagnosticsModuleProps {
@@ -77,6 +82,16 @@ interface HardwareDiagnosticsModuleProps {
   onSelectAudioSource?: (src: AudioSourceSimulation) => void;
   engineRunning?: boolean;
   onToggleEngine?: () => void;
+  desktopAudioStatus?: DesktopAudioStatus | null;
+  desktopAudioSessions?: DesktopAudioSession[];
+  apoStatus?: ApoSystemStatus | null;
+  singleSpeakerMode?: boolean;
+  apoBusy?: boolean;
+  apoMessage?: { tone: 'success' | 'error' | 'info'; text: string } | null;
+  onRefreshDesktopAudio?: () => void;
+  onToggleSingleSpeakerMode?: (enabled: boolean, endpointId?: string) => void;
+  onInstallApo?: (endpointId: string) => void;
+  onUninstallApo?: (endpointId: string) => void;
 }
 
 const PLATFORM_SPECS: Record<
@@ -155,10 +170,21 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onSelectAudioSource,
   engineRunning = false,
   onToggleEngine,
+  desktopAudioStatus = null,
+  desktopAudioSessions = [],
+  apoStatus = null,
+  singleSpeakerMode = false,
+  apoBusy = false,
+  apoMessage = null,
+  onRefreshDesktopAudio,
+  onToggleSingleSpeakerMode,
+  onInstallApo,
+  onUninstallApo,
 }) => {
   const [tab, setTab] = useState<'hardware' | 'remote' | 'plugins' | 'crossplatform' | 'watchdog'>(
     'hardware'
   );
+  const [selectedApoEndpointId, setSelectedApoEndpointId] = useState<string>('');
   const [pluginDraft, setPluginDraft] = useState(SAMPLE_CUSTOM_HARDWARE_PLUGIN);
   const [pluginError, setPluginError] = useState<string | null>(null);
   const [pluginSuccess, setPluginSuccess] = useState<string | null>(null);
@@ -616,38 +642,249 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
 
       {tab === 'hardware' && (
         <div className="space-y-4">
-          {/* Desktop / Media Player / Browser Audio Loopback Card */}
-          <div className="rounded-lg border border-emerald-500/50 bg-[#071a17] text-slate-100 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-lg shadow-emerald-950/40">
-            <div className="space-y-1.5">
-              <div className="font-mono text-xs font-bold text-emerald-300 uppercase tracking-wide flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Desktop Audio: System / Browser Loopback Routing</span>
+          {/* Dual-Engine Hassle-Free Desktop Audio Card (Option 1 Process Loopback + Option 2 MFX APO RAW) */}
+          <div className="rounded-lg border border-cyan-500/45 bg-gradient-to-b from-[#091821] to-[#070E14] text-slate-100 p-4 space-y-3.5 shadow-lg shadow-cyan-950/30">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-cyan-500/20 pb-3">
+              <div className="space-y-1">
+                <div className="font-mono text-xs font-bold text-cyan-300 uppercase tracking-wide flex items-center gap-2">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      desktopBuild && desktopAudioStatus?.supported
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse'
+                        : 'bg-sky-400'
+                    }`}
+                  />
+                  <span>Hassle-Free Desktop Audio Capture (Dual Engine · Zero Virtual Cable)</span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-4xl">
+                  {desktopBuild
+                    ? 'Engine 1 (WASAPI Process-Exclusion Loopback) runs automatically out of the box—capturing Chrome, Edge, Spotify, VLC, and all desktop audio while excluding this console (zero feedback) and auto-assigning to the next open channel.'
+                    : 'Running in web preview mode. Install or launch the Windows Desktop App for driverless WASAPI Process-Exclusion Loopback & APO single-speaker routing.'}
+                </p>
               </div>
-              <p className="text-xs text-slate-200 leading-relaxed max-w-4xl">
-                To feed audio from any media player (VLC, Spotify, Media Player, DAW) or browser tab directly into CH 1–2 L/R, choose{' '}
-                <strong className="text-emerald-300 font-mono font-bold bg-emerald-950/80 px-1 py-0.5 rounded border border-emerald-500/40">Desktop Audio: System / Browser Loopback</strong> in the top input selector, or select your loopback device (<strong className="text-sky-300 font-mono">CABLE Input (VB-Audio Virtual Cable)</strong> / <strong className="text-sky-300 font-mono">Stereo Mix</strong>) below.
-              </p>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {desktopBuild && onRefreshDesktopAudio && (
+                  <button
+                    type="button"
+                    onClick={onRefreshDesktopAudio}
+                    className="px-2.5 py-1.5 rounded border border-cyan-500/40 bg-[#0B1720] hover:border-cyan-400 text-cyan-200 font-mono text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>REFRESH APPS &amp; APO</span>
+                  </button>
+                )}
+                {!desktopBuild && onSelectAudioSource && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectAudioSource('desktop-audio');
+                      if (!engineRunning && onToggleEngine) {
+                        onToggleEngine();
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded font-mono text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      audioSource === 'desktop-audio'
+                        ? 'bg-emerald-600 border-emerald-400 text-white'
+                        : 'bg-[#091015] border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/15'
+                    }`}
+                  >
+                    {audioSource === 'desktop-audio' && engineRunning
+                      ? 'WEB DESKTOP LOOPBACK ACTIVE'
+                      : 'SHARE BROWSER / SYSTEM AUDIO'}
+                  </button>
+                )}
+              </div>
             </div>
-            {onSelectAudioSource && (
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectAudioSource('desktop-audio');
-                    if (!engineRunning && onToggleEngine) {
-                      onToggleEngine();
-                    }
-                  }}
-                  className={`px-3 py-2 rounded font-mono text-[11px] font-semibold border transition-colors ${
-                    audioSource === 'desktop-audio'
-                      ? 'bg-emerald-600 border-emerald-400 text-white'
-                      : 'bg-[#091015] border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/15'
-                  }`}
-                >
-                  {audioSource === 'desktop-audio' && engineRunning
-                    ? 'DESKTOP LOOPBACK ACTIVE'
-                    : 'CAPTURE DESKTOP / BROWSER AUDIO'}
-                </button>
+
+            {desktopBuild && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                {/* Engine 1 Panel */}
+                <div className="lg:col-span-5 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[11px] font-bold text-cyan-300 uppercase">
+                      Engine 1 · Driverless Process Loopback
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${
+                        desktopAudioStatus?.supported
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                          : 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                      }`}
+                    >
+                      {desktopAudioStatus?.supported
+                        ? `READY (BUILD ${desktopAudioStatus.osBuild || 'WIN11'})`
+                        : 'UNAVAILABLE'}
+                    </span>
+                  </div>
+
+                  <div className="font-mono text-[10px] text-slate-400 space-y-1">
+                    <div>• No VB-Audio Virtual Cable, zero picker dialogs, zero Admin needed</div>
+                    <div>• Auto-slotted to CH N+1 after connected hardware microphones</div>
+                    <div>• Clean with zero doubling on any PA / USB interface / secondary speaker</div>
+                  </div>
+
+                  <div className="pt-1 border-t border-slate-800/90 space-y-1">
+                    <div className="font-mono text-[9.5px] text-slate-400 uppercase font-semibold">
+                      Detected Active Audio Apps ({desktopAudioSessions.length})
+                    </div>
+                    {desktopAudioSessions.length === 0 ? (
+                      <div className="text-[10px] font-mono text-slate-500 italic">
+                        Start playing audio in Chrome, Edge, Spotify, or VLC to see individual app sessions here or in the left patch tray.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {desktopAudioSessions.map((s) => (
+                          <span
+                            key={`diag-sess-${s.pid}`}
+                            className="px-2 py-0.5 rounded border border-cyan-500/35 bg-cyan-950/30 font-mono text-[10px] text-cyan-200 flex items-center gap-1"
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                s.state === 'active' ? 'bg-emerald-400' : 'bg-slate-500'
+                              }`}
+                            />
+                            {s.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Engine 2 Panel */}
+                <div className="lg:col-span-7 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2.5">
+                  {(() => {
+                    const endpoints = apoStatus?.endpoints ?? [];
+                    const effectiveEpId =
+                      selectedApoEndpointId ||
+                      apoStatus?.selectedEndpointId ||
+                      endpoints.find((e) => e.isDefault)?.id ||
+                      endpoints[0]?.id ||
+                      '';
+                    const activeEp = endpoints.find((e) => e.id === effectiveEpId);
+
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-[11px] font-bold text-amber-300 uppercase">
+                            Engine 2 · Opt-In System APO (Single-Speaker Zero-Doubling)
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1 font-mono text-[9px]">
+                            <span
+                              className={`px-1.5 py-0.5 rounded border ${
+                                apoStatus?.dllBundled
+                                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                                  : 'border-slate-700 bg-slate-900 text-slate-400'
+                              }`}
+                            >
+                              {apoStatus?.dllBundled ? 'DLL BUNDLED' : 'DLL MISSING'}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded border ${
+                                apoStatus?.apoLoadedInAudiodg
+                                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
+                                  : apoStatus?.apoRegisteredAny
+                                    ? 'border-amber-500/45 bg-amber-500/15 text-amber-300'
+                                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                              }`}
+                            >
+                              {apoStatus?.apoLoadedInAudiodg
+                                ? 'LIVE IN AUDIODG'
+                                : apoStatus?.apoRegisteredAny
+                                  ? 'REGISTERED (PPL PENDING)'
+                                  : 'NOT INSTALLED'}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded border border-sky-500/35 bg-sky-950/30 text-sky-300">
+                              500MS FAIL-SAFE
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                          <div className="sm:col-span-7">
+                            <label className="block font-mono text-[9.5px] text-slate-400 uppercase mb-1">
+                              Target Physical Speaker ({activeEp?.rawSupported ? 'WASAPI RAW Supported' : 'Check RAW Support'})
+                            </label>
+                            <select
+                              value={effectiveEpId}
+                              onChange={(e) => setSelectedApoEndpointId(e.target.value)}
+                              className="w-full h-8 px-2 rounded border border-slate-700 bg-[#0B1018] text-slate-100 text-[11px] font-mono"
+                            >
+                              {endpoints.length === 0 ? (
+                                <option value="">Default System Render Endpoint</option>
+                              ) : (
+                                endpoints.map((ep) => (
+                                  <option key={ep.id} value={ep.id}>
+                                    {ep.name} {ep.isDefault ? '(Default)' : ''} ·{' '}
+                                    {ep.rawSupported ? 'RAW OK' : 'No RAW'}
+                                    {ep.apoRegistered ? ' · APO Installed' : ''}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </div>
+
+                          <div className="sm:col-span-5 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={!effectiveEpId || apoBusy || !onInstallApo}
+                              onClick={() => effectiveEpId && onInstallApo?.(effectiveEpId)}
+                              className="flex-1 h-8 px-2 rounded border border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 font-mono text-[10px] font-bold disabled:opacity-40 cursor-pointer"
+                            >
+                              {apoBusy ? 'WORKING...' : 'INSTALL APO (ADMIN)'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!effectiveEpId || apoBusy || !onUninstallApo}
+                              onClick={() => effectiveEpId && onUninstallApo?.(effectiveEpId)}
+                              className="h-8 px-2 rounded border border-slate-700 bg-[#0D131D] hover:border-slate-500 text-slate-300 font-mono text-[10px] font-bold disabled:opacity-40 cursor-pointer"
+                            >
+                              UNINSTALL
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+                          <span className="font-mono text-[10px] text-slate-400">
+                            {apoStatus?.note}
+                          </span>
+                          {onToggleSingleSpeakerMode && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onToggleSingleSpeakerMode(!singleSpeakerMode, effectiveEpId || undefined)
+                              }
+                              className={`px-3 py-1 rounded border font-mono text-[10px] font-bold shrink-0 cursor-pointer ${
+                                singleSpeakerMode
+                                  ? 'bg-emerald-600 border-emerald-400 text-white'
+                                  : 'bg-[#0F1722] border-cyan-500/50 text-cyan-200 hover:bg-cyan-500/15'
+                              }`}
+                            >
+                              {singleSpeakerMode
+                                ? '✓ ZERO-DOUBLING ACTIVE (RAW OUT)'
+                                : 'ENABLE SINGLE-SPEAKER ZERO-DOUBLING'}
+                            </button>
+                          )}
+                        </div>
+
+                        {apoMessage && (
+                          <div
+                            className={`p-2 rounded border font-mono text-[10px] ${
+                              apoMessage.tone === 'success'
+                                ? 'border-emerald-500/45 bg-emerald-950/35 text-emerald-200'
+                                : apoMessage.tone === 'error'
+                                  ? 'border-red-500/45 bg-red-950/35 text-red-200'
+                                  : 'border-sky-500/45 bg-sky-950/35 text-sky-200'
+                            }`}
+                          >
+                            {apoMessage.text}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             )}
           </div>

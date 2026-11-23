@@ -19,7 +19,19 @@ import {
   liveAudioEngine,
   subscribeHardwareChanges,
 } from '../audio/liveAudioEngine.ts';
-import { appFetch } from '../utils/appApi.ts';
+import { appFetch, isDesktopApp } from '../utils/appApi.ts';
+import {
+  NATIVE_DESKTOP_AUDIO_ID,
+  getApoStatus,
+  getDesktopAudioStatus,
+  installSystemApo,
+  listDesktopAudioSessions,
+  setApoDrySuppression,
+  uninstallSystemApo,
+  type ApoSystemStatus,
+  type DesktopAudioSession,
+  type DesktopAudioStatus,
+} from '../utils/nativeDesktopAudio.ts';
 
 interface UseHardwareManagerProps {
   activeDevice: HardwareDevice;
@@ -86,7 +98,17 @@ export function useHardwareManager({
   const [preferredOutputDeviceId, setPreferredOutputDeviceId] = useState<string>(initOutId);
   const [preferredStreamOutputDeviceId, setPreferredStreamOutputDeviceId] =
     useState<string>(initStreamId);
+  const [desktopAudioStatus, setDesktopAudioStatus] = useState<DesktopAudioStatus | null>(null);
+  const [desktopAudioSessions, setDesktopAudioSessions] = useState<DesktopAudioSession[]>([]);
+  const [apoStatus, setApoStatus] = useState<ApoSystemStatus | null>(null);
+  const [singleSpeakerMode, setSingleSpeakerMode] = useState<boolean>(false);
+  const [apoBusy, setApoBusy] = useState<boolean>(false);
+  const [apoMessage, setApoMessage] = useState<{
+    tone: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
 
+  const desktopSupportedRef = useRef<boolean | null>(null);
   const activeOnBusSignaturesRef = useRef<Set<string>>(new Set());
   const cachedSynthDevicesRef = useRef<HardwareDevice[]>([]);
   const startupSyncedRef = useRef<boolean>(false);
@@ -144,6 +166,120 @@ export function useHardwareManager({
     [logAudit]
   );
 
+  const refreshDesktopAudioInfo = useCallback(async () => {
+    if (!isDesktopApp()) return null;
+    const [status, sessions, apo] = await Promise.all([
+      getDesktopAudioStatus(),
+      listDesktopAudioSessions(),
+      getApoStatus(),
+    ]);
+    desktopSupportedRef.current = status.supported;
+    setDesktopAudioStatus(status);
+    setDesktopAudioSessions(sessions);
+    setApoStatus(apo);
+    return { status, sessions, apo };
+  }, []);
+
+  const handleToggleSingleSpeakerMode = useCallback(
+    async (enabled: boolean, endpointId?: string) => {
+      if (!isDesktopApp()) return;
+      if (!enabled) {
+        setSingleSpeakerMode(false);
+        await setApoDrySuppression(false, endpointId);
+        await liveAudioEngine.setRawOutputEnabled(false);
+        await refreshDesktopAudioInfo();
+        setApoMessage({
+          tone: 'info',
+          text: 'Single-Speaker APO suppression disabled; reverted to standard Engine 1 WASAPI loopback.',
+        });
+        logAudit(
+          'Disabled Single-Speaker APO Mode',
+          'APO reverted to 100% passthrough; Engine 1 process loopback active.',
+          'operator'
+        );
+        return;
+      }
+
+      const freshApo = await getApoStatus();
+      setApoStatus(freshApo);
+      if (!freshApo?.apoLoadedInAudiodg) {
+        setSingleSpeakerMode(false);
+        await setApoDrySuppression(false);
+        await liveAudioEngine.setRawOutputEnabled(false);
+        setApoMessage({
+          tone: 'info',
+          text: freshApo?.apoRegisteredAny
+            ? 'APO hook is registered, but audiodg.exe has not loaded hkm_audio_apo.dll yet (Windows 11 Protected Audio requires Authenticode/EV trust). Engine 1 remains active seamlessly.'
+            : 'Install the APO onto a speaker first (or continue using zero-driver Engine 1 WASAPI loopback).',
+        });
+        return;
+      }
+
+      const targetId = endpointId || freshApo.selectedEndpointId || undefined;
+      await setApoDrySuppression(true, targetId);
+      const rawOk = await liveAudioEngine.setRawOutputEnabled(true, targetId);
+      setSingleSpeakerMode(rawOk);
+      if (!rawOk) {
+        await setApoDrySuppression(false);
+      }
+      await refreshDesktopAudioInfo();
+      setApoMessage({
+        tone: rawOk ? 'success' : 'error',
+        text: rawOk
+          ? 'Single-Speaker Zero-Doubling active (MFX APO dry suppression + WASAPI RAW output).'
+          : 'Could not open WASAPI RAW output stream on selected speaker; staying on Engine 1 loopback.',
+      });
+      logAudit(
+        rawOk ? 'Enabled Single-Speaker APO Mode' : 'Single-Speaker RAW Output Unavailable',
+        rawOk
+          ? 'APO dry suppression + WASAPI RAW output enabled.'
+          : 'Fell back cleanly to Engine 1 process-exclusion loopback.',
+        'operator'
+      );
+    },
+    [logAudit, refreshDesktopAudioInfo]
+  );
+
+  const handleInstallApo = useCallback(
+    async (endpointId: string) => {
+      if (!isDesktopApp()) return;
+      setApoBusy(true);
+      setApoMessage(null);
+      try {
+        const msg = await installSystemApo(endpointId);
+        await refreshDesktopAudioInfo();
+        setApoMessage({ tone: 'success', text: msg });
+        logAudit('Installed Desktop APO Hook', msg, 'operator');
+      } catch (err) {
+        setApoMessage({ tone: 'error', text: String(err) });
+      } finally {
+        setApoBusy(false);
+      }
+    },
+    [logAudit, refreshDesktopAudioInfo]
+  );
+
+  const handleUninstallApo = useCallback(
+    async (endpointId: string) => {
+      if (!isDesktopApp()) return;
+      setApoBusy(true);
+      setApoMessage(null);
+      try {
+        setSingleSpeakerMode(false);
+        await liveAudioEngine.setRawOutputEnabled(false);
+        const msg = await uninstallSystemApo(endpointId);
+        await refreshDesktopAudioInfo();
+        setApoMessage({ tone: 'info', text: msg });
+        logAudit('Uninstalled Desktop APO Hook', msg, 'operator');
+      } catch (err) {
+        setApoMessage({ tone: 'error', text: String(err) });
+      } finally {
+        setApoBusy(false);
+      }
+    },
+    [logAudit, refreshDesktopAudioInfo]
+  );
+
   const enumerateCleanPorts = useCallback(async (requestPermission = false) => {
     if (
       requestPermission &&
@@ -161,8 +297,29 @@ export function useHardwareManager({
       enumerateAudioInputs(),
       enumerateAudioOutputs(),
     ]);
+
+    if (isDesktopApp()) {
+      let supported = desktopSupportedRef.current;
+      if (supported === null) {
+        const info = await refreshDesktopAudioInfo();
+        supported = info?.status.supported ?? false;
+      } else {
+        void refreshDesktopAudioInfo();
+      }
+      if (supported && !inputs.some((d) => d.deviceId === NATIVE_DESKTOP_AUDIO_ID)) {
+        const nativeDesktopEntry = {
+          deviceId: NATIVE_DESKTOP_AUDIO_ID,
+          groupId: 'hkm-native-desktop',
+          kind: 'audioinput' as MediaDeviceKind,
+          label: 'Desktop Audio (All Apps)',
+          toJSON: () => ({}),
+        } as MediaDeviceInfo;
+        return { inputs: [...inputs, nativeDesktopEntry], outputs };
+      }
+    }
+
     return { inputs, outputs };
-  }, []);
+  }, [refreshDesktopAudioInfo]);
 
   const refreshAudioDevices = useCallback(
     async (
@@ -410,6 +567,16 @@ export function useHardwareManager({
     outputDevices,
     preferredOutputDeviceId,
     preferredStreamOutputDeviceId,
+    desktopAudioStatus,
+    desktopAudioSessions,
+    apoStatus,
+    singleSpeakerMode,
+    apoBusy,
+    apoMessage,
+    refreshDesktopAudioInfo,
+    handleToggleSingleSpeakerMode,
+    handleInstallApo,
+    handleUninstallApo,
     refreshAudioDevices,
     handleSelectOutputDevice,
     handleSelectStreamOutputDevice,

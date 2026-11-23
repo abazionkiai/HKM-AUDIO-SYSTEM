@@ -7,7 +7,16 @@ import {
   type SpeakerZone,
   ISO_31_FREQUENCIES,
 } from '../types/audio.ts';
-import { deduplicateMediaDevices } from '../utils/audioNaming.ts';
+import { deduplicateMediaDevices, isNativeDesktopInputId } from '../utils/audioNaming.ts';
+import {
+  parseNativeAppPid,
+  pushRawOutputPcm,
+  startNativeDesktopCapture,
+  startRawOutput,
+  stopAllNativeDesktopCaptures,
+  stopNativeDesktopCapture,
+  stopRawOutput,
+} from '../utils/nativeDesktopAudio.ts';
 
 export interface SpectrumSnapshot {
   frequencies: Float32Array;
@@ -83,6 +92,16 @@ class LiveAudioEngine {
     string,
     { stream: MediaStream; node: MediaStreamAudioSourceNode; strips: Set<number> }
   > = new Map();
+  private nativeStreams: Map<
+    string,
+    { node: AudioWorkletNode; strips: Set<number>; streamKey: string }
+  > = new Map();
+  private desktopWorkletPromise: Promise<void> | null = null;
+  private rawOutputActive = false;
+  private rawOutputEndpointId: string | undefined = undefined;
+  private rawTapNode: AudioWorkletNode | null = null;
+  private rawTapSilentSink: GainNode | null = null;
+  private rawWorkletPromise: Promise<void> | null = null;
   private stripDeviceBindings: Map<number, string> = new Map();
   private syncQueuePromise: Promise<void> = Promise.resolve();
   private activeInputLabel: string | null = null;
@@ -220,6 +239,9 @@ class LiveAudioEngine {
       this.applyChannels(this.lastChannels);
       this.applyDsp(dsp);
       this.syncMonitorGain();
+      if (this.rawOutputActive) {
+        await this.setRawOutputEnabled(true, this.rawOutputEndpointId);
+      }
     } catch (err) {
       this.teardownSource();
       this.isRunning = false;
@@ -304,12 +326,111 @@ class LiveAudioEngine {
     if (this.monitorGain) {
       const baseLinear = dbToLinear(this.monitorLevelDb);
       const tbFactor = this.talkbackActive ? 0.2 : 1.0; // -14 dB Cue Dim during Talkback
-      const target = this.monitorAudible && !this.emergencyMuted ? baseLinear * tbFactor : 0;
+      const target =
+        this.monitorAudible && !this.emergencyMuted && !this.rawOutputActive
+          ? baseLinear * tbFactor
+          : 0;
       this.monitorGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.02);
     }
     if (this.streamOutputGain) {
       const streamActive = Boolean(this.preferredStreamOutputDeviceId) && !this.emergencyMuted && this.isRunning;
       this.streamOutputGain.gain.setTargetAtTime(streamActive ? 1 : 0, this.ctx.currentTime, 0.02);
+    }
+  }
+
+  private async ensureDesktopWorklet(): Promise<void> {
+    if (!this.ctx) throw new Error('AudioContext not initialized');
+    if (!this.desktopWorkletPromise) {
+      this.desktopWorkletPromise = this.ctx.audioWorklet.addModule('/desktop-loopback-worklet.js');
+    }
+    await this.desktopWorkletPromise;
+  }
+
+  private async ensureRawTapWorklet(): Promise<void> {
+    if (!this.ctx) throw new Error('AudioContext not initialized');
+    if (!this.rawWorkletPromise) {
+      this.rawWorkletPromise = this.ctx.audioWorklet.addModule('/raw-output-tap-worklet.js');
+    }
+    await this.rawWorkletPromise;
+  }
+
+  private teardownRawTap(): void {
+    if (this.rawTapNode) {
+      try {
+        this.rawTapNode.port.onmessage = null;
+        this.rawTapNode.disconnect();
+      } catch {
+        // ignore
+      }
+      this.rawTapNode = null;
+    }
+    if (this.rawTapSilentSink) {
+      try {
+        this.rawTapSilentSink.disconnect();
+      } catch {
+        // ignore
+      }
+      this.rawTapSilentSink = null;
+    }
+  }
+
+  public async setRawOutputEnabled(enabled: boolean, endpointId?: string): Promise<boolean> {
+    if (endpointId !== undefined) {
+      this.rawOutputEndpointId = endpointId || undefined;
+    }
+    if (!enabled) {
+      this.rawOutputActive = false;
+      this.teardownRawTap();
+      await stopRawOutput();
+      this.syncMonitorGain();
+      return true;
+    }
+
+    if (!this.isRunning || !this.ctx || !this.postAnalyser) {
+      this.rawOutputActive = true;
+      return true;
+    }
+
+    try {
+      await startRawOutput(this.rawOutputEndpointId);
+      await this.ensureRawTapWorklet();
+      if (!this.ctx || !this.postAnalyser || !this.isRunning) {
+        await stopRawOutput();
+        return false;
+      }
+
+      this.teardownRawTap();
+      const tapNode = new AudioWorkletNode(this.ctx, 'raw-output-tap-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        channelCount: 2,
+        outputChannelCount: [2],
+      });
+      const silentSink = this.ctx.createGain();
+      silentSink.gain.value = 0;
+
+      tapNode.port.onmessage = (ev) => {
+        if (ev.data instanceof ArrayBuffer && !this.emergencyMuted && this.monitorAudible) {
+          void pushRawOutputPcm(ev.data);
+        }
+      };
+
+      this.postAnalyser.connect(tapNode);
+      tapNode.connect(silentSink);
+      silentSink.connect(this.ctx.destination);
+
+      this.rawTapNode = tapNode;
+      this.rawTapSilentSink = silentSink;
+      this.rawOutputActive = true;
+      this.syncMonitorGain();
+      return true;
+    } catch (err) {
+      console.warn('RAW output activation failed, staying on standard Web Audio output:', err);
+      this.rawOutputActive = false;
+      this.teardownRawTap();
+      await stopRawOutput();
+      this.syncMonitorGain();
+      return false;
     }
   }
 
@@ -1047,6 +1168,20 @@ class LiveAudioEngine {
       }
     }
     this.deviceStreams.clear();
+
+    for (const [, entry] of this.nativeStreams) {
+      try {
+        entry.node.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+    this.nativeStreams.clear();
+    void stopAllNativeDesktopCaptures();
+
+    this.teardownRawTap();
+    void stopRawOutput();
+
     this.stripDeviceBindings.clear();
 
     for (const strip of this.channelStrips) {
@@ -1167,6 +1302,29 @@ class LiveAudioEngine {
     if (!prevId) return;
 
     this.stripDeviceBindings.delete(stripIndex);
+
+    const nativeEntry = this.nativeStreams.get(prevId);
+    if (nativeEntry) {
+      nativeEntry.strips.delete(stripIndex);
+      if (strip) {
+        try {
+          nativeEntry.node.disconnect(strip.preampGain);
+        } catch {
+          // ignore disconnect mismatch
+        }
+      }
+      if (nativeEntry.strips.size === 0) {
+        try {
+          nativeEntry.node.disconnect();
+        } catch {
+          // ignore
+        }
+        this.nativeStreams.delete(prevId);
+        void stopNativeDesktopCapture(nativeEntry.streamKey);
+      }
+      return;
+    }
+
     const entry = this.deviceStreams.get(prevId);
     if (!entry) return;
 
@@ -1223,39 +1381,82 @@ class LiveAudioEngine {
         if (targetDevId) {
           this.stripDeviceBindings.set(i, targetDevId);
           const strip = this.channelStrips[i];
-          let entry = this.deviceStreams.get(targetDevId);
 
-          if (!entry && strip) {
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                  deviceId: { exact: targetDevId },
-                  echoCancellation: false,
-                  noiseSuppression: false,
-                  autoGainControl: false,
-                  channelCount: { ideal: 2 },
-                  sampleRate: { ideal: 48000 },
-                },
-              });
+          if (isNativeDesktopInputId(targetDevId)) {
+            let nativeEntry = this.nativeStreams.get(targetDevId);
+            if (!nativeEntry && strip && this.ctx) {
+              try {
+                await this.ensureDesktopWorklet();
+                if (this.stripDeviceBindings.get(i) !== targetDevId || !this.isRunning || !this.ctx) {
+                  continue;
+                }
+                const workletNode = new AudioWorkletNode(this.ctx, 'desktop-loopback-processor', {
+                  numberOfInputs: 0,
+                  numberOfOutputs: 1,
+                  outputChannelCount: [2],
+                });
+                const targetPid = parseNativeAppPid(targetDevId);
+                await startNativeDesktopCapture(targetDevId, targetPid, (buf) => {
+                  try {
+                    workletNode.port.postMessage(buf, [buf]);
+                  } catch {
+                    // ignore if node torn down
+                  }
+                });
 
-              // Verify binding did not change while awaiting permission/stream open
-              if (this.stripDeviceBindings.get(i) !== targetDevId || !this.isRunning || !this.ctx) {
-                stream.getTracks().forEach((t) => t.stop());
-                continue;
+                if (this.stripDeviceBindings.get(i) !== targetDevId || !this.isRunning || !this.ctx) {
+                  workletNode.disconnect();
+                  void stopNativeDesktopCapture(targetDevId);
+                  continue;
+                }
+
+                nativeEntry = { node: workletNode, strips: new Set(), streamKey: targetDevId };
+                this.nativeStreams.set(targetDevId, nativeEntry);
+              } catch (err) {
+                this.stripDeviceBindings.delete(i);
+                console.warn(`Failed to open native desktop loopback for CH${i + 1}:`, err);
               }
-
-              const node = this.ctx.createMediaStreamSource(stream);
-              entry = { stream, node, strips: new Set() };
-              this.deviceStreams.set(targetDevId, entry);
-            } catch (err) {
-              this.stripDeviceBindings.delete(i);
-              console.warn(`Failed to open dedicated stereo stream for CH${i + 1}:`, err);
             }
-          }
 
-          if (entry && strip) {
-            entry.node.connect(strip.preampGain);
-            entry.strips.add(i);
+            if (nativeEntry && strip) {
+              nativeEntry.node.connect(strip.preampGain);
+              nativeEntry.strips.add(i);
+            }
+          } else {
+            let entry = this.deviceStreams.get(targetDevId);
+
+            if (!entry && strip) {
+              try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                  audio: {
+                    deviceId: { exact: targetDevId },
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                    channelCount: { ideal: 2 },
+                    sampleRate: { ideal: 48000 },
+                  },
+                });
+
+                // Verify binding did not change while awaiting permission/stream open
+                if (this.stripDeviceBindings.get(i) !== targetDevId || !this.isRunning || !this.ctx) {
+                  stream.getTracks().forEach((t) => t.stop());
+                  continue;
+                }
+
+                const node = this.ctx.createMediaStreamSource(stream);
+                entry = { stream, node, strips: new Set() };
+                this.deviceStreams.set(targetDevId, entry);
+              } catch (err) {
+                this.stripDeviceBindings.delete(i);
+                console.warn(`Failed to open dedicated stereo stream for CH${i + 1}:`, err);
+              }
+            }
+
+            if (entry && strip) {
+              entry.node.connect(strip.preampGain);
+              entry.strips.add(i);
+            }
           }
         }
       }

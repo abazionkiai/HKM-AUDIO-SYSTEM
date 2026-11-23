@@ -1,6 +1,10 @@
+[workspace]
+members = [".", "apo_shared", "apo"]
+resolver = "2"
+
 [package]
 name = "church-audio-intelligence"
-version = "0.2.28"
+version = "0.2.29"
 description = "Church Audio Intelligence desktop application"
 authors = ["HKM Audio System"]
 edition = "2021"
@@ -19,3 +23,28 @@ serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2"
 tempfile = "3"
+apo_shared = { path = "apo_shared" }
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_SystemServices",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Apo",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+] }

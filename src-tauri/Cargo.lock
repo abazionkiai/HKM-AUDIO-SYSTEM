@@ -48,6 +48,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "apo_shared"
+version = "0.2.29"
+dependencies = [
+ "windows",
+]
+
+[[package]]
 name = "atk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -360,8 +367,9 @@ dependencies = [
 
 [[package]]
 name = "church-audio-intelligence"
-version = "0.2.28"
+version = "0.2.29"
 dependencies = [
+ "apo_shared",
  "chrono",
  "serde",
  "serde_json",
@@ -369,6 +377,8 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-updater",
  "tempfile",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]
@@ -1332,6 +1342,16 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hkm_audio_apo"
+version = "0.2.29"
+dependencies = [
+ "apo_shared",
+ "windows",
+ "windows-core",
+ "windows-implement",
+]
 
 [[package]]
 name = "html5ever"

@@ -44,6 +44,7 @@ import {
   deriveAutoChannelNameAndRole,
   reconcileLiveInputsToChannels,
   isLoopbackInputLabel,
+  isNativeDesktopInputId,
 } from '../utils/audioNaming.ts';
 import QRCode from 'qrcode';
 
@@ -734,7 +735,11 @@ export function useConsoleSession({
         resolvedPatch.role = auto.role;
       }
 
-      if (resolvedPatch.hardwareInputId && isLoopbackInputLabel(resolvedPatch.hardwareInputLabel)) {
+      if (
+        resolvedPatch.hardwareInputId &&
+        !isNativeDesktopInputId(resolvedPatch.hardwareInputId) &&
+        isLoopbackInputLabel(resolvedPatch.hardwareInputLabel)
+      ) {
         resolvedPatch.hardwareInputId = undefined;
         resolvedPatch.hardwareInputLabel = undefined;
       }

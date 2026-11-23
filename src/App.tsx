@@ -511,6 +511,9 @@ export default function App() {
             telemetry={audio.telemetry}
             engineRunning={audio.engineRunning}
             locked={consoleLocked}
+            desktopAudioStatus={hardware.desktopAudioStatus}
+            desktopAudioSessions={hardware.desktopAudioSessions}
+            singleSpeakerMode={hardware.singleSpeakerMode}
             onSelectChannel={setSelectedChannelId}
             onUpdateChannel={guardedUpdateChannel}
             onAddChannel={guardedAddChannel}
@@ -797,6 +800,18 @@ export default function App() {
                     onSelectAudioSource={audio.handleSourceChange}
                     engineRunning={audio.engineRunning}
                     onToggleEngine={audio.handleToggleEngine}
+                    desktopAudioStatus={hardware.desktopAudioStatus}
+                    desktopAudioSessions={hardware.desktopAudioSessions}
+                    apoStatus={hardware.apoStatus}
+                    singleSpeakerMode={hardware.singleSpeakerMode}
+                    apoBusy={hardware.apoBusy}
+                    apoMessage={hardware.apoMessage}
+                    onRefreshDesktopAudio={() => void hardware.refreshDesktopAudioInfo()}
+                    onToggleSingleSpeakerMode={(en, epId) =>
+                      void hardware.handleToggleSingleSpeakerMode(en, epId)
+                    }
+                    onInstallApo={(epId) => void hardware.handleInstallApo(epId)}
+                    onUninstallApo={(epId) => void hardware.handleUninstallApo(epId)}
                   />
                 )}
               </div>

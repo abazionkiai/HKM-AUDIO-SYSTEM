@@ -17,6 +17,11 @@ import {
 } from 'lucide-react';
 import type { InputChannel, SpeakerZone, SignalTelemetry } from '../types/audio.ts';
 import { liveAudioEngine } from '../audio/liveAudioEngine.ts';
+import {
+  NATIVE_APP_AUDIO_PREFIX,
+  type DesktopAudioSession,
+  type DesktopAudioStatus,
+} from '../utils/nativeDesktopAudio.ts';
 import { deriveAutoChannelNameAndRole } from '../utils/audioNaming.ts';
 import { RotaryKnob } from './StudioControls.tsx';
 
@@ -31,6 +36,9 @@ interface ConsoleLeftPanelProps {
   telemetry: SignalTelemetry;
   engineRunning: boolean;
   locked?: boolean;
+  desktopAudioStatus?: DesktopAudioStatus | null;
+  desktopAudioSessions?: DesktopAudioSession[];
+  singleSpeakerMode?: boolean;
   onSelectChannel: (id: string) => void;
   onUpdateChannel: (id: string, patch: Partial<InputChannel>) => void;
   onAddChannel?: (name?: string, role?: string) => void;
@@ -54,6 +62,9 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
   telemetry,
   engineRunning,
   locked = false,
+  desktopAudioStatus = null,
+  desktopAudioSessions = [],
+  singleSpeakerMode = false,
   onSelectChannel,
   onUpdateChannel,
   onAddChannel,
@@ -115,6 +126,9 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
 
   const classifyInput = (label: string) => {
     const l = label.toLowerCase();
+    if (l.includes('desktop audio') || l.startsWith('app:')) {
+      return { kind: 'Desktop Audio', dot: 'bg-cyan-400', badge: 'text-cyan-300 border-cyan-500/35 bg-cyan-950/40' };
+    }
     if (l.includes('cable') || l.includes('virtual') || l.includes('voicemeeter')) {
       return { kind: 'Virtual', dot: 'bg-emerald-400', badge: 'text-emerald-300 border-emerald-500/35 bg-emerald-950/40' };
     }
@@ -547,9 +561,20 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
               onClick={() => setPatchTrayOpen((v) => !v)}
               className="w-full px-2.5 py-1.5 hw-card-subheader flex items-center justify-between font-mono text-[9.5px] font-bold hover:text-white cursor-pointer"
             >
-              <span className="flex items-center gap-1.5">
-                <Cable className="w-3 h-3 text-teal-300" />
-                <span>HARDWARE INPUTS ({inputDevices.length})</span>
+              <span className="flex items-center gap-1.5 min-w-0">
+                <Cable className="w-3 h-3 text-teal-300 shrink-0" />
+                <span className="truncate">HARDWARE INPUTS ({inputDevices.length})</span>
+                {desktopAudioStatus?.supported && (
+                  <span
+                    className={`px-1 py-0.2 rounded text-[7.5px] border shrink-0 ${
+                      singleSpeakerMode || desktopAudioStatus.apoActive
+                        ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                        : 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
+                    }`}
+                  >
+                    {singleSpeakerMode || desktopAudioStatus.apoActive ? 'APO' : 'WASAPI'}
+                  </span>
+                )}
               </span>
               {patchTrayOpen ? (
                 <ChevronDown className="w-3.5 h-3.5 text-slate-300" />
@@ -629,6 +654,64 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                       </div>
                     );
                   })
+                )}
+
+                {desktopAudioSessions.length > 0 && (
+                  <div className="pt-1 mt-1 border-t border-[#263242] space-y-1">
+                    <div className="px-1 font-mono text-[8px] font-bold uppercase tracking-wider text-cyan-400/90">
+                      Open Apps (Per-App Capture)
+                    </div>
+                    {desktopAudioSessions.map((sess) => {
+                      const appDevId = `${NATIVE_APP_AUDIO_PREFIX}${sess.pid}`;
+                      const appLabel = `App: ${sess.name}`;
+                      const slottedChannel = channels.find((c) => c.hardwareInputId === appDevId);
+                      const boundToSelected = selectedChannel?.hardwareInputId === appDevId;
+                      return (
+                        <div
+                          key={`app-sess-${sess.pid}`}
+                          className={`px-2 py-1 rounded border flex items-center justify-between gap-1.5 font-mono text-[9px] ${
+                            boundToSelected
+                              ? 'border-cyan-400/75 bg-[#0D2129]'
+                              : slottedChannel
+                                ? 'border-emerald-500/45 bg-[#0F1B18]'
+                                : 'border-[#2E3C4F] bg-[#0B1118]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                sess.state === 'active' ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'
+                              }`}
+                            />
+                            <span className="truncate text-slate-200" title={`${sess.name} (PID ${sess.pid})`}>
+                              {sess.name}
+                            </span>
+                          </div>
+                          {selectedChannel && (
+                            <button
+                              type="button"
+                              disabled={locked}
+                              onClick={() => {
+                                onUpdateChannel(selectedChannel.id, {
+                                  hardwareInputId: appDevId,
+                                  hardwareInputLabel: appLabel,
+                                  name: sess.name.slice(0, 18),
+                                  role: 'App Audio',
+                                });
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold shrink-0 cursor-pointer disabled:opacity-45 ${
+                                boundToSelected
+                                  ? 'bg-cyan-500 text-slate-950 border border-cyan-300'
+                                  : 'hw-top-btn text-cyan-200'
+                              }`}
+                            >
+                              {boundToSelected ? `✓ CH${selectedChannel.index}` : `→ CH${selectedChannel.index}`}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}
