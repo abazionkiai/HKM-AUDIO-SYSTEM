@@ -160,6 +160,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   useEffect(() => {
     const id = window.setInterval(() => {
+      if (document.hidden) return;
       setClockStr(
         new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       );

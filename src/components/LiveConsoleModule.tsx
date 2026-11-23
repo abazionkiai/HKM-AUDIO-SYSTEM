@@ -402,8 +402,19 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
 
   useEffect(() => {
     let rafId = 0;
+    let lastTick = 0;
 
-    const tick = () => {
+    const tick = (now: number) => {
+      if (document.hidden) {
+        rafId = 0;
+        return;
+      }
+      if (now - lastTick < 66) {
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
+      lastTick = now;
+
       const { channels: curChannels, dsp: curDsp, telemetry: curTel, emergencyMuted: curMute } =
         latestStateRef.current;
       const fast = liveAudioEngine.sampleFastLevels();
@@ -499,8 +510,21 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
       rafId = window.requestAnimationFrame(tick);
     };
 
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
+    const onVis = () => {
+      if (!document.hidden && !rafId) {
+        lastTick = 0;
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    if (!document.hidden) {
+      rafId = window.requestAnimationFrame(tick);
+    }
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   const registerChannelRef = (
@@ -1284,7 +1308,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
               {/* 60fps Playhead Needle */}
               <div
                 ref={playheadLineRef}
-                className="absolute top-0 bottom-0 w-[2px] bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] pointer-events-none will-change-[left]"
+                className="absolute top-0 bottom-0 w-[2px] bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] pointer-events-none"
                 style={{ left: '0%' }}
               />
             </div>
@@ -1443,7 +1467,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                   <div className="relative w-3 h-[104px] rounded-xs bg-[#05080D] border border-slate-800 overflow-hidden">
                     <div
                       ref={(el) => registerChannelRef(ch.id, 'miniFill', el)}
-                      className="absolute bottom-0 inset-x-0 will-change-[height,filter]"
+                      className="absolute bottom-0 inset-x-0"
                       style={{
                         height: '0%',
                         background:
@@ -2108,7 +2132,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                               {/* Dynamic CSS Fill Height & Color Intensity */}
                               <div
                                 ref={(el) => registerChannelRef(ch.id, 'fill', el)}
-                                className="absolute bottom-0 inset-x-0 will-change-[height,filter,box-shadow]"
+                                className="absolute bottom-0 inset-x-0"
                                 style={{
                                   height: '0%',
                                   background:
@@ -2126,7 +2150,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                               {/* Ballistic Peak-Hold Line */}
                               <div
                                 ref={(el) => registerChannelRef(ch.id, 'peak', el)}
-                                className="absolute inset-x-0 h-[2px] pointer-events-none will-change-[bottom,opacity]"
+                                className="absolute inset-x-0 h-[2px] pointer-events-none"
                                 style={{ bottom: '0%', opacity: 0 }}
                               />
                             </div>
@@ -2367,7 +2391,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                       ref={(el) => {
                         masterRefs.current[m.fillKey] = el;
                       }}
-                      className="absolute bottom-0 inset-x-0 will-change-[height,filter,box-shadow]"
+                      className="absolute bottom-0 inset-x-0"
                       style={{
                         height: '0%',
                         background:
@@ -2385,7 +2409,7 @@ export const LiveConsoleModule: React.FC<LiveConsoleModuleProps> = ({
                       ref={(el) => {
                         masterRefs.current[m.peakKey] = el;
                       }}
-                      className="absolute inset-x-0 h-[2px] pointer-events-none will-change-[bottom,opacity]"
+                      className="absolute inset-x-0 h-[2px] pointer-events-none"
                       style={{ bottom: '0%', opacity: 0 }}
                     />
                   </div>

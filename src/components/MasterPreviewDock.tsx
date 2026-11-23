@@ -46,83 +46,113 @@ export const MasterPreviewDock: React.FC<MasterPreviewDockProps> = ({
   const [fastGrDb, setFastGrDb] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 60fps live meter & mini spectrum preview across all modules
+  // Throttled ~12.5fps live meter & mini spectrum preview across all modules (paused while hidden)
   useEffect(() => {
+    if (!telemetry.isRunning) {
+      setFastPreDb(-96);
+      setFastPostLDb(-96);
+      setFastPostRDb(-96);
+      setFastPeakDb(-96);
+      setFastGrDb(0);
+      return;
+    }
     let rafId = 0;
-    const tick = () => {
-      const fast = liveAudioEngine.sampleFastLevels();
-      if (fast.isRunning) {
-        setFastPreDb(fast.preRmsDb);
-        setFastPostLDb(fast.postLRmsDb);
-        setFastPostRDb(fast.postRRmsDb);
-        setFastPeakDb(fast.postPeakDb);
-        setFastGrDb(fast.masterGrDb);
-      } else {
-        setFastPreDb(-96);
-        setFastPostLDb(-96);
-        setFastPostRDb(-96);
-        setFastPeakDb(-96);
-        setFastGrDb(0);
+    let lastTick = 0;
+    const qHalf = (v: number) => (v <= -60 ? -96 : Math.round(v * 2) / 2);
+
+    const tick = (now: number) => {
+      if (document.hidden) {
+        rafId = 0;
+        return;
       }
+      if (now - lastTick >= 80) {
+        lastTick = now;
+        const fast = liveAudioEngine.sampleFastLevels();
+        if (fast.isRunning) {
+          const nextPre = qHalf(fast.preRmsDb);
+          const nextPostL = qHalf(fast.postLRmsDb);
+          const nextPostR = qHalf(fast.postRRmsDb);
+          const nextPeak = qHalf(fast.postPeakDb);
+          const nextGr = Number(fast.masterGrDb.toFixed(1));
+          setFastPreDb((p) => (p === nextPre ? p : nextPre));
+          setFastPostLDb((p) => (p === nextPostL ? p : nextPostL));
+          setFastPostRDb((p) => (p === nextPostR ? p : nextPostR));
+          setFastPeakDb((p) => (p === nextPeak ? p : nextPeak));
+          setFastGrDb((p) => (p === nextGr ? p : nextGr));
+        }
 
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const w = canvas.width;
-          const h = canvas.height;
-          ctx.clearRect(0, 0, w, h);
-          ctx.fillStyle = '#04060B';
-          ctx.fillRect(0, 0, w, h);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const liveSpec = liveAudioEngine.getLatestSpectrum();
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = '#04060B';
+            ctx.fillRect(0, 0, w, h);
 
-          // Grid
-          ctx.strokeStyle = 'rgba(148, 163, 184, 0.1)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(0, h * 0.5);
-          ctx.lineTo(w, h * 0.5);
-          ctx.stroke();
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, h * 0.5);
+            ctx.lineTo(w, h * 0.5);
+            ctx.stroke();
 
-          if (telemetry.isRunning && spectrum.preDb.length > 0) {
-            const drawTrace = (bins: Float32Array, color: string, fill: string | null) => {
-              ctx.beginPath();
-              const samples = 72;
-              const minLog = Math.log10(30);
-              const maxLog = Math.log10(16000);
-              for (let i = 0; i <= samples; i++) {
-                const f = Math.pow(10, minLog + (i / samples) * (maxLog - minLog));
-                const bin = Math.min(
-                  bins.length - 1,
-                  Math.max(1, Math.round((f * 4096) / Math.max(8000, telemetry.sampleRate)))
-                );
-                const db = Math.max(-84, Math.min(0, bins[bin] ?? -84));
-                const x = (i / samples) * w;
-                const y = ((0 - db) / 84) * (h - 4);
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-              }
-              ctx.strokeStyle = color;
-              ctx.lineWidth = 1.4;
-              ctx.stroke();
-              if (fill) {
-                ctx.lineTo(w, h);
-                ctx.lineTo(0, h);
-                ctx.closePath();
-                ctx.fillStyle = fill;
-                ctx.fill();
-              }
-            };
-            drawTrace(spectrum.preDb, 'rgba(245, 158, 11, 0.45)', null);
-            drawTrace(spectrum.postDb, '#38BDF8', 'rgba(56, 189, 248, 0.16)');
+            if (liveSpec.preDb.length > 0) {
+              const drawTrace = (bins: Float32Array, color: string, fill: string | null) => {
+                ctx.beginPath();
+                const samples = 72;
+                const minLog = Math.log10(30);
+                const maxLog = Math.log10(16000);
+                for (let i = 0; i <= samples; i++) {
+                  const f = Math.pow(10, minLog + (i / samples) * (maxLog - minLog));
+                  const bin = Math.min(
+                    bins.length - 1,
+                    Math.max(1, Math.round((f * 4096) / Math.max(8000, telemetry.sampleRate)))
+                  );
+                  const db = Math.max(-84, Math.min(0, bins[bin] ?? -84));
+                  const x = (i / samples) * w;
+                  const y = ((0 - db) / 84) * (h - 4);
+                  if (i === 0) ctx.moveTo(x, y);
+                  else ctx.lineTo(x, y);
+                }
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.4;
+                ctx.stroke();
+                if (fill) {
+                  ctx.lineTo(w, h);
+                  ctx.lineTo(0, h);
+                  ctx.closePath();
+                  ctx.fillStyle = fill;
+                  ctx.fill();
+                }
+              };
+              drawTrace(liveSpec.preDb, 'rgba(245, 158, 11, 0.45)', null);
+              drawTrace(liveSpec.postDb, '#38BDF8', 'rgba(56, 189, 248, 0.16)');
+            }
           }
         }
       }
-
       rafId = window.requestAnimationFrame(tick);
     };
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [telemetry.isRunning, telemetry.sampleRate, spectrum]);
+
+    const onVis = () => {
+      if (!document.hidden && !rafId) {
+        lastTick = 0;
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    if (!document.hidden) {
+      rafId = window.requestAnimationFrame(tick);
+    }
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [telemetry.isRunning, telemetry.sampleRate]);
 
   const qualityScore = telemetry.qualityScorePct ?? 100;
   const agcGainDb = telemetry.agcGainDb ?? 0;
@@ -234,7 +264,7 @@ export const MasterPreviewDock: React.FC<MasterPreviewDockProps> = ({
         <div className="flex items-center gap-1.5">
           <span
             className={`w-2 h-2 rounded-full ${
-              telemetry.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
+              telemetry.isRunning ? 'bg-emerald-400' : 'bg-slate-600'
             }`}
           />
           <span className="font-bold text-white tracking-wider">LIVE MASTER PREVIEW</span>

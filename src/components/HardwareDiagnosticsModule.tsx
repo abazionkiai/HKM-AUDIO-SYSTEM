@@ -92,6 +92,9 @@ interface HardwareDiagnosticsModuleProps {
   onToggleSingleSpeakerMode?: (enabled: boolean, endpointId?: string) => void;
   onInstallApo?: (endpointId: string) => void;
   onUninstallApo?: (endpointId: string) => void;
+  hasVirtualSink?: boolean;
+  onEnableBrowserDspSpeakers?: () => void;
+  onOpenWindowsSoundMixer?: () => void;
 }
 
 const PLATFORM_SPECS: Record<
@@ -180,6 +183,9 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onToggleSingleSpeakerMode,
   onInstallApo,
   onUninstallApo,
+  hasVirtualSink = false,
+  onEnableBrowserDspSpeakers,
+  onOpenWindowsSoundMixer,
 }) => {
   const [tab, setTab] = useState<'hardware' | 'remote' | 'plugins' | 'crossplatform' | 'watchdog'>(
     'hardware'
@@ -261,7 +267,7 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
             <p className="text-[11px] font-mono text-slate-400">
               {desktopBuild
                 ? 'Windows desktop foundation · Browser-visible devices · Native audio adapters in progress'
-                : 'Tier 1–4 Mixers &amp; Interfaces · QR Mobile FOH Control · Hot-Loadable Plugins · Windows / macOS / Linux'}
+                : 'Tier 1–4 Mixers & Interfaces · QR Mobile FOH Control · Hot-Loadable Plugins · Windows / macOS / Linux'}
             </p>
           </div>
         </div>
@@ -650,7 +656,7 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                   <span
                     className={`w-2.5 h-2.5 rounded-full ${
                       desktopBuild && desktopAudioStatus?.supported
-                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse'
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
                         : 'bg-sky-400'
                     }`}
                   />
@@ -719,9 +725,41 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                   </div>
 
                   <div className="font-mono text-[10px] text-slate-400 space-y-1">
-                    <div>• No VB-Audio Virtual Cable, zero picker dialogs, zero Admin needed</div>
+                    <div>• No VB-Audio Virtual Cable required, zero picker dialogs, zero Admin needed</div>
                     <div>• Auto-slotted to CH N+1 after connected hardware microphones</div>
                     <div>• Clean with zero doubling on any PA / USB interface / secondary speaker</div>
+                  </div>
+
+                  {/* Quick Browser -> DSP -> Built-In Speakers Strip */}
+                  <div className="rounded border border-cyan-500/35 bg-[#0A131C] p-2.5 space-y-2">
+                    <div className="font-mono text-[10px] font-bold text-cyan-200 uppercase">
+                      Browser → DSP → Built-In Speakers (Zero-Doubling)
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {onEnableBrowserDspSpeakers && (
+                        <button
+                          type="button"
+                          onClick={onEnableBrowserDspSpeakers}
+                          className="px-2.5 py-1 rounded border border-cyan-400/60 bg-cyan-600/25 hover:bg-cyan-600/40 text-cyan-100 font-mono text-[10px] font-bold cursor-pointer"
+                        >
+                          1-CLICK BROWSER → DSP → SPEAKERS
+                        </button>
+                      )}
+                      {onOpenWindowsSoundMixer && (
+                        <button
+                          type="button"
+                          onClick={onOpenWindowsSoundMixer}
+                          className="px-2.5 py-1 rounded border border-slate-600 bg-[#0E1621] hover:border-slate-400 text-slate-200 font-mono text-[10px] font-semibold cursor-pointer"
+                        >
+                          OPEN WINDOWS VOLUME MIXER
+                        </button>
+                      )}
+                    </div>
+                    <p className="font-mono text-[9.5px] text-slate-300 leading-relaxed">
+                      {hasVirtualSink
+                        ? 'Set Chrome/Edge output to CABLE Input in Windows Volume Mixer so dry browser audio stays silent and ONLY 100% DSP-processed audio plays on your built-in speakers.'
+                        : 'Use headphones/external PA, install VB-Audio CABLE Input as a silent browser sink, or install signed Engine 2 APO to prevent dry+wet speaker doubling.'}
+                    </p>
                   </div>
 
                   <div className="pt-1 border-t border-slate-800/90 space-y-1">

@@ -49,6 +49,7 @@ interface ChannelStripNodes {
   compNode: DynamicsCompressorNode;
   pannerNode: StereoPannerNode;
   faderGain: GainNode;
+  connectedToBus: boolean;
 }
 
 function calcTimeStats(buf: Float32Array): { rmsDb: number; peakDb: number } {
@@ -193,6 +194,21 @@ class LiveAudioEngine {
   private postTimeBuf = new Float32Array(2048);
   private postLTimeBuf = new Float32Array(1024);
   private postRTimeBuf = new Float32Array(1024);
+  private cachedFreqAxis = new Float32Array(2048);
+  private cachedFreqSampleRate = 0;
+  private eq31InputNode: GainNode | null = null;
+  private eq31OutputNode: GainNode | null = null;
+  private eq31ChainConnected = false;
+  private xoverBranchesConnected = false;
+  private lastFastSnapTs = 0;
+  private lastFastSnap: FastMeterSnapshot | null = null;
+  private telemetryTickCount = 0;
+  private lastSpectrumReadTs = 0;
+  private latestSpectrum: SpectrumSnapshot = {
+    frequencies: new Float32Array(2048),
+    preDb: new Float32Array(2048).fill(-96),
+    postDb: new Float32Array(2048).fill(-96),
+  };
 
   // Temporal persistence tracker for deterministic feedback detection
   private persistentPeakBin = -1;
@@ -221,8 +237,12 @@ class LiveAudioEngine {
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx({ latencyHint: 'interactive' });
+      this.ctx = new AudioCtx({ latencyHint: 'balanced' });
       this.buildDspGraph();
+    }
+
+    if (this.preferredOutputDeviceId) {
+      await this.setOutputDevice(this.preferredOutputDeviceId);
     }
 
     if (this.ctx.state === 'suspended') {
@@ -230,6 +250,8 @@ class LiveAudioEngine {
     }
 
     this.teardownSource();
+    this.lastFastSnap = null;
+    this.lastFastSnapTs = 0;
     this.clippingCount = 0;
     this.noiseFloorDb = -96;
     this.gateIsClosed = false;
@@ -318,7 +340,12 @@ class LiveAudioEngine {
     this.isRunning = false;
     this.noiseFloorDb = -96;
     this.gateIsClosed = false;
+    this.lastFastSnap = null;
+    this.lastFastSnapTs = 0;
     this.syncMonitorGain();
+    if (this.ctx && this.ctx.state === 'running') {
+      void this.ctx.suspend().catch(() => {});
+    }
   }
 
   private syncMonitorGain(): void {
@@ -462,6 +489,21 @@ class LiveAudioEngine {
     return this.ctx?.sampleRate ?? 48000;
   }
 
+  public getLatestSpectrum(): SpectrumSnapshot {
+    const nowTs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (
+      this.isRunning &&
+      this.preAnalyser &&
+      this.postAnalyser &&
+      nowTs - this.lastSpectrumReadTs > 120
+    ) {
+      this.preAnalyser.getFloatFrequencyData(this.preFreqBuf);
+      this.postAnalyser.getFloatFrequencyData(this.postFreqBuf);
+      this.lastSpectrumReadTs = nowTs;
+    }
+    return this.latestSpectrum;
+  }
+
   public sampleFastLevels(): FastMeterSnapshot {
     if (!this.isRunning || !this.preAnalyser || !this.postAnalyser) {
       return {
@@ -479,6 +521,11 @@ class LiveAudioEngine {
         channelCompGrDb: [],
         masterGrDb: 0,
       };
+    }
+
+    const nowTs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (this.lastFastSnap && nowTs - this.lastFastSnapTs < 50) {
+      return this.lastFastSnap;
     }
 
     this.preAnalyser.getFloatTimeDomainData(this.preTimeBuf);
@@ -500,6 +547,13 @@ class LiveAudioEngine {
     const channelPeakDb: number[] = [];
     const channelCompGrDb: number[] = [];
     for (let i = 0; i < this.channelAnalysers.length; i++) {
+      const chStrip = this.channelStrips[i];
+      if (!chStrip?.connectedToBus) {
+        channelRmsDb.push(-96);
+        channelPeakDb.push(-96);
+        channelCompGrDb.push(0);
+        continue;
+      }
       const analyser = this.channelAnalysers[i];
       const buf = this.channelTimeBufs[i];
       if (!analyser || !buf) continue;
@@ -507,8 +561,7 @@ class LiveAudioEngine {
       const st = calcTimeStats(buf);
       channelRmsDb.push(st.rmsDb);
       channelPeakDb.push(st.peakDb);
-      const chStrip = this.channelStrips[i];
-      const chGr = chStrip ? Math.abs(chStrip.compNode.reduction) : 0;
+      const chGr = Math.abs(chStrip.compNode.reduction);
       channelCompGrDb.push(Number(chGr.toFixed(1)));
     }
 
@@ -517,7 +570,7 @@ class LiveAudioEngine {
         ? Number(Math.abs(this.compNode.reduction).toFixed(1))
         : 0;
 
-    return {
+    const snap: FastMeterSnapshot = {
       isRunning: true,
       preRmsDb: preStats.rmsDb,
       postRmsDb: postStats.rmsDb,
@@ -532,6 +585,9 @@ class LiveAudioEngine {
       channelCompGrDb,
       masterGrDb,
     };
+    this.lastFastSnapTs = nowTs;
+    this.lastFastSnap = snap;
+    return snap;
   }
 
   private buildDspGraph(): void {
@@ -597,7 +653,7 @@ class LiveAudioEngine {
     this.hpfNode.type = 'highpass';
     this.hpfNode.Q.value = 0.707;
 
-    this.eqNodes = Array.from({ length: 16 }, () => {
+    this.eqNodes = Array.from({ length: 8 }, () => {
       const b = ctx.createBiquadFilter();
       b.type = 'peaking';
       return b;
@@ -790,20 +846,24 @@ class LiveAudioEngine {
     this.widthLLGain.connect(this.widthMerger, 0, 0);
     this.widthRRGain.connect(this.widthMerger, 0, 1);
 
-    // 31-Band Stereo Graphic EQ Cascade
-    let eq31Chain: AudioNode = this.widthMerger;
-    for (const eq31 of this.eq31Nodes) {
-      eq31Chain.connect(eq31);
-      eq31Chain = eq31;
+    // 31-Band Stereo Graphic EQ Cascade (spliced dynamically only when non-flat bands exist)
+    this.eq31InputNode = ctx.createGain();
+    this.eq31OutputNode = ctx.createGain();
+    this.widthMerger.connect(this.eq31InputNode);
+    this.eq31InputNode.connect(this.eq31OutputNode);
+    this.eq31ChainConnected = false;
+
+    for (let i = 0; i < this.eq31Nodes.length - 1; i++) {
+      this.eq31Nodes[i].connect(this.eq31Nodes[i + 1]);
     }
 
-    // Active 3-Way Linkwitz-Riley Crossover Split & Summing
+    // Active 3-Way Linkwitz-Riley Crossover Split & Summing (branches spliced only when enabled)
+    const eq31Chain: AudioNode = this.eq31OutputNode;
     // 1. Full-range bypass path
     eq31Chain.connect(this.xoverBypassGain);
     this.xoverBypassGain.connect(this.xoverSumNode);
 
     // 2. Subwoofer path (4th order LR-24 = cascaded 2nd order Butterworth LPF + Subsonic + SuperBass)
-    eq31Chain.connect(this.xoverSubHpf);
     this.xoverSubHpf.connect(this.xoverSuperBassFilter);
     this.xoverSuperBassFilter.connect(this.xoverSubLp1);
     this.xoverSubLp1.connect(this.xoverSubLp2);
@@ -812,17 +872,16 @@ class LiveAudioEngine {
     this.xoverSubGain.connect(this.xoverSumNode);
 
     // 3. Mid path (Band-pass = HPF at sub-cutoff, LPF at high-cutoff)
-    eq31Chain.connect(this.xoverMidHp);
     this.xoverMidHp.connect(this.xoverMidLp);
     this.xoverMidLp.connect(this.xoverMidGain);
     this.xoverMidGain.connect(this.xoverSumNode);
 
     // 4. High path (4th order LR-24 = cascaded 2nd order Butterworth HPF)
-    eq31Chain.connect(this.xoverHighHp1);
     this.xoverHighHp1.connect(this.xoverHighHp2);
     this.xoverHighHp2.connect(this.xoverHighDelay);
     this.xoverHighDelay.connect(this.xoverHighGain);
     this.xoverHighGain.connect(this.xoverSumNode);
+    this.xoverBranchesConnected = false;
 
     this.xoverSumNode.connect(this.masterOutputGainNode!);
     this.masterOutputGainNode!.connect(this.outputSafetyLimiter!);
@@ -850,6 +909,72 @@ class LiveAudioEngine {
     this.postFreqBuf = new Float32Array(binCount);
     this.preTimeBuf = new Float32Array(binCount);
     this.postTimeBuf = new Float32Array(binCount);
+    this.cachedFreqAxis = new Float32Array(binCount);
+    this.cachedFreqSampleRate = ctx.sampleRate;
+    for (let i = 0; i < binCount; i++) {
+      this.cachedFreqAxis[i] = (i * ctx.sampleRate) / 4096;
+    }
+    this.latestSpectrum = {
+      frequencies: this.cachedFreqAxis,
+      preDb: this.preFreqBuf,
+      postDb: this.postFreqBuf,
+    };
+  }
+
+  private syncEq31ChainWiring(needed: boolean): void {
+    if (!this.eq31InputNode || !this.eq31OutputNode || this.eq31Nodes.length === 0) return;
+    if (needed === this.eq31ChainConnected) return;
+    const first = this.eq31Nodes[0];
+    const last = this.eq31Nodes[this.eq31Nodes.length - 1];
+    if (needed) {
+      try {
+        this.eq31InputNode.disconnect(this.eq31OutputNode);
+      } catch {
+        // ignore
+      }
+      this.eq31InputNode.connect(first);
+      last.connect(this.eq31OutputNode);
+    } else {
+      try {
+        this.eq31InputNode.disconnect(first);
+      } catch {
+        // ignore
+      }
+      try {
+        last.disconnect(this.eq31OutputNode);
+      } catch {
+        // ignore
+      }
+      this.eq31InputNode.connect(this.eq31OutputNode);
+    }
+    this.eq31ChainConnected = needed;
+  }
+
+  private syncXoverBranchesWiring(needed: boolean): void {
+    if (!this.eq31OutputNode || !this.xoverSubHpf || !this.xoverMidHp || !this.xoverHighHp1) return;
+    if (needed === this.xoverBranchesConnected) return;
+    if (needed) {
+      this.eq31OutputNode.connect(this.xoverSubHpf);
+      this.eq31OutputNode.connect(this.xoverMidHp);
+      this.eq31OutputNode.connect(this.xoverHighHp1);
+    } else {
+      try {
+        this.eq31OutputNode.disconnect(this.xoverSubHpf);
+      } catch {
+        // ignore
+      }
+      try {
+        this.eq31OutputNode.disconnect(this.xoverMidHp);
+      } catch {
+        // ignore
+      }
+      try {
+        this.eq31OutputNode.disconnect(this.xoverHighHp1);
+      } catch {
+        // ignore
+      }
+    }
+    this.xoverBranchesConnected = needed;
   }
 
   public applySpeakerZones(_zones: SpeakerZone[]): void {
@@ -948,6 +1073,14 @@ class LiveAudioEngine {
         this.widthRLGain.gain.setTargetAtTime(0, now, 0.015);
         this.widthLRGain.gain.setTargetAtTime(0, now, 0.015);
       }
+      this.syncEq31ChainWiring(false);
+      this.syncXoverBranchesWiring(false);
+      if (this.xoverBypassGain && this.xoverSubGain && this.xoverMidGain && this.xoverHighGain) {
+        this.xoverBypassGain.gain.setTargetAtTime(1, now, 0.015);
+        this.xoverSubGain.gain.setTargetAtTime(0, now, 0.015);
+        this.xoverMidGain.gain.setTargetAtTime(0, now, 0.015);
+        this.xoverHighGain.gain.setTargetAtTime(0, now, 0.015);
+      }
       return;
     }
 
@@ -970,7 +1103,7 @@ class LiveAudioEngine {
     this.hpfNode.frequency.setTargetAtTime(dsp.hpfEnabled ? Math.max(20, dsp.hpfHz) : 10, now, 0.015);
     this.lpfNode.frequency.setTargetAtTime(dsp.lpfEnabled ? Math.min(nyquist, dsp.lpfHz) : nyquist, now, 0.015);
 
-    dsp.eqBands.slice(0, 6).forEach((band, idx) => {
+    dsp.eqBands.slice(0, this.eqNodes.length).forEach((band, idx) => {
       const node = this.eqNodes[idx];
       if (!node) return;
       node.type = band.type;
@@ -1058,14 +1191,19 @@ class LiveAudioEngine {
       }
     }
 
-    // 31-Band ISO 1/3-Octave Graphic EQ
+    // 31-Band ISO 1/3-Octave Graphic EQ (splice in only when non-flat adjustments exist)
     const eq31Config = dsp.graphicEq31;
     const eq31Active = !dsp.bypassed && (eq31Config?.enabled ?? true);
-    this.eq31Nodes.forEach((node, idx) => {
-      const bandConfig = eq31Config?.bands?.[idx];
-      const gainDb = eq31Active && bandConfig ? bandConfig.gainDb : 0;
-      node.gain.setTargetAtTime(gainDb, now, 0.015);
-    });
+    const needsEq31 =
+      eq31Active && Boolean(eq31Config?.bands?.some((b) => Math.abs(b.gainDb) >= 0.05));
+    this.syncEq31ChainWiring(needsEq31);
+    if (needsEq31) {
+      this.eq31Nodes.forEach((node, idx) => {
+        const bandConfig = eq31Config?.bands?.[idx];
+        const gainDb = bandConfig ? bandConfig.gainDb : 0;
+        node.gain.setTargetAtTime(gainDb, now, 0.015);
+      });
+    }
 
     // Active 3-Way Linkwitz-Riley Crossover & Time Alignment
     const xover = dsp.crossover;
@@ -1084,6 +1222,7 @@ class LiveAudioEngine {
       this.xoverHighDelay &&
       this.xoverHighGain
     ) {
+      this.syncXoverBranchesWiring(xoverActive && Boolean(xover));
       if (xoverActive && xover) {
         this.xoverBypassGain.gain.setTargetAtTime(0, now, 0.015);
 
@@ -1271,15 +1410,12 @@ class LiveAudioEngine {
       faderGain.channelCountMode = 'explicit';
       faderGain.channelInterpretation = 'speakers';
 
-      preampGain.connect(analyser);
-      preampGain.connect(hpfNode);
       hpfNode.connect(eqLowNode);
       eqLowNode.connect(eqMidNode);
       eqMidNode.connect(eqHighNode);
       eqHighNode.connect(compNode);
       compNode.connect(pannerNode);
       pannerNode.connect(faderGain);
-      faderGain.connect(this.busMixSum);
 
       this.channelStrips.push({
         preampGain,
@@ -1290,13 +1426,41 @@ class LiveAudioEngine {
         compNode,
         pannerNode,
         faderGain,
+        connectedToBus: false,
       });
     }
 
     this.capturedChannels = this.channelStrips.length;
   }
 
+  private setStripActiveConnection(stripIndex: number, active: boolean): void {
+    const strip = this.channelStrips[stripIndex];
+    const analyser = this.channelAnalysers[stripIndex];
+    if (!strip || !this.busMixSum || strip.connectedToBus === active) return;
+    if (active) {
+      if (analyser) {
+        strip.preampGain.connect(analyser);
+      }
+      strip.faderGain.connect(this.busMixSum);
+    } else {
+      if (analyser) {
+        try {
+          strip.preampGain.disconnect(analyser);
+        } catch {
+          // ignore disconnect mismatch
+        }
+      }
+      try {
+        strip.faderGain.disconnect(this.busMixSum);
+      } catch {
+        // ignore disconnect mismatch
+      }
+    }
+    strip.connectedToBus = active;
+  }
+
   private unbindStripDevice(stripIndex: number): void {
+    this.setStripActiveConnection(stripIndex, false);
     const prevId = this.stripDeviceBindings.get(stripIndex);
     const strip = this.channelStrips[stripIndex];
     if (!prevId) return;
@@ -1421,6 +1585,9 @@ class LiveAudioEngine {
             if (nativeEntry && strip) {
               nativeEntry.node.connect(strip.preampGain);
               nativeEntry.strips.add(i);
+              this.setStripActiveConnection(i, true);
+            } else {
+              this.setStripActiveConnection(i, false);
             }
           } else {
             let entry = this.deviceStreams.get(targetDevId);
@@ -1456,8 +1623,13 @@ class LiveAudioEngine {
             if (entry && strip) {
               entry.node.connect(strip.preampGain);
               entry.strips.add(i);
+              this.setStripActiveConnection(i, true);
+            } else {
+              this.setStripActiveConnection(i, false);
             }
           }
+        } else {
+          this.setStripActiveConnection(i, false);
         }
       }
 
@@ -1522,6 +1694,7 @@ class LiveAudioEngine {
         : 'Desktop Audio (System / Browser Loopback)';
 
       this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
+      this.setStripActiveConnection(0, true);
       const desktopNode = ctx.createMediaStreamSource(stream);
       desktopNode.connect(this.channelStrips[0].preampGain);
       this.sourceNodes.push(desktopNode);
@@ -1565,18 +1738,26 @@ class LiveAudioEngine {
     noiseSrc.connect(calGain);
     this.activeInputLabel = 'Calibration: Pink Noise (-20 dBFS)';
     this.ensureChannelStrips(Math.max(8, this.lastChannels.length));
+    this.setStripActiveConnection(0, true);
     calGain.connect(this.channelStrips[0].preampGain);
     noiseSrc.start();
     this.sourceNodes.push(noiseSrc, calGain);
   }
 
-  public sampleTelemetry(): { telemetry: SignalTelemetry; spectrum: SpectrumSnapshot } {
+  public sampleTelemetry(options?: {
+    includeSpectrum?: boolean;
+  }): { telemetry: SignalTelemetry; spectrum: SpectrumSnapshot } {
     const sampleRate = this.getSampleRate();
+    if (this.cachedFreqSampleRate !== sampleRate) {
+      this.cachedFreqSampleRate = sampleRate;
+      for (let i = 0; i < this.cachedFreqAxis.length; i++) {
+        this.cachedFreqAxis[i] = (i * sampleRate) / 4096;
+      }
+    }
 
     if (!this.preAnalyser || !this.postAnalyser || !this.isRunning) {
-      const emptyBins = new Float32Array(2048).fill(-96);
-      const freqs = new Float32Array(2048);
-      for (let i = 0; i < 2048; i++) freqs[i] = (i * sampleRate) / 4096;
+      this.preFreqBuf.fill(-96);
+      this.postFreqBuf.fill(-96);
       return {
         telemetry: {
           source: this.sourceMode,
@@ -1613,12 +1794,17 @@ class LiveAudioEngine {
           mudRisk: { detected: false, bandEnergyDb: -96, centerHz: 220 },
           clippingEvents: this.clippingCount,
         },
-        spectrum: { frequencies: freqs, preDb: emptyBins, postDb: emptyBins },
+        spectrum: this.latestSpectrum,
       };
     }
 
-    this.preAnalyser.getFloatFrequencyData(this.preFreqBuf);
-    this.postAnalyser.getFloatFrequencyData(this.postFreqBuf);
+    this.telemetryTickCount += 1;
+    const readSpectrumNow = Boolean(options?.includeSpectrum) || this.telemetryTickCount % 2 === 1;
+    if (readSpectrumNow) {
+      this.preAnalyser.getFloatFrequencyData(this.preFreqBuf);
+      this.postAnalyser.getFloatFrequencyData(this.postFreqBuf);
+      this.lastSpectrumReadTs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
     this.preAnalyser.getFloatTimeDomainData(this.preTimeBuf);
     this.postAnalyser.getFloatTimeDomainData(this.postTimeBuf);
 
@@ -1742,8 +1928,7 @@ class LiveAudioEngine {
 
     if (postStats.peakDb > -0.2) this.clippingCount++;
 
-    const freqs = new Float32Array(this.preFreqBuf.length);
-    for (let i = 0; i < freqs.length; i++) freqs[i] = i * binHz;
+    const freqs = this.cachedFreqAxis;
 
     // Feedback persistence detector on post-DSP spectrum (400 Hz - 10 kHz)
     const minBin = Math.floor(400 / binHz);
@@ -1835,9 +2020,19 @@ class LiveAudioEngine {
       );
     }
 
-    // Per-channel captured levels + real channel-strip compressor gain reduction
+    // Per-channel captured levels + real channel-strip compressor gain reduction (skip empty open slots)
     const channelLevels: ChannelSignalTelemetry[] = [];
     for (let i = 0; i < this.channelAnalysers.length; i++) {
+      const chStrip = this.channelStrips[i];
+      if (!chStrip?.connectedToBus) {
+        channelLevels.push({
+          rmsDb: -96,
+          peakDb: -96,
+          noiseFloorDb: -96,
+          compGrDb: 0,
+        });
+        continue;
+      }
       const analyser = this.channelAnalysers[i];
       const buf = this.channelTimeBufs[i];
       if (!analyser || !buf) continue;
@@ -1851,8 +2046,7 @@ class LiveAudioEngine {
           : prevNf + (chNoiseEst - prevNf) * (chNoiseEst < prevNf ? 0.18 : 0.025);
       this.channelNoiseFloors[i] = nextNf;
 
-      const chStrip = this.channelStrips[i];
-      const compGrDb = chStrip ? Number(Math.abs(chStrip.compNode.reduction).toFixed(1)) : 0;
+      const compGrDb = Number(Math.abs(chStrip.compNode.reduction).toFixed(1));
 
       channelLevels.push({
         rmsDb: Number(st.rmsDb.toFixed(1)),
@@ -2010,8 +2204,8 @@ class LiveAudioEngine {
       },
       spectrum: {
         frequencies: freqs,
-        preDb: new Float32Array(this.preFreqBuf),
-        postDb: new Float32Array(this.postFreqBuf),
+        preDb: options?.includeSpectrum ? new Float32Array(this.preFreqBuf) : this.preFreqBuf,
+        postDb: options?.includeSpectrum ? new Float32Array(this.postFreqBuf) : this.postFreqBuf,
       },
     };
   }

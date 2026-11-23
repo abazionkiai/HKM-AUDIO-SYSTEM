@@ -6,6 +6,11 @@ import { useHardwareManager } from './store/useHardwareManager.ts';
 import { useMidiManager } from './store/useMidiManager.ts';
 import { useKeyboardShortcutsManager } from './store/useKeyboardShortcutsManager.ts';
 import { isDesktopApp } from './utils/appApi.ts';
+import {
+  NATIVE_DESKTOP_AUDIO_ID,
+  isNativeDesktopInputId,
+  openWindowsSoundSettings,
+} from './utils/nativeDesktopAudio.ts';
 import { checkDesktopUpdate } from './utils/appUpdater.ts';
 import { TopBar } from './components/TopBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -166,6 +171,7 @@ export default function App() {
     bufferSize: session.bufferSize,
     sampleRate: session.sampleRate,
     plugins: session.plugins,
+    needsSpectrumState: activeModule === 'feedback' || activeModule === 'virtual-di',
     onSendWsTelemetry: (tel) => {
       const ws = session.desktopWsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -317,6 +323,122 @@ export default function App() {
     Boolean(audio.telemetry.qualityGateEngaged) ||
     (audio.engineRunning && audio.telemetry.postPeakDb >= session.dsp.limiter.ceilingDb - 0.8);
   const consoleHasSignal = audio.engineRunning && audio.telemetry.postRmsDb > -56;
+
+  useEffect(() => {
+    if (activeModule === 'hardware' && isDesktopApp()) {
+      void hardware.refreshDesktopAudioInfo();
+    }
+  }, [activeModule, hardware.refreshDesktopAudioInfo]);
+
+  const hasVirtualSink = useMemo(
+    () =>
+      hardware.outputDevices.some((d) =>
+        /cable\s*input|virtual|voicemeeter/i.test(d.label || '')
+      ),
+    [hardware.outputDevices]
+  );
+
+  const activeOutputLabel = useMemo(() => {
+    const matched =
+      hardware.outputDevices.find((d) => d.deviceId === hardware.preferredOutputDeviceId) ??
+      hardware.outputDevices[0];
+    return matched?.label || 'System Default Speakers';
+  }, [hardware.outputDevices, hardware.preferredOutputDeviceId]);
+
+  const outputIsHeadphonesOrVirtual =
+    /headphone|earphone|airpods|buds|bluetooth|cable|virtual|voicemeeter/i.test(activeOutputLabel);
+
+  const openPhysicalMicChannels = useMemo(
+    () =>
+      session.channels.filter(
+        (ch) =>
+          Boolean(ch.hardwareInputId) &&
+          !isNativeDesktopInputId(ch.hardwareInputId) &&
+          !ch.mute &&
+          ch.faderDb > -47.5
+      ),
+    [session.channels]
+  );
+
+  const showAcousticLoopbackWarning =
+    audio.engineRunning &&
+    audio.monitorAudible &&
+    !session.emergencyMuted &&
+    !hardware.singleSpeakerMode &&
+    !outputIsHeadphonesOrVirtual &&
+    openPhysicalMicChannels.length > 0;
+
+  const handleMuteAllPhysicalMics = useCallback(() => {
+    if (consoleLocked) return;
+    session.setChannels((prev) =>
+      prev.map((c) =>
+        c.hardwareInputId && !isNativeDesktopInputId(c.hardwareInputId) ? { ...c, mute: true } : c
+      )
+    );
+    session.logAudit(
+      'Muted Built-In / Physical Mics',
+      'Muted physical microphone channels via Acoustic Loopback Guard to stop speaker feedback.',
+      'operator'
+    );
+  }, [consoleLocked, session]);
+
+  const handleBrowserDspToSpeakers = useCallback(async () => {
+    if (consoleLocked) return;
+    const builtInSpeaker =
+      hardware.outputDevices.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
+      hardware.outputDevices[0];
+    if (builtInSpeaker?.deviceId) {
+      await hardware.handleSelectOutputDevice(builtInSpeaker.deviceId);
+    }
+
+    let hasDesktopCh = false;
+    let nextChannels = session.channels.map((ch) => {
+      if (!ch.hardwareInputId) return ch;
+      if (isNativeDesktopInputId(ch.hardwareInputId)) {
+        hasDesktopCh = true;
+        return {
+          ...ch,
+          mute: false,
+          faderDb: ch.faderDb <= -40 ? 0 : ch.faderDb,
+        };
+      }
+      return { ...ch, mute: true };
+    });
+
+    if (!hasDesktopCh) {
+      const openIdx = nextChannels.findIndex((c) => !c.hardwareInputId);
+      const targetIdx = openIdx >= 0 ? openIdx : 0;
+      if (nextChannels[targetIdx]) {
+        nextChannels = nextChannels.map((c, idx) =>
+          idx === targetIdx
+            ? {
+                ...c,
+                hardwareInputId: NATIVE_DESKTOP_AUDIO_ID,
+                hardwareInputLabel: 'Desktop Audio (All Apps)',
+                name: 'Desktop Audio',
+                role: 'Browser / Media',
+                mute: false,
+                faderDb: c.faderDb <= -40 ? 0 : c.faderDb,
+              }
+            : c
+        );
+      }
+    }
+
+    const desktopCh = nextChannels.find((c) => isNativeDesktopInputId(c.hardwareInputId));
+    if (desktopCh) {
+      setSelectedChannelId(desktopCh.id);
+    }
+
+    session.setChannels(nextChannels);
+    await audio.ensureEngineStarted(nextChannels);
+    audio.setMonitorAudibleState(true);
+    session.logAudit(
+      'Enabled Browser → DSP → Speakers',
+      `Locked Master PA to ${builtInSpeaker?.label || 'Built-in Speakers'}, muted physical mics, and enabled MON on Desktop Audio.`,
+      'operator'
+    );
+  }, [audio, consoleLocked, hardware, session]);
 
   if (remoteCompanionToken) {
     return (
@@ -486,6 +608,24 @@ export default function App() {
       {/* =========================================================================
           FIXED 3-COLUMN HARDWARE CONSOLE WORKBENCH (LEFT I/O | CENTER MODULE | RIGHT TELEMETRY)
           ========================================================================= */}
+      {showAcousticLoopbackWarning && (
+        <div className="shrink-0 px-4 py-1 border-b border-amber-500/60 bg-amber-950/75 text-amber-100 font-mono text-[11px] flex flex-wrap items-center justify-between gap-2">
+          <span>
+            ACOUSTIC LOOPBACK RISK: Mic channel(s) [
+            <strong>{openPhysicalMicChannels.map((c) => `CH${c.index}`).join(', ')}</strong>] are
+            open while <strong>{activeOutputLabel}</strong> (MON) is live — mute laptop mic to
+            stop feedback.
+          </span>
+          <button
+            type="button"
+            disabled={consoleLocked}
+            onClick={handleMuteAllPhysicalMics}
+            className="px-2.5 py-0.5 rounded border border-amber-300/70 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] cursor-pointer disabled:opacity-45"
+          >
+            MUTE MIC (STOP LOOPBACK)
+          </button>
+        </div>
+      )}
       <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
         {session.navDockPosition === 'left' && (
           <Sidebar
@@ -514,6 +654,7 @@ export default function App() {
             desktopAudioStatus={hardware.desktopAudioStatus}
             desktopAudioSessions={hardware.desktopAudioSessions}
             singleSpeakerMode={hardware.singleSpeakerMode}
+            onEnableBrowserDspSpeakers={() => void handleBrowserDspToSpeakers()}
             onSelectChannel={setSelectedChannelId}
             onUpdateChannel={guardedUpdateChannel}
             onAddChannel={guardedAddChannel}
@@ -812,6 +953,9 @@ export default function App() {
                     }
                     onInstallApo={(epId) => void hardware.handleInstallApo(epId)}
                     onUninstallApo={(epId) => void hardware.handleUninstallApo(epId)}
+                    hasVirtualSink={hasVirtualSink}
+                    onEnableBrowserDspSpeakers={() => void handleBrowserDspToSpeakers()}
+                    onOpenWindowsSoundMixer={() => void openWindowsSoundSettings('apps-volume')}
                   />
                 )}
               </div>

@@ -56,6 +56,7 @@ interface UseAudioEngineProps {
   bufferSize: number;
   sampleRate: number;
   plugins: LoadedPluginRecord[];
+  needsSpectrumState?: boolean;
   onSendWsTelemetry?: (telemetry: SignalTelemetry) => void;
   logAudit: (action: string, detail: string, authority?: AuditAuthority) => void;
   onAddFinding?: (finding: DiagnosticFinding) => void;
@@ -69,6 +70,7 @@ export function useAudioEngine({
   bufferSize,
   sampleRate,
   plugins,
+  needsSpectrumState = false,
   onSendWsTelemetry,
   logAudit,
   onAddFinding,
@@ -84,6 +86,7 @@ export function useAudioEngine({
 
   const lastTickTsRef = useRef<number>(performance.now());
   const lastTelemetryWsSentRef = useRef<number>(0);
+  const lastSilentSigRef = useRef<string | null>(null);
   const xrunStreakRef = useRef<{ elevated: number; critical: number }>({ elevated: 0, critical: 0 });
   const seenAutoIssuesRef = useRef<Set<string>>(new Set());
 
@@ -132,29 +135,49 @@ export function useAudioEngine({
     return () => liveAudioEngine.setOnSourceEnded(null);
   }, [audioSource, logAudit]);
 
-  // Real-time 20Hz Telemetry, FFT & Audio Engine CPU Load / Buffer Underrun Monitor
+  // Real-time 5Hz visible / 2Hz hidden Telemetry, FFT & Audio Engine CPU Load Monitor
   useEffect(() => {
     if (!engineRunning) {
       xrunStreakRef.current = { elevated: 0, critical: 0 };
+      lastSilentSigRef.current = null;
       setAudioCpuPct(0);
       setUnderrunRisk('low');
       return;
     }
 
+    let cancelled = false;
+    let timerId: number | null = null;
     lastTickTsRef.current = performance.now();
-    const timer = window.setInterval(() => {
+
+    const runTick = () => {
+      if (cancelled) return;
       const tStart = performance.now();
       const intervalDelta = tStart - lastTickTsRef.current;
       lastTickTsRef.current = tStart;
 
-      const snap = liveAudioEngine.sampleTelemetry();
+      const snap = liveAudioEngine.sampleTelemetry({ includeSpectrum: needsSpectrumState });
       const execMs = performance.now() - tStart;
 
-      setTelemetry(snap.telemetry);
-      setSpectrum(snap.spectrum);
+      const isSilentNow =
+        snap.telemetry.preRmsDb <= -95 &&
+        snap.telemetry.postRmsDb <= -95 &&
+        !snap.telemetry.feedbackRisk.detected &&
+        !snap.telemetry.humRisk.detected &&
+        !snap.telemetry.qualityGateEngaged;
+      const silentSig = isSilentNow
+        ? `${snap.telemetry.source}|${snap.telemetry.activeInputLabel ?? ''}|${snap.telemetry.capturedChannels}|${snap.telemetry.qualityScorePct ?? 100}|${snap.telemetry.clippingEvents}`
+        : null;
+
+      if (!silentSig || silentSig !== lastSilentSigRef.current) {
+        lastSilentSigRef.current = silentSig;
+        setTelemetry(snap.telemetry);
+      }
+      if (needsSpectrumState) {
+        setSpectrum(snap.spectrum);
+      }
 
       const nowTs = performance.now();
-      if (nowTs - lastTelemetryWsSentRef.current >= 160) {
+      if (nowTs - lastTelemetryWsSentRef.current >= 200) {
         lastTelemetryWsSentRef.current = nowTs;
         onSendWsTelemetry?.(snap.telemetry);
       }
@@ -177,7 +200,8 @@ export function useAudioEngine({
       const bufferPressure = Math.max(0, (3.0 - quantumMs) * 2.5);
       const dspGraphCost = activeStages * 0.45;
       const timingCost = (execMs / Math.max(1, quantumMs)) * 15;
-      const jitterPenalty = Math.min(25, Math.max(0, intervalDelta - 95) * 0.2);
+      const expectedPeriod = document.hidden ? 500 : 200;
+      const jitterPenalty = Math.min(25, Math.max(0, intervalDelta - (expectedPeriod + 65)) * 0.2);
       const rawLoad = Math.min(
         98,
         Math.max(4, Math.round(3 + bufferPressure + dspGraphCost + timingCost + jitterPenalty))
@@ -189,8 +213,10 @@ export function useAudioEngine({
       });
 
       // Buffer underrun (XRUN) detection
-      const isCriticalFrame = rawLoad >= 85 || intervalDelta > 175 || execMs > quantumMs * 0.85;
-      const isElevatedFrame = rawLoad >= 65 || intervalDelta > 120 || execMs > quantumMs * 0.6;
+      const isCriticalFrame =
+        rawLoad >= 85 || intervalDelta > expectedPeriod + 250 || execMs > quantumMs * 0.85;
+      const isElevatedFrame =
+        rawLoad >= 65 || intervalDelta > expectedPeriod + 120 || execMs > quantumMs * 0.6;
 
       xrunStreakRef.current.critical = isCriticalFrame
         ? Math.min(10, xrunStreakRef.current.critical + 1)
@@ -273,11 +299,31 @@ export function useAudioEngine({
           beforeSnapshot: { rmsDb: snap.telemetry.postRmsDb, peakDb: snap.telemetry.postPeakDb },
         });
       }
-    }, 60);
 
-    return () => window.clearInterval(timer);
+      if (!cancelled) {
+        timerId = window.setTimeout(runTick, document.hidden ? 500 : 200);
+      }
+    };
+
+    const onVis = () => {
+      if (!document.hidden && !cancelled) {
+        if (timerId !== null) window.clearTimeout(timerId);
+        lastTickTsRef.current = performance.now();
+        timerId = window.setTimeout(runTick, 50);
+      }
+    };
+
+    timerId = window.setTimeout(runTick, 200);
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [
     engineRunning,
+    needsSpectrumState,
     activeDevice.model,
     bufferSize,
     sampleRate,
@@ -357,6 +403,39 @@ export function useAudioEngine({
     });
   }, []);
 
+  const setMonitorAudibleState = useCallback((audible: boolean) => {
+    setMonitorAudible(audible);
+    liveAudioEngine.setMonitorAudible(audible);
+  }, []);
+
+  const ensureEngineStarted = useCallback(
+    async (channelsOverride?: InputChannel[]): Promise<boolean> => {
+      const targetChannels = channelsOverride ?? channels;
+      if (liveAudioEngine.getIsRunning()) {
+        liveAudioEngine.applyChannels(targetChannels);
+        await liveAudioEngine.syncChannelHardwareInputs(targetChannels);
+        return true;
+      }
+      setAudioError(null);
+      try {
+        await liveAudioEngine.start(audioSource, dsp, targetChannels);
+        liveAudioEngine.applyChannels(targetChannels);
+        setEngineRunning(true);
+        logAudit('Started Audio Engine', `Source: ${audioSource} · Device: ${activeDevice.model}`, 'operator');
+        return true;
+      } catch (err) {
+        setEngineRunning(false);
+        setAudioError(
+          err instanceof Error
+            ? `Audio device access failed: ${err.message}`
+            : 'Unable to initialize Web Audio device.'
+        );
+        return false;
+      }
+    },
+    [activeDevice.model, audioSource, channels, dsp, logAudit]
+  );
+
   return {
     audioSource,
     setAudioSource,
@@ -374,5 +453,7 @@ export function useAudioEngine({
     handleToggleEngine,
     handleSourceChange,
     handleToggleMonitor,
+    setMonitorAudibleState,
+    ensureEngineStarted,
   };
 }

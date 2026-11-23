@@ -51,6 +51,19 @@ class DesktopLoopbackProcessor extends AudioWorkletProcessor {
     const outR = out[1] ?? out[0];
     const framesNeeded = outL.length;
 
+    if (
+      !this.prebuffered &&
+      this.bufferedFrames === 0 &&
+      Math.abs(this.lastL) < 1e-6 &&
+      Math.abs(this.lastR) < 1e-6
+    ) {
+      this.lastL = 0;
+      this.lastR = 0;
+      outL.fill(0);
+      if (outR !== outL) outR.fill(0);
+      return true;
+    }
+
     if (!this.prebuffered) {
       if (this.bufferedFrames < this.minPrebufferFrames) {
         outL.fill(0);
@@ -80,8 +93,8 @@ class DesktopLoopbackProcessor extends AudioWorkletProcessor {
           this.readPos = (this.readPos + 1) % this.ringFrames;
           this.bufferedFrames -= 1;
         } else {
-          this.lastL *= 0.85;
-          this.lastR *= 0.85;
+          this.lastL = Math.abs(this.lastL) < 1e-5 ? 0 : this.lastL * 0.85;
+          this.lastR = Math.abs(this.lastR) < 1e-5 ? 0 : this.lastR * 0.85;
         }
         outL[i] = this.lastL;
         if (outR !== outL) outR[i] = this.lastR;

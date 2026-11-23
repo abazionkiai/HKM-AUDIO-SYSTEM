@@ -280,53 +280,54 @@ export function useHardwareManager({
     [logAudit, refreshDesktopAudioInfo]
   );
 
-  const enumerateCleanPorts = useCallback(async (requestPermission = false) => {
-    if (
-      requestPermission &&
-      typeof navigator !== 'undefined' &&
-      navigator.mediaDevices?.getUserMedia
-    ) {
-      try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        tempStream.getTracks().forEach((t) => t.stop());
-      } catch {
-        // Proceed even if permission prompt dismissed or no microphone exists
+  const enumerateCleanPorts = useCallback(
+    async (requestPermission = false, refreshNativeInfo = false) => {
+      if (
+        requestPermission &&
+        typeof navigator !== 'undefined' &&
+        navigator.mediaDevices?.getUserMedia
+      ) {
+        try {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          tempStream.getTracks().forEach((t) => t.stop());
+        } catch {
+          // Proceed even if permission prompt dismissed or no microphone exists
+        }
       }
-    }
-    const [inputs, outputs] = await Promise.all([
-      enumerateAudioInputs(),
-      enumerateAudioOutputs(),
-    ]);
+      const [inputs, outputs] = await Promise.all([
+        enumerateAudioInputs(),
+        enumerateAudioOutputs(),
+      ]);
 
-    if (isDesktopApp()) {
-      let supported = desktopSupportedRef.current;
-      if (supported === null) {
-        const info = await refreshDesktopAudioInfo();
-        supported = info?.status.supported ?? false;
-      } else {
-        void refreshDesktopAudioInfo();
+      if (isDesktopApp()) {
+        let supported = desktopSupportedRef.current;
+        if (supported === null || refreshNativeInfo) {
+          const info = await refreshDesktopAudioInfo();
+          supported = info?.status.supported ?? false;
+        }
+        if (supported && !inputs.some((d) => d.deviceId === NATIVE_DESKTOP_AUDIO_ID)) {
+          const nativeDesktopEntry = {
+            deviceId: NATIVE_DESKTOP_AUDIO_ID,
+            groupId: 'hkm-native-desktop',
+            kind: 'audioinput' as MediaDeviceKind,
+            label: 'Desktop Audio (All Apps)',
+            toJSON: () => ({}),
+          } as MediaDeviceInfo;
+          return { inputs: [...inputs, nativeDesktopEntry], outputs };
+        }
       }
-      if (supported && !inputs.some((d) => d.deviceId === NATIVE_DESKTOP_AUDIO_ID)) {
-        const nativeDesktopEntry = {
-          deviceId: NATIVE_DESKTOP_AUDIO_ID,
-          groupId: 'hkm-native-desktop',
-          kind: 'audioinput' as MediaDeviceKind,
-          label: 'Desktop Audio (All Apps)',
-          toJSON: () => ({}),
-        } as MediaDeviceInfo;
-        return { inputs: [...inputs, nativeDesktopEntry], outputs };
-      }
-    }
 
-    return { inputs, outputs };
-  }, [refreshDesktopAudioInfo]);
+      return { inputs, outputs };
+    },
+    [refreshDesktopAudioInfo]
+  );
 
   const refreshAudioDevices = useCallback(
     async (
       requestPermission = true,
       mode: 'slot-new' | 'reset-from-ch1' = 'slot-new'
     ) => {
-      const { inputs, outputs } = await enumerateCleanPorts(requestPermission);
+      const { inputs, outputs } = await enumerateCleanPorts(requestPermission, true);
       lastInputSigRef.current = buildDeviceListSignature(inputs);
       lastOutputSigRef.current = buildDeviceListSignature(outputs);
       setInputDevices(inputs);
@@ -344,13 +345,13 @@ export function useHardwareManager({
     let cancelled = false;
 
     const runStartupDiscovery = async () => {
-      let { inputs, outputs } = await enumerateCleanPorts(false);
+      let { inputs, outputs } = await enumerateCleanPorts(false, true);
       if (cancelled) return;
 
       // Unlock labels silently once on desktop startup if labels are still masked
       const needsPermissionUnlock = inputs.length === 0 || inputs.some((d) => !d.label);
       if (needsPermissionUnlock) {
-        const unlocked = await enumerateCleanPorts(true);
+        const unlocked = await enumerateCleanPorts(true, false);
         if (cancelled) return;
         inputs = unlocked.inputs;
         outputs = unlocked.outputs;
@@ -369,13 +370,13 @@ export function useHardwareManager({
     };
   }, [enumerateCleanPorts, hydrated]);
 
-  // 2. Post-startup hot-plug auto-scanner (devicechange event + 4s lightweight watcher)
+  // 2. Post-startup hot-plug auto-scanner (instant devicechange event + 30s visible-only fallback)
   useEffect(() => {
     if (!hydrated) return;
     let active = true;
 
-    const checkHotPlugChanges = async () => {
-      const { inputs, outputs } = await enumerateCleanPorts(false);
+    const checkHotPlugChanges = async (refreshNative: boolean) => {
+      const { inputs, outputs } = await enumerateCleanPorts(false, refreshNative);
       if (!active) return;
 
       const inSig = buildDeviceListSignature(inputs);
@@ -393,11 +394,12 @@ export function useHardwareManager({
     };
 
     const unsub = subscribeHardwareChanges(() => {
-      void checkHotPlugChanges();
+      void checkHotPlugChanges(true);
     });
     const pollTimer = window.setInterval(() => {
-      void checkHotPlugChanges();
-    }, 4000);
+      if (document.hidden) return;
+      void checkHotPlugChanges(false);
+    }, 30000);
 
     return () => {
       active = false;

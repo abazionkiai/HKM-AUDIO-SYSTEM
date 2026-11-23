@@ -477,6 +477,27 @@ fn stop_raw_output(raw_out: State<'_, RawOutputManager>) {
     raw_out.stop();
 }
 
+#[tauri::command]
+fn open_windows_sound_settings(page: Option<String>) -> Result<(), String> {
+    let target_uri = match page.as_deref() {
+        Some("sound") => "ms-settings:sound",
+        _ => "ms-settings:apps-volume",
+    };
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(target_uri)
+            .spawn()
+            .map_err(|e| format!("Failed to open Windows Sound Settings: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = target_uri;
+        Err("Windows Sound Settings is only available on Windows.".to_string())
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -529,7 +550,8 @@ pub fn run() {
             uninstall_system_apo,
             start_raw_output,
             push_raw_output_pcm,
-            stop_raw_output
+            stop_raw_output,
+            open_windows_sound_settings
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Church Audio Intelligence desktop application")

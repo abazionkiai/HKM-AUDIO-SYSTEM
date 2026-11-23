@@ -452,13 +452,38 @@ mod win_impl {
             return;
         }
 
+        const BATCH_FRAMES: usize = 960; // 20ms @ 48kHz (50 IPC frames/sec max vs 100/sec)
+        const BATCH_SAMPLES: usize = BATCH_FRAMES * RING_CHANNELS;
+
         let mut shm_handle = if target_pid.is_none() {
             SharedMemoryHandle::open_for_client()
         } else {
             None
         };
         let mut apo_scratch = vec![0.0f32; 2048 * RING_CHANNELS];
+        let mut pending_samples: Vec<f32> = Vec::with_capacity(BATCH_SAMPLES * 2);
+        let mut send_byte_buf: Vec<u8> = Vec::with_capacity(BATCH_SAMPLES * 4);
+        let mut consecutive_silent_batches: u32 = 0;
         let mut ticks_since_recheck: u32 = 0;
+
+        #[inline]
+        fn is_pcm_silent(samples: &[f32]) -> bool {
+            samples.iter().all(|s| s.abs() < 1e-6)
+        }
+
+        #[inline]
+        fn send_f32_chunk(
+            channel: &Channel<Response>,
+            samples: &[f32],
+            byte_buf: &mut Vec<u8>,
+        ) -> bool {
+            byte_buf.clear();
+            let raw = unsafe {
+                std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 4)
+            };
+            byte_buf.extend_from_slice(raw);
+            channel.send(Response::new(byte_buf.clone())).is_ok()
+        }
 
         while !stop_flag.load(Ordering::Acquire) {
             let wait_res = unsafe { WaitForSingleObject(event_h, 50) };
@@ -488,6 +513,7 @@ mod win_impl {
             };
 
             if apo_feeding {
+                pending_samples.clear();
                 if let Some(ref h) = shm_handle {
                     loop {
                         let read_frames = h.shm().pop_interleaved(&mut apo_scratch);
@@ -495,13 +521,17 @@ mod win_impl {
                             break;
                         }
                         let sample_count = read_frames * RING_CHANNELS;
-                        let byte_slice = unsafe {
-                            std::slice::from_raw_parts(
-                                apo_scratch.as_ptr() as *const u8,
-                                sample_count * 4,
-                            )
-                        };
-                        if channel.send(Response::new(byte_slice.to_vec())).is_err() {
+                        let chunk = &apo_scratch[..sample_count];
+                        if is_pcm_silent(chunk) {
+                            consecutive_silent_batches =
+                                consecutive_silent_batches.saturating_add(1);
+                            if consecutive_silent_batches > 3 {
+                                continue;
+                            }
+                        } else {
+                            consecutive_silent_batches = 0;
+                        }
+                        if !send_f32_chunk(&channel, chunk, &mut send_byte_buf) {
                             stop_flag.store(true, Ordering::Release);
                             break;
                         }
@@ -509,7 +539,7 @@ mod win_impl {
                 }
             }
 
-            // Always drain WASAPI capture client queue (or forward it directly when Engine 1 is active)
+            // Always drain WASAPI capture client queue (or batch & silence-gate for Engine 1)
             loop {
                 if stop_flag.load(Ordering::Acquire) {
                     break;
@@ -538,18 +568,43 @@ mod win_impl {
                 }
 
                 if !apo_feeding && frames_avail > 0 {
-                    let byte_len = (frames_avail as usize) * (CAPTURE_CHANNELS as usize) * 4;
-                    let bytes_out =
-                        if (buf_flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0 || data_ptr.is_null() {
-                            vec![0u8; byte_len]
-                        } else {
-                            unsafe { std::slice::from_raw_parts(data_ptr, byte_len) }.to_vec()
+                    let sample_len = (frames_avail as usize) * (CAPTURE_CHANNELS as usize);
+                    if (buf_flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0 || data_ptr.is_null() {
+                        pending_samples.resize(pending_samples.len() + sample_len, 0.0);
+                    } else {
+                        let floats = unsafe {
+                            std::slice::from_raw_parts(data_ptr as *const f32, sample_len)
                         };
+                        pending_samples.extend_from_slice(floats);
+                    }
 
-                    if channel.send(Response::new(bytes_out)).is_err() {
-                        let _ = unsafe { capture_client.ReleaseBuffer(frames_avail) };
-                        stop_flag.store(true, Ordering::Release);
-                        break;
+                    while pending_samples.len() >= BATCH_SAMPLES {
+                        let batch_silent = is_pcm_silent(&pending_samples[..BATCH_SAMPLES]);
+                        if batch_silent {
+                            consecutive_silent_batches =
+                                consecutive_silent_batches.saturating_add(1);
+                            if consecutive_silent_batches <= 3 {
+                                if !send_f32_chunk(
+                                    &channel,
+                                    &pending_samples[..BATCH_SAMPLES],
+                                    &mut send_byte_buf,
+                                ) {
+                                    stop_flag.store(true, Ordering::Release);
+                                    break;
+                                }
+                            }
+                        } else {
+                            consecutive_silent_batches = 0;
+                            if !send_f32_chunk(
+                                &channel,
+                                &pending_samples[..BATCH_SAMPLES],
+                                &mut send_byte_buf,
+                            ) {
+                                stop_flag.store(true, Ordering::Release);
+                                break;
+                            }
+                        }
+                        pending_samples.drain(..BATCH_SAMPLES);
                     }
                 }
 

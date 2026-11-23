@@ -228,3 +228,16 @@ export async function stopRawOutput(): Promise<void> {
     // ignore
   }
 }
+
+export async function openWindowsSoundSettings(
+  page: 'apps-volume' | 'sound' = 'apps-volume'
+): Promise<boolean> {
+  const core = getTauriCore();
+  if (!core?.invoke) return false;
+  try {
+    await core.invoke('open_windows_sound_settings', { page });
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -38,6 +38,133 @@ interface CentralDspChainViewProps {
 
 type ChainSubView = 'chain' | 'geq' | 'xover' | 'hum' | 'yaml';
 
+interface SignalRoutingOverlayProps {
+  chAssigned: boolean;
+  chActive: boolean;
+  agcActive: boolean;
+  anyEqEnabled: boolean;
+  compActive: boolean;
+  fbxActive: boolean;
+  monActive: boolean;
+  dspBypassed: boolean;
+  emergencyMuted: boolean;
+}
+
+const SignalRoutingOverlay = React.memo<SignalRoutingOverlayProps>(
+  ({
+    chAssigned,
+    chActive,
+    agcActive,
+    anyEqEnabled,
+    compActive,
+    fbxActive,
+    monActive,
+    dspBypassed,
+    emergencyMuted,
+  }) => {
+    const busColor = (active: boolean) =>
+      emergencyMuted ? '#EF4444' : active && !dspBypassed ? '#4ADE80' : '#2DD4BF';
+    const seam1Color = chAssigned ? busColor(chActive) : '#334155';
+    const seam1Opacity = chAssigned ? 0.92 : 0.45;
+    const agcColor = busColor(agcActive);
+    const eqColor = busColor(anyEqEnabled);
+    const compColor = busColor(compActive);
+    const fbxColor = busColor(fbxActive);
+    const monColor = busColor(monActive || chActive);
+
+    const renderGlowSeam = (
+      d: string,
+      color: string,
+      opacity: number,
+      nodes: { cx: number; cy: number; r?: number; glow?: boolean }[]
+    ) => (
+      <g>
+        {opacity > 0.5 && (
+          <path
+            d={d}
+            fill="none"
+            stroke={color}
+            strokeWidth="6.5"
+            strokeOpacity={0.2}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        )}
+        <path
+          d={d}
+          fill="none"
+          stroke={color}
+          strokeWidth="2.2"
+          strokeOpacity={opacity}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {nodes.map((n, idx) => (
+          <React.Fragment key={idx}>
+            {n.glow && opacity > 0.5 && (
+              <circle cx={n.cx} cy={n.cy} r={(n.r ?? 3.8) + 2.4} fill={color} fillOpacity={0.24} />
+            )}
+            <circle cx={n.cx} cy={n.cy} r={n.r ?? 3.8} fill={color} />
+          </React.Fragment>
+        ))}
+      </g>
+    );
+
+    return (
+      <svg
+        viewBox="0 0 1400 600"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 w-full h-full z-20"
+      >
+        {renderGlowSeam('M 195 148 L 195 588 Q 195 594 201 594 L 397 594', seam1Color, seam1Opacity, [
+          { cx: 195, cy: 148, glow: chAssigned },
+          { cx: 195, cy: 330, glow: chAssigned },
+          { cx: 195, cy: 594, r: 3.5 },
+          { cx: 298, cy: 594, r: 3.5 },
+        ])}
+        {renderGlowSeam('M 397 148 L 397 588 Q 397 594 403 594 L 599 594', agcColor, 0.92, [
+          { cx: 397, cy: 148, glow: true },
+          { cx: 397, cy: 330, glow: true },
+          { cx: 397, cy: 594, r: 3.5 },
+        ])}
+        {renderGlowSeam(
+          'M 599 148 L 599 588 Q 599 594 605 594 L 700 594 L 700 600',
+          eqColor,
+          0.92,
+          [
+            { cx: 599, cy: 148, glow: true },
+            { cx: 599, cy: 330, glow: true },
+          ]
+        )}
+        <circle cx="700" cy="594" r="6.6" fill="#4ADE80" fillOpacity={0.24} />
+        <circle cx="700" cy="594" r="4.2" fill="#4ADE80" />
+        {renderGlowSeam(
+          'M 700 594 L 801 594 L 801 148 M 801 588 Q 801 594 807 594 L 1003 594',
+          compColor,
+          0.9,
+          [
+            { cx: 801, cy: 148, glow: true },
+            { cx: 801, cy: 330, glow: true },
+            { cx: 801, cy: 594, r: 3.5 },
+          ]
+        )}
+        {renderGlowSeam('M 1003 148 L 1003 588 Q 1003 594 1009 594 L 1205 594', fbxColor, 0.9, [
+          { cx: 1003, cy: 148, glow: true },
+          { cx: 1003, cy: 330, glow: true },
+          { cx: 1003, cy: 594, r: 3.5 },
+        ])}
+        {renderGlowSeam('M 1205 148 L 1205 600', monColor, 0.92, [
+          { cx: 1205, cy: 148, glow: true },
+          { cx: 1205, cy: 330, glow: true },
+        ])}
+        <circle cx="1205" cy="594" r="6.6" fill="#4ADE80" fillOpacity={0.24} />
+        <circle cx="1205" cy="594" r="4.2" fill="#4ADE80" />
+      </svg>
+    );
+  }
+);
+
 interface ColumnSliderProps {
   value: number;
   min: number;
@@ -249,7 +376,7 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
   const [fastPostRDb, setFastPostRDb] = useState(-96);
   const [phaseTick, setPhaseTick] = useState(0);
 
-  // Throttled ~30fps live stereo MAIN L / MAIN R meter & scope animation
+  // Throttled ~12.5fps live stereo MAIN L / MAIN R meter & scope animation (paused while hidden)
   useEffect(() => {
     if (!engineRunning) {
       setFastPostLDb(-96);
@@ -258,20 +385,44 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
     }
     let rafId = 0;
     let lastTick = 0;
+    const quantHalf = (v: number) => (v <= -60 ? -96 : Math.round(v * 2) / 2);
+
     const tick = (now: number) => {
-      if (now - lastTick >= 33) {
+      if (document.hidden) {
+        rafId = 0;
+        return;
+      }
+      if (now - lastTick >= 80) {
         lastTick = now;
         const fast = liveAudioEngine.sampleFastLevels();
         if (fast.isRunning) {
-          setFastPostLDb(fast.postLRmsDb);
-          setFastPostRDb(fast.postRRmsDb);
-          setPhaseTick((p) => (p + 1) % 360);
+          const nextL = quantHalf(fast.postLRmsDb);
+          const nextR = quantHalf(fast.postRRmsDb);
+          setFastPostLDb((prev) => (prev === nextL ? prev : nextL));
+          setFastPostRDb((prev) => (prev === nextR ? prev : nextR));
+          if (fast.preRmsDb > -58) {
+            setPhaseTick((p) => (p + 1) % 360);
+          }
         }
       }
       rafId = window.requestAnimationFrame(tick);
     };
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
+
+    const onVis = () => {
+      if (!document.hidden && !rafId) {
+        lastTick = 0;
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    if (!document.hidden) {
+      rafId = window.requestAnimationFrame(tick);
+    }
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [engineRunning]);
 
   // Preamp arc geometry (Col 1)
@@ -335,10 +486,6 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
 
   const visibleBands = dsp.eqBands.slice(eqPage, eqPage + 4);
   const activeBand = dsp.eqBands.find((b) => b.id === selectedBandId) ?? visibleBands[0];
-
-  // Dynamic routing bus line stroke helper
-  const busColor = (active: boolean) =>
-    emergencyMuted ? '#EF4444' : active && !dsp.bypassed ? '#4ADE80' : '#2DD4BF';
 
   const leftSegmentsLit =
     engineRunning && !emergencyMuted && fastPostLDb > -58
@@ -497,114 +644,18 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
       {subView === 'chain' && (
         <div className="flex-1 min-h-0 flex flex-col p-2 gap-1.5 overflow-x-auto overflow-y-hidden">
           <div className="relative flex-1 min-h-0 min-w-[720px] grid grid-cols-7 gap-2.5 pb-3">
-            {/* Clean Seam-Gutter Glowing SVG Signal Routing (Zero Overlap with Controls) */}
-            <svg
-              viewBox="0 0 1400 600"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 w-full h-full z-20"
-            >
-              <defs>
-                <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="2.6" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-
-              {/* Seam 1/2 (Col 1 -> Col 2) + Bottom Gutter Under Col 2 */}
-              <path
-                d="M 195 148 L 195 588 Q 195 594 201 594 L 397 594"
-                fill="none"
-                stroke={chAssigned ? busColor(chActive) : '#334155'}
-                strokeWidth="2.2"
-                strokeOpacity={chAssigned ? '0.92' : '0.45'}
-                filter={chAssigned ? `url(#glow-${uid})` : undefined}
-              />
-              <circle
-                cx="195"
-                cy="148"
-                r="3.8"
-                fill={chAssigned ? busColor(chActive) : '#334155'}
-                filter={chAssigned ? `url(#glow-${uid})` : undefined}
-              />
-              <circle
-                cx="195"
-                cy="330"
-                r="3.8"
-                fill={chAssigned ? busColor(chActive) : '#334155'}
-                filter={chAssigned ? `url(#glow-${uid})` : undefined}
-              />
-              <circle cx="195" cy="594" r="3.5" fill={chAssigned ? busColor(chActive) : '#334155'} />
-              <circle cx="298" cy="594" r="3.5" fill={chAssigned ? busColor(chActive) : '#334155'} />
-
-              {/* Seam 2/3 (Col 2 -> Col 3) + Bottom Gutter Under Col 3 */}
-              <path
-                d="M 397 148 L 397 588 Q 397 594 403 594 L 599 594"
-                fill="none"
-                stroke={busColor(agcActive)}
-                strokeWidth="2.2"
-                strokeOpacity="0.92"
-                filter={`url(#glow-${uid})`}
-              />
-              <circle cx="397" cy="148" r="3.8" fill={busColor(agcActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="397" cy="330" r="3.8" fill={busColor(agcActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="397" cy="594" r="3.5" fill={busColor(agcActive)} />
-
-              {/* Seam 3/4 (Col 3 -> Col 4) + Bottom Gutter & Tap Down into MAIN OUTPUTS */}
-              <path
-                d="M 599 148 L 599 588 Q 599 594 605 594 L 700 594 L 700 600"
-                fill="none"
-                stroke={busColor(anyEqEnabled)}
-                strokeWidth="2.2"
-                strokeOpacity="0.92"
-                filter={`url(#glow-${uid})`}
-              />
-              <circle cx="599" cy="148" r="3.8" fill={busColor(anyEqEnabled)} filter={`url(#glow-${uid})`} />
-              <circle cx="599" cy="330" r="3.8" fill={busColor(anyEqEnabled)} filter={`url(#glow-${uid})`} />
-              <circle cx="700" cy="594" r="4.2" fill="#4ADE80" filter={`url(#glow-${uid})`} />
-
-              {/* Seam 4/5 (Col 4 -> Col 5) + Bottom Gutter Under Col 4 & 5 */}
-              <path
-                d="M 700 594 L 801 594 L 801 148 M 801 588 Q 801 594 807 594 L 1003 594"
-                fill="none"
-                stroke={busColor(compActive)}
-                strokeWidth="2.2"
-                strokeOpacity="0.9"
-                filter={`url(#glow-${uid})`}
-              />
-              <circle cx="801" cy="148" r="3.8" fill={busColor(compActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="801" cy="330" r="3.8" fill={busColor(compActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="801" cy="594" r="3.5" fill={busColor(compActive)} />
-
-              {/* Seam 5/6 (Col 5 -> Col 6) + Bottom Gutter Under Col 6 */}
-              <path
-                d="M 1003 148 L 1003 588 Q 1003 594 1009 594 L 1205 594"
-                fill="none"
-                stroke={busColor(fbxActive)}
-                strokeWidth="2.2"
-                strokeOpacity="0.9"
-                filter={`url(#glow-${uid})`}
-              />
-              <circle cx="1003" cy="148" r="3.8" fill={busColor(fbxActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="1003" cy="330" r="3.8" fill={busColor(fbxActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="1003" cy="594" r="3.5" fill={busColor(fbxActive)} />
-
-              {/* Seam 6/7 (Col 6 -> Col 7) + Main Output Bridge Drop */}
-              <path
-                d="M 1205 148 L 1205 600"
-                fill="none"
-                stroke={busColor(monActive || chActive)}
-                strokeWidth="2.2"
-                strokeOpacity="0.92"
-                filter={`url(#glow-${uid})`}
-              />
-              <circle cx="1205" cy="148" r="3.8" fill={busColor(monActive || chActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="1205" cy="330" r="3.8" fill={busColor(monActive || chActive)} filter={`url(#glow-${uid})`} />
-              <circle cx="1205" cy="594" r="4.2" fill="#4ADE80" filter={`url(#glow-${uid})`} />
-            </svg>
+            {/* Clean Seam-Gutter Dual-Stroke SVG Signal Routing (Zero GPU Blur) */}
+            <SignalRoutingOverlay
+              chAssigned={chAssigned}
+              chActive={chActive}
+              agcActive={agcActive}
+              anyEqEnabled={anyEqEnabled}
+              compActive={compActive}
+              fbxActive={fbxActive}
+              monActive={monActive}
+              dspBypassed={dsp.bypassed}
+              emergencyMuted={emergencyMuted}
+            />
 
             {/* ==============================================================
                 COL 1: INPUT CONDITIONING

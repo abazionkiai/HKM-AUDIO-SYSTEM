@@ -236,7 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                   <span className="relative z-10 flex items-center gap-1 min-w-0">
                     {active && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.85)] animate-pulse shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#4ADE80] shadow-[0_0_5px_rgba(74,222,128,0.85)] shrink-0" />
                     )}
                     <Icon className="w-3 h-3 shrink-0 opacity-90" />
                     <span className="truncate">{tab.label}</span>

@@ -39,6 +39,7 @@ interface ConsoleLeftPanelProps {
   desktopAudioStatus?: DesktopAudioStatus | null;
   desktopAudioSessions?: DesktopAudioSession[];
   singleSpeakerMode?: boolean;
+  onEnableBrowserDspSpeakers?: () => void;
   onSelectChannel: (id: string) => void;
   onUpdateChannel: (id: string, patch: Partial<InputChannel>) => void;
   onAddChannel?: (name?: string, role?: string) => void;
@@ -65,6 +66,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
   desktopAudioStatus = null,
   desktopAudioSessions = [],
   singleSpeakerMode = false,
+  onEnableBrowserDspSpeakers,
   onSelectChannel,
   onUpdateChannel,
   onAddChannel,
@@ -81,7 +83,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
   const [fastChPeak, setFastChPeak] = useState<number[]>([]);
   const [fastPostDb, setFastPostDb] = useState(-96);
 
-  // Throttled ~30fps live hardware level meter sampling
+  // Throttled ~12.5fps live hardware level meter sampling (pauses while hidden & skips unchanged silence)
   useEffect(() => {
     if (!engineRunning) {
       setFastChRms([]);
@@ -91,20 +93,57 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
     }
     let rafId = 0;
     let lastTick = 0;
+    let prevRms: number[] = [];
+    let prevPeak: number[] = [];
+    let prevPost = -96;
+    const qHalf = (v: number) => (v <= -60 ? -96 : Math.round(v * 2) / 2);
+    const sameArr = (a: number[], b: number[]) =>
+      a.length === b.length && a.every((val, i) => val === b[i]);
+
     const tick = (now: number) => {
-      if (now - lastTick >= 33) {
+      if (document.hidden) {
+        rafId = 0;
+        return;
+      }
+      if (now - lastTick >= 80) {
         lastTick = now;
         const snap = liveAudioEngine.sampleFastLevels();
         if (snap.isRunning) {
-          setFastChRms(snap.channelRmsDb);
-          setFastChPeak(snap.channelPeakDb);
-          setFastPostDb(snap.postRmsDb);
+          const nextRms = snap.channelRmsDb.map(qHalf);
+          const nextPeak = snap.channelPeakDb.map(qHalf);
+          const nextPost = qHalf(snap.postRmsDb);
+          if (!sameArr(nextRms, prevRms)) {
+            prevRms = nextRms;
+            setFastChRms(nextRms);
+          }
+          if (!sameArr(nextPeak, prevPeak)) {
+            prevPeak = nextPeak;
+            setFastChPeak(nextPeak);
+          }
+          if (nextPost !== prevPost) {
+            prevPost = nextPost;
+            setFastPostDb(nextPost);
+          }
         }
       }
       rafId = window.requestAnimationFrame(tick);
     };
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
+
+    const onVis = () => {
+      if (!document.hidden && !rafId) {
+        lastTick = 0;
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    if (!document.hidden) {
+      rafId = window.requestAnimationFrame(tick);
+    }
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [engineRunning]);
 
   const totalBanks = Math.max(1, Math.ceil(channels.length / 8));
@@ -584,7 +623,19 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             </button>
 
             {patchTrayOpen && (
-              <div className="max-h-[124px] overflow-y-auto px-1.5 py-1.5 space-y-1">
+              <div className="max-h-[146px] overflow-y-auto px-1.5 py-1.5 space-y-1">
+                {desktopAudioStatus?.supported && onEnableBrowserDspSpeakers && (
+                  <button
+                    type="button"
+                    disabled={locked}
+                    onClick={onEnableBrowserDspSpeakers}
+                    title="Route Browser Audio through DSP to Built-In Speakers and mute built-in microphone to prevent acoustic loopback"
+                    className="w-full px-2 py-1 rounded border border-cyan-500/45 bg-cyan-950/35 hover:bg-cyan-900/50 text-cyan-200 font-mono text-[8.5px] font-bold flex items-center justify-center gap-1 cursor-pointer disabled:opacity-45"
+                  >
+                    <Speaker className="w-2.5 h-2.5 shrink-0 text-cyan-300" />
+                    <span className="truncate">Browser → Built-In Speakers (Mute Mic + DSP)</span>
+                  </button>
+                )}
                 {inputDevices.length === 0 ? (
                   <div className="p-2 rounded border border-dashed border-[#344355] bg-[#0B1015] text-center font-mono text-[9px] text-slate-500">
                     No inputs detected. Click refresh to scan USB / soundcard inputs.
@@ -680,7 +731,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span
                               className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                sess.state === 'active' ? 'bg-cyan-400 animate-pulse' : 'bg-slate-500'
+                                sess.state === 'active' ? 'bg-cyan-400' : 'bg-slate-500'
                               }`}
                             />
                             <span className="truncate text-slate-200" title={`${sess.name} (PID ${sess.pid})`}>

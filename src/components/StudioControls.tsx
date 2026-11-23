@@ -175,21 +175,25 @@ export const RotaryKnob: React.FC<RotaryKnobProps> = ({
             strokeLinecap="round"
           />
 
-          {/* Active Glowing LED Arc (omitted when dormant slate) */}
+          {/* Active Glowing LED Arc (zero-blur dual-stroke glow, omitted when dormant slate) */}
           {accent !== 'slate' && (
-            <path
-              d={describeArc(startAngle, currentAngle, ringRadius)}
-              fill="none"
-              stroke={accent === 'sky' ? 'var(--theme-accent, #38BDF8)' : colors.stroke}
-              strokeWidth={3.2}
-              strokeLinecap="round"
-              style={{
-                filter:
-                  accent === 'sky'
-                    ? 'drop-shadow(0 0 4px var(--theme-accent-glow, rgba(56,189,248,0.45)))'
-                    : `drop-shadow(0 0 4px ${colors.glow})`,
-              }}
-            />
+            <>
+              <path
+                d={describeArc(startAngle, currentAngle, ringRadius)}
+                fill="none"
+                stroke={accent === 'sky' ? 'var(--theme-accent, #38BDF8)' : colors.stroke}
+                strokeWidth={5.2}
+                strokeOpacity={0.22}
+                strokeLinecap="round"
+              />
+              <path
+                d={describeArc(startAngle, currentAngle, ringRadius)}
+                fill="none"
+                stroke={accent === 'sky' ? 'var(--theme-accent, #38BDF8)' : colors.stroke}
+                strokeWidth={3.2}
+                strokeLinecap="round"
+              />
+            </>
           )}
 
           {/* Tick notches */}

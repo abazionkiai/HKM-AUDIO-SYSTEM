@@ -90,7 +90,7 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
   const [oscPhase, setOscPhase] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Throttled ~30fps live levels + mini spectrum canvas
+  // Throttled ~12.5fps live levels + mini spectrum canvas (reads engine buffer directly, pauses while hidden)
   useEffect(() => {
     if (!engineRunning) {
       setFastPreDb(-96);
@@ -102,21 +102,35 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
     }
     let rafId = 0;
     let lastTick = 0;
+    const qHalf = (v: number) => (v <= -60 ? -96 : Math.round(v * 2) / 2);
+
     const tick = (now: number) => {
-      if (now - lastTick >= 33) {
+      if (document.hidden) {
+        rafId = 0;
+        return;
+      }
+      if (now - lastTick >= 80) {
         lastTick = now;
         const fast = liveAudioEngine.sampleFastLevels();
         if (fast.isRunning) {
-          setFastPreDb(fast.preRmsDb);
-          setFastPostLDb(fast.postLRmsDb);
-          setFastPostRDb(fast.postRRmsDb);
-          setFastPeakDb(fast.postPeakDb);
-          setFastGrDb(fast.masterGrDb);
-          setOscPhase((p) => (p + 1) % 1000);
+          const nextPre = qHalf(fast.preRmsDb);
+          const nextPostL = qHalf(fast.postLRmsDb);
+          const nextPostR = qHalf(fast.postRRmsDb);
+          const nextPeak = qHalf(fast.postPeakDb);
+          const nextGr = Number(fast.masterGrDb.toFixed(1));
+          setFastPreDb((p) => (p === nextPre ? p : nextPre));
+          setFastPostLDb((p) => (p === nextPostL ? p : nextPostL));
+          setFastPostRDb((p) => (p === nextPostR ? p : nextPostR));
+          setFastPeakDb((p) => (p === nextPeak ? p : nextPeak));
+          setFastGrDb((p) => (p === nextGr ? p : nextGr));
+          if (fast.preRmsDb > -58) {
+            setOscPhase((p) => (p + 1) % 1000);
+          }
         }
 
         const canvas = canvasRef.current;
         if (canvas && rightTab === 'master') {
+          const liveSpec = liveAudioEngine.getLatestSpectrum();
           const ctx = canvas.getContext('2d');
           if (ctx) {
             const w = canvas.width;
@@ -131,7 +145,7 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
             ctx.lineTo(w, h * 0.5);
             ctx.stroke();
 
-            if (spectrum.preDb.length > 0) {
+            if (liveSpec.preDb.length > 0) {
               const drawTrace = (bins: Float32Array, color: string, fill: string | null) => {
                 ctx.beginPath();
                 const samples = 72;
@@ -160,17 +174,31 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
                   ctx.fill();
                 }
               };
-              drawTrace(spectrum.preDb, 'rgba(245, 158, 11, 0.45)', null);
-              drawTrace(spectrum.postDb, '#2DD4BF', 'rgba(45, 212, 191, 0.16)');
+              drawTrace(liveSpec.preDb, 'rgba(245, 158, 11, 0.45)', null);
+              drawTrace(liveSpec.postDb, '#2DD4BF', 'rgba(45, 212, 191, 0.16)');
             }
           }
         }
       }
       rafId = window.requestAnimationFrame(tick);
     };
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [engineRunning, rightTab, spectrum, telemetry.sampleRate]);
+
+    const onVis = () => {
+      if (!document.hidden && !rafId) {
+        lastTick = 0;
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    if (!document.hidden) {
+      rafId = window.requestAnimationFrame(tick);
+    }
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [engineRunning, rightTab, telemetry.sampleRate]);
 
   const latencyMs = calculateRoundTripLatencyMs(bufferSize, sampleRate, driver);
   const qualityScore = telemetry.qualityScorePct ?? 100;
@@ -361,13 +389,8 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
                 </div>
                 <svg viewBox="0 0 96 36" className="w-20 2xl:w-24 h-7 shrink-0">
                   <line x1="0" y1="18" x2="96" y2="18" stroke="rgba(74,222,128,0.18)" strokeWidth="1" />
-                  <path
-                    d={oscPath}
-                    fill="none"
-                    stroke="#4ADE80"
-                    strokeWidth="1.6"
-                    style={{ filter: 'drop-shadow(0 0 4px rgba(74,222,128,0.65))' }}
-                  />
+                  <path d={oscPath} fill="none" stroke="rgba(74,222,128,0.24)" strokeWidth="4" />
+                  <path d={oscPath} fill="none" stroke="#4ADE80" strokeWidth="1.6" />
                 </svg>
               </div>
               <div className="flex items-center justify-between text-[8px] pt-0.5 border-t border-[#273342]">

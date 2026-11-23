@@ -1308,7 +1308,7 @@ export const ConsoleInstrumentDeck: React.FC<ConsoleInstrumentDeckProps> = ({
                           : ch.mute
                             ? 'bg-rose-500'
                             : isHot
-                              ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)] animate-pulse'
+                              ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)]'
                               : hasSignal
                                 ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]'
                                 : 'bg-slate-600'
