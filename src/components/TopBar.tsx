@@ -234,11 +234,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="hidden lg:inline">MON</span>
         </button>
 
-        {/* Quick Hardware DSP CPU Pill (opens Hardware Diagnostics) */}
+        {/* Estimated DSP pressure indicator (opens Hardware Diagnostics) */}
         <button
           type="button"
           onClick={onOpenDiagnostics}
-          title={`DSP Load: ${audioCpuPct}% · Risk: ${underrunRisk.toUpperCase()} (Click for Hardware Diagnostics)`}
+          title={`Estimated DSP pressure: ${audioCpuPct}% · Scheduling risk: ${underrunRisk.toUpperCase()} · Not OS CPU usage (Click for details)`}
           className={`hidden md:flex h-7 px-2 rounded border font-mono text-[10px] items-center gap-1.5 cursor-pointer ${
             underrunRisk === 'critical'
               ? 'border-red-500/70 bg-red-950/60 text-red-200'

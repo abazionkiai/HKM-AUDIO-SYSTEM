@@ -407,11 +407,19 @@ mod win_impl {
         target_pid: Option<u32>,
         channel: Channel<Response>,
         stop_flag: Arc<AtomicBool>,
+        startup: std::sync::mpsc::SyncSender<std::result::Result<(), String>>,
     ) {
         let _com = ComGuard::enter();
-        let Ok(audio_client) = activate_process_loopback_client(target_pid) else {
-            return;
+        let audio_client = match activate_process_loopback_client(target_pid) {
+            Ok(client) => client,
+            Err(err) => {
+                let _ = startup.send(Err(err));
+                return;
+            }
         };
+        if stop_flag.load(Ordering::Acquire) {
+            return;
+        }
 
         let wfx = build_float_stereo_format();
         let flags = AUDCLNT_STREAMFLAGS_LOOPBACK
@@ -429,26 +437,64 @@ mod win_impl {
                 None,
             )
         };
-        if init_hr.is_err() {
+        if let Err(err) = init_hr {
+            let _ = startup.send(Err(format!(
+                "Could not initialize desktop audio capture: {err}"
+            )));
+            return;
+        }
+        if stop_flag.load(Ordering::Acquire) {
             return;
         }
 
         let event_h = unsafe { CreateEventW(None, false, false, None) };
-        let Ok(event_h) = event_h else {
-            return;
+        let event_h = match event_h {
+            Ok(handle) => handle,
+            Err(err) => {
+                let _ = startup.send(Err(format!(
+                    "Could not create desktop audio capture event: {err}"
+                )));
+                return;
+            }
         };
         let _event_guard = HandleGuard(event_h);
-
-        if unsafe { audio_client.SetEventHandle(event_h) }.is_err() {
+        if stop_flag.load(Ordering::Acquire) {
             return;
         }
 
-        let Ok(capture_client) = (unsafe { audio_client.GetService::<IAudioCaptureClient>() })
-        else {
+        if let Err(err) = unsafe { audio_client.SetEventHandle(event_h) } {
+            let _ = startup.send(Err(format!(
+                "Could not configure desktop audio capture event: {err}"
+            )));
             return;
-        };
+        }
+        if stop_flag.load(Ordering::Acquire) {
+            return;
+        }
 
-        if unsafe { audio_client.Start() }.is_err() {
+        let capture_client = match unsafe { audio_client.GetService::<IAudioCaptureClient>() } {
+            Ok(client) => client,
+            Err(err) => {
+                let _ = startup.send(Err(format!(
+                    "Could not get desktop audio capture service: {err}"
+                )));
+                return;
+            }
+        };
+        if stop_flag.load(Ordering::Acquire) {
+            return;
+        }
+
+        if let Err(err) = unsafe { audio_client.Start() } {
+            let _ = startup.send(Err(format!("Could not start desktop audio capture: {err}")));
+            return;
+        }
+        if stop_flag.load(Ordering::Acquire) {
+            let _ = unsafe { audio_client.Stop() };
+            return;
+        }
+        if startup.send(Ok(())).is_err() {
+            let _ = unsafe { audio_client.Stop() };
             return;
         }
 
@@ -622,7 +668,7 @@ mod win_impl {
     impl DesktopAudioManager {
         pub fn status(&self, apo_active: bool) -> DesktopAudioStatus {
             let build = windows_build_number();
-            let supported = build >= 20348 || build == 0;
+            let supported = build >= 20348;
             let active_streams = self
                 .captures
                 .lock()
@@ -635,6 +681,11 @@ mod win_impl {
                 active_streams,
                 reason: if supported {
                     None
+                } else if build == 0 {
+                    Some(
+                        "Could not determine the Windows build; WASAPI process-exclusion loopback support is unconfirmed."
+                            .to_string(),
+                    )
                 } else {
                     Some(format!(
                         "Windows build {build} is below 20348; WASAPI process-exclusion loopback requires Windows 10 21H2+ or Windows 11."
@@ -651,30 +702,51 @@ mod win_impl {
         ) -> std::result::Result<(), String> {
             self.stop_stream(&stream_key);
 
-            // Validate Windows capability synchronously before spawning capture thread
-            {
-                let _com = ComGuard::enter();
-                let _probe = activate_process_loopback_client(target_pid)?;
-            }
-
             let stop_flag = Arc::new(AtomicBool::new(false));
             let stop_clone = Arc::clone(&stop_flag);
             let key_clone = stream_key.clone();
+            let (startup_tx, startup_rx) = std::sync::mpsc::sync_channel(1);
 
             let handle = thread::Builder::new()
                 .name(format!("hkm-desktop-in-{stream_key}"))
-                .spawn(move || run_capture_thread(key_clone, target_pid, channel, stop_clone))
+                .spawn(move || {
+                    run_capture_thread(key_clone, target_pid, channel, stop_clone, startup_tx)
+                })
                 .map_err(|e| format!("Failed to spawn desktop capture thread: {e}"))?;
 
-            if let Ok(mut guard) = self.captures.lock() {
-                guard.insert(
-                    stream_key,
-                    CaptureEntry {
-                        stop_flag,
-                        join_handle: Some(handle),
-                    },
-                );
+            let startup_result = startup_rx.recv_timeout(std::time::Duration::from_secs(5));
+            match startup_result {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    let _ = handle.join();
+                    return Err(err);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    stop_flag.store(true, Ordering::Release);
+                    drop(handle);
+                    return Err("Timed out while starting desktop audio capture.".to_string());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    let _ = handle.join();
+                    return Err("Desktop audio capture stopped before startup completed.".to_string());
+                }
             }
+
+            let mut guard = match self.captures.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    stop_flag.store(true, Ordering::Release);
+                    let _ = handle.join();
+                    return Err("Desktop audio capture state lock is unavailable.".to_string());
+                }
+            };
+            guard.insert(
+                stream_key,
+                CaptureEntry {
+                    stop_flag,
+                    join_handle: Some(handle),
+                },
+            );
             Ok(())
         }
 

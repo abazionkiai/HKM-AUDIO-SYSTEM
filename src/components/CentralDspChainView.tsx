@@ -383,44 +383,39 @@ export const CentralDspChainView: React.FC<CentralDspChainViewProps> = ({
       setFastPostRDb(-96);
       return;
     }
-    let rafId = 0;
-    let lastTick = 0;
+    let timerId: number | null = null;
+    let cancelled = false;
     const quantHalf = (v: number) => (v <= -60 ? -96 : Math.round(v * 2) / 2);
 
-    const tick = (now: number) => {
+    const tick = () => {
+      timerId = null;
       if (document.hidden) {
-        rafId = 0;
         return;
       }
-      if (now - lastTick >= 80) {
-        lastTick = now;
-        const fast = liveAudioEngine.sampleFastLevels();
-        if (fast.isRunning) {
-          const nextL = quantHalf(fast.postLRmsDb);
-          const nextR = quantHalf(fast.postRRmsDb);
-          setFastPostLDb((prev) => (prev === nextL ? prev : nextL));
-          setFastPostRDb((prev) => (prev === nextR ? prev : nextR));
-          if (fast.preRmsDb > -58) {
-            setPhaseTick((p) => (p + 1) % 360);
-          }
+      const fast = liveAudioEngine.sampleFastLevels();
+      if (fast.isRunning) {
+        const nextL = quantHalf(fast.postLRmsDb);
+        const nextR = quantHalf(fast.postRRmsDb);
+        setFastPostLDb((prev) => (prev === nextL ? prev : nextL));
+        setFastPostRDb((prev) => (prev === nextR ? prev : nextR));
+        if (fast.preRmsDb > -58) {
+          setPhaseTick((p) => (p + 1) % 360);
         }
       }
-      rafId = window.requestAnimationFrame(tick);
+      if (!cancelled) timerId = window.setTimeout(tick, 80);
     };
 
     const onVis = () => {
-      if (!document.hidden && !rafId) {
-        lastTick = 0;
-        rafId = window.requestAnimationFrame(tick);
+      if (!document.hidden && timerId === null) {
+        tick();
       }
     };
 
-    if (!document.hidden) {
-      rafId = window.requestAnimationFrame(tick);
-    }
+    if (!document.hidden) tick();
     document.addEventListener('visibilitychange', onVis);
     return () => {
-      if (rafId) window.cancelAnimationFrame(rafId);
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [engineRunning]);

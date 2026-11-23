@@ -91,6 +91,7 @@ export function useHardwareManager({
   const [hotPlugEndpoint, setHotPlugEndpoint] = useState<DetectedHardwareEndpoint | null>(null);
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [outputRouteError, setOutputRouteError] = useState<string | null>(null);
 
   const [{ outputId: initOutId, streamOutputId: initStreamId }] = useState(() =>
     migrateLegacyOutputStorage()
@@ -120,7 +121,13 @@ export function useHardwareManager({
   // Apply persisted standalone stereo output device selection without enabling loopback
   useEffect(() => {
     if (preferredOutputDeviceId) {
-      void liveAudioEngine.setOutputDevice(preferredOutputDeviceId);
+      void liveAudioEngine.setOutputDevice(preferredOutputDeviceId).then((applied) => {
+        setOutputRouteError(
+          applied
+            ? null
+            : 'The selected output is not active. Audio is still routed to the previous output.'
+        );
+      });
     }
   }, [preferredOutputDeviceId]);
 
@@ -133,12 +140,22 @@ export function useHardwareManager({
       } catch {
         // ignore storage error
       }
-      await liveAudioEngine.setOutputDevice(cleanId);
+      const applied = await liveAudioEngine.setOutputDevice(cleanId);
+      setOutputRouteError(
+        applied
+          ? null
+          : 'The selected output is not active. Audio is still routed to the previous output.'
+      );
       logAudit(
-        'Audio Output Changed',
-        cleanId ? `Standalone Stereo PA Output: ${cleanId}` : 'System Default Stereo Output',
+        applied ? 'Audio Output Changed' : 'Audio Output Change Failed',
+        applied
+          ? cleanId
+            ? `Standalone Stereo PA Output: ${cleanId}`
+            : 'System Default Stereo Output'
+          : `Could not apply output device ${cleanId || '(system default)'}.`,
         'operator'
       );
+      return applied;
     },
     [logAudit]
   );
@@ -567,6 +584,7 @@ export function useHardwareManager({
     hotPlugEndpoint,
     inputDevices,
     outputDevices,
+    outputRouteError,
     preferredOutputDeviceId,
     preferredStreamOutputDeviceId,
     desktopAudioStatus,

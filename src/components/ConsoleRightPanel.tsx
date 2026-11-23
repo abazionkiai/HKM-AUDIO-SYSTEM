@@ -100,36 +100,34 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
       setFastGrDb(0);
       return;
     }
-    let rafId = 0;
-    let lastTick = 0;
+    let timerId: number | null = null;
+    let cancelled = false;
     const qHalf = (v: number) => (v <= -60 ? -96 : Math.round(v * 2) / 2);
 
-    const tick = (now: number) => {
+    const tick = () => {
+      timerId = null;
       if (document.hidden) {
-        rafId = 0;
         return;
       }
-      if (now - lastTick >= 80) {
-        lastTick = now;
-        const fast = liveAudioEngine.sampleFastLevels();
-        if (fast.isRunning) {
-          const nextPre = qHalf(fast.preRmsDb);
-          const nextPostL = qHalf(fast.postLRmsDb);
-          const nextPostR = qHalf(fast.postRRmsDb);
-          const nextPeak = qHalf(fast.postPeakDb);
-          const nextGr = Number(fast.masterGrDb.toFixed(1));
-          setFastPreDb((p) => (p === nextPre ? p : nextPre));
-          setFastPostLDb((p) => (p === nextPostL ? p : nextPostL));
-          setFastPostRDb((p) => (p === nextPostR ? p : nextPostR));
-          setFastPeakDb((p) => (p === nextPeak ? p : nextPeak));
-          setFastGrDb((p) => (p === nextGr ? p : nextGr));
-          if (fast.preRmsDb > -58) {
-            setOscPhase((p) => (p + 1) % 1000);
-          }
+      const fast = liveAudioEngine.sampleFastLevels();
+      if (fast.isRunning) {
+        const nextPre = qHalf(fast.preRmsDb);
+        const nextPostL = qHalf(fast.postLRmsDb);
+        const nextPostR = qHalf(fast.postRRmsDb);
+        const nextPeak = qHalf(fast.postPeakDb);
+        const nextGr = Number(fast.masterGrDb.toFixed(1));
+        setFastPreDb((p) => (p === nextPre ? p : nextPre));
+        setFastPostLDb((p) => (p === nextPostL ? p : nextPostL));
+        setFastPostRDb((p) => (p === nextPostR ? p : nextPostR));
+        setFastPeakDb((p) => (p === nextPeak ? p : nextPeak));
+        setFastGrDb((p) => (p === nextGr ? p : nextGr));
+        if (fast.preRmsDb > -58) {
+          setOscPhase((p) => (p + 1) % 1000);
         }
+      }
 
-        const canvas = canvasRef.current;
-        if (canvas && rightTab === 'master') {
+      const canvas = canvasRef.current;
+      if (canvas && rightTab === 'master') {
           const liveSpec = liveAudioEngine.getLatestSpectrum();
           const ctx = canvas.getContext('2d');
           if (ctx) {
@@ -178,24 +176,21 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
               drawTrace(liveSpec.postDb, '#2DD4BF', 'rgba(45, 212, 191, 0.16)');
             }
           }
-        }
       }
-      rafId = window.requestAnimationFrame(tick);
+      if (!cancelled) timerId = window.setTimeout(tick, 80);
     };
 
     const onVis = () => {
-      if (!document.hidden && !rafId) {
-        lastTick = 0;
-        rafId = window.requestAnimationFrame(tick);
+      if (!document.hidden && timerId === null) {
+        tick();
       }
     };
 
-    if (!document.hidden) {
-      rafId = window.requestAnimationFrame(tick);
-    }
+    if (!document.hidden) tick();
     document.addEventListener('visibilitychange', onVis);
     return () => {
-      if (rafId) window.cancelAnimationFrame(rafId);
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [engineRunning, rightTab, telemetry.sampleRate]);
@@ -405,10 +400,10 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
             </div>
           </div>
 
-          {/* Card 2: CPU / DSP UTILIZATION */}
+          {/* Card 2: DSP PRESSURE ESTIMATE */}
           <div className="hw-card rounded-md overflow-hidden shrink-0">
             <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase">
-              CPU / DSP UTILIZATION
+              DSP PRESSURE ESTIMATE
             </div>
             <div className="p-1.5 space-y-1">
               <div className="flex items-center gap-2">

@@ -1001,7 +1001,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
           </div>
         </div>
 
-        {/* RIGHT RAIL (3 cols): LATENCY, CPU/DSP UTILIZATION, TEMP/HEADROOM, CLOCK, PRESET RECALL */}
+        {/* RIGHT RAIL (3 cols): LATENCY, DSP PRESSURE ESTIMATE, HEADROOM, CLOCK, PRESET RECALL */}
         <div className="xl:col-span-3 flex flex-col gap-2.5">
           {/* LATENCY */}
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 flex items-center justify-between gap-2">
@@ -1030,10 +1030,15 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
             </svg>
           </div>
 
-          {/* CPU / DSP UTILIZATION */}
+          {/* DSP PRESSURE ESTIMATE */}
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 space-y-1.5">
             <div className="flex justify-between font-mono text-[10px] tabular-nums">
-              <span className="text-slate-400 uppercase">CPU / DSP Utilization</span>
+              <span
+                className="text-slate-400 uppercase"
+                title="A heuristic based on enabled DSP stages and telemetry timing; Web Audio does not expose render-thread CPU usage."
+              >
+                DSP Pressure Estimate
+              </span>
               <span
                 className={
                   cpuPct >= 88

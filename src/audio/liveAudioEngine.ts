@@ -242,7 +242,12 @@ class LiveAudioEngine {
     }
 
     if (this.preferredOutputDeviceId) {
-      await this.setOutputDevice(this.preferredOutputDeviceId);
+      const outputApplied = await this.setOutputDevice(this.preferredOutputDeviceId);
+      if (!outputApplied) {
+        throw new Error(
+          'The selected audio output could not be applied. Choose System Default or another available output.'
+        );
+      }
     }
 
     if (this.ctx.state === 'suspended') {
@@ -278,6 +283,9 @@ class LiveAudioEngine {
   public async setOutputDevice(deviceId?: string): Promise<boolean> {
     const cleanId = (deviceId || '').split('::')[0];
     this.preferredOutputDeviceId = cleanId || undefined;
+    // The preference is retained before startup and applied by start() once the
+    // AudioContext exists. This makes selecting an output before engine start valid.
+    if (!this.ctx) return true;
 
     if (this.ctx && 'setSinkId' in this.ctx && typeof (this.ctx as any).setSinkId === 'function') {
       try {
@@ -288,7 +296,9 @@ class LiveAudioEngine {
         return false;
       }
     }
-    return false;
+    // Without AudioContext.setSinkId, the system default remains routable but a
+    // device-specific selection cannot be promised.
+    return !cleanId || cleanId === 'default';
   }
 
   public getPreferredOutputDeviceId(): string {
@@ -1410,6 +1420,11 @@ class LiveAudioEngine {
       faderGain.channelCountMode = 'explicit';
       faderGain.channelInterpretation = 'speakers';
 
+      // Keep the complete strip connected: input/desktop audio enters at preampGain,
+      // then must pass through the per-channel filters and compressor before reaching
+      // the fader and master bus. Without this edge, input meters can move while the
+      // master bus and speakers remain silent.
+      preampGain.connect(hpfNode);
       hpfNode.connect(eqLowNode);
       eqLowNode.connect(eqMidNode);
       eqMidNode.connect(eqHighNode);
@@ -1516,10 +1531,11 @@ class LiveAudioEngine {
   }
 
   public syncChannelHardwareInputs(channels: InputChannel[]): Promise<void> {
-    this.syncQueuePromise = this.syncQueuePromise
-      .then(() => this.applyChannelHardwareBindings(channels))
-      .catch(() => {});
-    return this.syncQueuePromise;
+    const pending = this.syncQueuePromise.then(() => this.applyChannelHardwareBindings(channels));
+    // Keep later binding updates runnable after a failure, while returning this
+    // operation's rejection to the caller so a failed route is visible to the operator.
+    this.syncQueuePromise = pending.catch(() => {});
+    return pending;
   }
 
   private async applyChannelHardwareBindings(channels: InputChannel[]): Promise<void> {
@@ -1578,7 +1594,11 @@ class LiveAudioEngine {
                 this.nativeStreams.set(targetDevId, nativeEntry);
               } catch (err) {
                 this.stripDeviceBindings.delete(i);
-                console.warn(`Failed to open native desktop loopback for CH${i + 1}:`, err);
+                const message = `Could not start desktop audio capture for CH${i + 1}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`;
+                console.error(message, err);
+                throw new Error(message);
               }
             }
 

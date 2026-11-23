@@ -1220,11 +1220,11 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5">
             <ArcGauge
-              label="DSP Engine Load"
+              label="DSP Pressure Estimate"
               value={audioCpuPct}
               max={100}
               displayValue={`${audioCpuPct}%`}
-              sublabel={telemetry.isRunning ? 'Real-Time Audio Thread' : 'Engine Standby'}
+              sublabel={telemetry.isRunning ? 'Stages + timing · not OS CPU' : 'Engine Standby'}
               tone={audioCpuPct >= 80 ? 'red' : audioCpuPct >= 60 ? 'amber' : 'sky'}
             />
             <ArcGauge

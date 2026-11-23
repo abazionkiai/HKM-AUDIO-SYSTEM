@@ -106,8 +106,20 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
 
   // 60fps fast VU meters + live broadcast waveform scope
   useEffect(() => {
-    let rafId = 0;
+    if (!telemetry.isRunning) {
+      setFastRoomDb(-96);
+      setFastRoomPeakDb(-96);
+      setFastStreamDb(-96);
+      setFastStreamPeakDb(-96);
+      return;
+    }
+
+    let timerId: number | null = null;
+    let cancelled = false;
     const renderScope = () => {
+      timerId = null;
+      if (document.hidden) return;
+
       const fast = liveAudioEngine.sampleFastLevels();
       const running = fast.isRunning;
       const roomRms = running ? fast.postRmsDb : telemetry.isRunning ? telemetry.postRmsDb : -96;
@@ -158,11 +170,20 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
         }
       }
 
-      rafId = window.requestAnimationFrame(renderScope);
+      if (!cancelled) timerId = window.setTimeout(renderScope, 33);
     };
-    rafId = window.requestAnimationFrame(renderScope);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [broadcastDsp.enabled, broadcastDsp.limiterCeilingDb, telemetry.isRunning, telemetry.postRmsDb, telemetry.postPeakDb]);
+
+    const onVis = () => {
+      if (!document.hidden && timerId === null) renderScope();
+    };
+    if (!document.hidden) renderScope();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [broadcastDsp.enabled, broadcastDsp.limiterCeilingDb, telemetry.isRunning]);
 
   // Auto-select designated OBS broadcast input & enforce exclusive audio lock if enabled
   useEffect(() => {

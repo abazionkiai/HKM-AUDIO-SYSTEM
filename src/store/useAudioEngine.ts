@@ -105,7 +105,9 @@ export function useAudioEngine({
   useEffect(() => {
     liveAudioEngine.applyChannels(channels);
     if (engineRunning) {
-      void liveAudioEngine.syncChannelHardwareInputs(channels);
+      void liveAudioEngine.syncChannelHardwareInputs(channels).catch((err) => {
+        setAudioError(err instanceof Error ? err.message : String(err));
+      });
     }
   }, [channels, engineRunning]);
 
@@ -135,7 +137,8 @@ export function useAudioEngine({
     return () => liveAudioEngine.setOnSourceEnded(null);
   }, [audioSource, logAudit]);
 
-  // Real-time 5Hz visible / 2Hz hidden Telemetry, FFT & Audio Engine CPU Load Monitor
+  // 5Hz visible / 2Hz hidden telemetry and FFT sampling. The pressure percentage
+  // below is a heuristic because Web Audio does not expose render-thread CPU use.
   useEffect(() => {
     if (!engineRunning) {
       xrunStreakRef.current = { elevated: 0, critical: 0 };
@@ -182,8 +185,8 @@ export function useAudioEngine({
         onSendWsTelemetry?.(snap.telemetry);
       }
 
-      // Compute realistic audio processing load % from buffer quantum deadline,
-      // active DSP nodes, event-loop timing pressure, and callback execution time.
+      // Estimate relative processing pressure from active stages, audio quantum
+      // deadline and telemetry scheduling. This is not operating-system CPU %.
       const quantumMs = (bufferSize / Math.max(8000, sampleRate)) * 1000;
       const activeStages =
         (dsp.bypassed
@@ -411,12 +414,17 @@ export function useAudioEngine({
   const ensureEngineStarted = useCallback(
     async (channelsOverride?: InputChannel[]): Promise<boolean> => {
       const targetChannels = channelsOverride ?? channels;
+      setAudioError(null);
       if (liveAudioEngine.getIsRunning()) {
         liveAudioEngine.applyChannels(targetChannels);
-        await liveAudioEngine.syncChannelHardwareInputs(targetChannels);
-        return true;
+        try {
+          await liveAudioEngine.syncChannelHardwareInputs(targetChannels);
+          return true;
+        } catch (err) {
+          setAudioError(err instanceof Error ? err.message : String(err));
+          return false;
+        }
       }
-      setAudioError(null);
       try {
         await liveAudioEngine.start(audioSource, dsp, targetChannels);
         liveAudioEngine.applyChannels(targetChannels);

@@ -388,7 +388,8 @@ export default function App() {
       hardware.outputDevices.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
       hardware.outputDevices[0];
     if (builtInSpeaker?.deviceId) {
-      await hardware.handleSelectOutputDevice(builtInSpeaker.deviceId);
+      const outputApplied = await hardware.handleSelectOutputDevice(builtInSpeaker.deviceId);
+      if (!outputApplied) return;
     }
 
     let hasDesktopCh = false;
@@ -431,7 +432,8 @@ export default function App() {
     }
 
     session.setChannels(nextChannels);
-    await audio.ensureEngineStarted(nextChannels);
+    const started = await audio.ensureEngineStarted(nextChannels);
+    if (!started) return;
     audio.setMonitorAudibleState(true);
     session.logAudit(
       'Enabled Browser → DSP → Speakers',
@@ -669,11 +671,16 @@ export default function App() {
 
           {/* CENTER PANEL: ALL 16 MODULES DELIVER THEIR CONTENT HERE */}
           <main className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
-            {audio.audioError && (
-              <div className="mb-1.5 p-2.5 rounded-md border border-red-500/45 bg-red-500/10 text-xs text-red-300 shrink-0">
-                {audio.audioError}
-              </div>
-            )}
+            {[audio.audioError, hardware.outputRouteError]
+              .filter((message): message is string => Boolean(message))
+              .map((message) => (
+                <div
+                  key={message}
+                  className="mb-1.5 p-2.5 rounded-md border border-red-500/45 bg-red-500/10 text-xs text-red-300 shrink-0"
+                >
+                  {message}
+                </div>
+              ))}
 
             {activeModule === 'dsp' && selectedChannel ? (
               <CentralDspChainView

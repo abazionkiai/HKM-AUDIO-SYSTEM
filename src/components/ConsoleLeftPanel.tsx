@@ -91,8 +91,8 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
       setFastPostDb(-96);
       return;
     }
-    let rafId = 0;
-    let lastTick = 0;
+    let timerId: number | null = null;
+    let cancelled = false;
     let prevRms: number[] = [];
     let prevPeak: number[] = [];
     let prevPost = -96;
@@ -100,48 +100,43 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
     const sameArr = (a: number[], b: number[]) =>
       a.length === b.length && a.every((val, i) => val === b[i]);
 
-    const tick = (now: number) => {
+    const tick = () => {
+      timerId = null;
       if (document.hidden) {
-        rafId = 0;
         return;
       }
-      if (now - lastTick >= 80) {
-        lastTick = now;
-        const snap = liveAudioEngine.sampleFastLevels();
-        if (snap.isRunning) {
-          const nextRms = snap.channelRmsDb.map(qHalf);
-          const nextPeak = snap.channelPeakDb.map(qHalf);
-          const nextPost = qHalf(snap.postRmsDb);
-          if (!sameArr(nextRms, prevRms)) {
-            prevRms = nextRms;
-            setFastChRms(nextRms);
-          }
-          if (!sameArr(nextPeak, prevPeak)) {
-            prevPeak = nextPeak;
-            setFastChPeak(nextPeak);
-          }
-          if (nextPost !== prevPost) {
-            prevPost = nextPost;
-            setFastPostDb(nextPost);
-          }
+      const snap = liveAudioEngine.sampleFastLevels();
+      if (snap.isRunning) {
+        const nextRms = snap.channelRmsDb.map(qHalf);
+        const nextPeak = snap.channelPeakDb.map(qHalf);
+        const nextPost = qHalf(snap.postRmsDb);
+        if (!sameArr(nextRms, prevRms)) {
+          prevRms = nextRms;
+          setFastChRms(nextRms);
+        }
+        if (!sameArr(nextPeak, prevPeak)) {
+          prevPeak = nextPeak;
+          setFastChPeak(nextPeak);
+        }
+        if (nextPost !== prevPost) {
+          prevPost = nextPost;
+          setFastPostDb(nextPost);
         }
       }
-      rafId = window.requestAnimationFrame(tick);
+      if (!cancelled) timerId = window.setTimeout(tick, 80);
     };
 
     const onVis = () => {
-      if (!document.hidden && !rafId) {
-        lastTick = 0;
-        rafId = window.requestAnimationFrame(tick);
+      if (!document.hidden && timerId === null) {
+        tick();
       }
     };
 
-    if (!document.hidden) {
-      rafId = window.requestAnimationFrame(tick);
-    }
+    if (!document.hidden) tick();
     document.addEventListener('visibilitychange', onVis);
     return () => {
-      if (rafId) window.cancelAnimationFrame(rafId);
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [engineRunning]);
