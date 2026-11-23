@@ -44,7 +44,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Church Audio Intelligence ${{ github.ref_name }}'
-          releaseBody: 'See the release notes for details on this update.'
+          releaseBody: 'Release notes: https://github.com/abazionkiai/HKM-AUDIO-SYSTEM/blob/${{ github.ref_name }}/CHANGELOG.md'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

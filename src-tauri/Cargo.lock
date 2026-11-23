@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "church-audio-intelligence"
-version = "0.2.30"
+version = "0.2.31"
 dependencies = [
  "apo_shared",
  "chrono",
