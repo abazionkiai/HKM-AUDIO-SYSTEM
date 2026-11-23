@@ -58,8 +58,8 @@ interface TopBarProps {
   onThemeChange: (theme: ConsoleThemeId) => void;
   audioSource: AudioSourceSimulation;
   onSourceChange: (src: AudioSourceSimulation) => void;
-  audioCpuPct: number;
-  underrunRisk: 'low' | 'elevated' | 'critical';
+  systemCpuPercent: number | null;
+  schedulingRisk: 'low' | 'elevated' | 'critical';
   onOpenDiagnostics?: () => void;
   tapTempo: TapTempoState;
   onTapTempo: () => void;
@@ -112,8 +112,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onThemeChange,
   audioSource,
   onSourceChange,
-  audioCpuPct,
-  underrunRisk,
+  systemCpuPercent,
+  schedulingRisk,
   onOpenDiagnostics,
   tapTempo,
   onTapTempo,
@@ -234,21 +234,23 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="hidden lg:inline">MON</span>
         </button>
 
-        {/* Estimated DSP pressure indicator (opens Hardware Diagnostics) */}
+        {/* System CPU and telemetry scheduling status (opens Hardware Diagnostics) */}
         <button
           type="button"
           onClick={onOpenDiagnostics}
-          title={`Estimated DSP pressure: ${audioCpuPct}% · Scheduling risk: ${underrunRisk.toUpperCase()} · Not OS CPU usage (Click for details)`}
+          title={`System CPU: ${systemCpuPercent === null ? 'unavailable' : `${systemCpuPercent}%`} · Telemetry scheduling risk: ${schedulingRisk.toUpperCase()} (Click for details)`}
           className={`hidden md:flex h-7 px-2 rounded border font-mono text-[10px] items-center gap-1.5 cursor-pointer ${
-            underrunRisk === 'critical'
+            schedulingRisk === 'critical'
               ? 'border-red-500/70 bg-red-950/60 text-red-200'
-              : underrunRisk === 'elevated'
+              : schedulingRisk === 'elevated'
                 ? 'border-amber-500/70 bg-amber-950/50 text-amber-200'
                 : 'bg-[#0D1218] border-[#26313E] text-slate-300 hover:border-[#3A4A5E]'
           }`}
         >
           <Cpu className={`w-3 h-3 ${engineRunning ? 'text-emerald-400' : 'text-slate-500'}`} />
-          <span className="tabular-nums font-bold">{audioCpuPct}%</span>
+          <span className="tabular-nums font-bold">
+            {systemCpuPercent === null ? '—' : `${systemCpuPercent}%`}
+          </span>
         </button>
 
         {/* Compact TOOLS & OUTPUTS Popover Trigger (preserves 100% of secondary TopBar tools) */}

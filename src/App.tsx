@@ -318,7 +318,7 @@ export default function App() {
     audio.telemetry.feedbackRisk.detected ||
     audio.telemetry.humRisk.detected ||
     pendingFindingsCount > 0 ||
-    audio.underrunRisk !== 'low';
+    audio.schedulingRisk !== 'low';
   const consoleIsLimiting =
     Boolean(audio.telemetry.qualityGateEngaged) ||
     (audio.engineRunning && audio.telemetry.postPeakDb >= session.dsp.limiter.ceilingDb - 0.8);
@@ -510,8 +510,8 @@ export default function App() {
         onThemeChange={session.setConsoleTheme}
         audioSource={audio.audioSource}
         onSourceChange={audio.handleSourceChange}
-        audioCpuPct={audio.audioCpuPct}
-        underrunRisk={audio.underrunRisk}
+        systemCpuPercent={audio.systemCpuPercent}
+        schedulingRisk={audio.schedulingRisk}
         onOpenDiagnostics={() => setActiveModule('hardware')}
         tapTempo={shortcuts.tapTempo}
         onTapTempo={() => shortcuts.executeShortcutAction('tap-tempo', 'CLICK')}
@@ -930,7 +930,7 @@ export default function App() {
                     onLoadCustomPlugin={session.handleLoadCustomPlugin}
                     onUnloadPlugin={session.handleUnloadPlugin}
                     telemetry={audio.telemetry}
-                    audioCpuPct={audio.audioCpuPct}
+                    systemCpuPercent={audio.systemCpuPercent}
                     auditEvents={session.auditEvents}
                     remoteAccess={session.remoteAccess}
                     remoteClients={session.remoteClients}
@@ -975,8 +975,8 @@ export default function App() {
             onUpdateDsp={guardedUpdateDsp}
             telemetry={audio.telemetry}
             spectrum={audio.spectrum}
-            audioCpuPct={audio.audioCpuPct}
-            underrunRisk={audio.underrunRisk}
+            systemCpuPercent={audio.systemCpuPercent}
+            schedulingRisk={audio.schedulingRisk}
             bufferSize={session.bufferSize}
             sampleRate={session.sampleRate}
             driver={session.driver}

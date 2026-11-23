@@ -17,6 +17,8 @@ import {
   applyDspPluginToConfig,
   type LoadedPluginRecord,
 } from '../plugins/pluginManager.ts';
+import { isDesktopApp } from '../utils/appApi.ts';
+import { getSystemCpuPercent } from '../utils/systemMetrics.ts';
 
 export const INITIAL_TELEMETRY: SignalTelemetry = {
   source: 'live-mic',
@@ -81,14 +83,47 @@ export function useAudioEngine({
   const [audioError, setAudioError] = useState<string | null>(null);
   const [telemetry, setTelemetry] = useState<SignalTelemetry>(INITIAL_TELEMETRY);
   const [spectrum, setSpectrum] = useState<SpectrumSnapshot>(INITIAL_SPECTRUM);
-  const [audioCpuPct, setAudioCpuPct] = useState<number>(0);
-  const [underrunRisk, setUnderrunRisk] = useState<'low' | 'elevated' | 'critical'>('low');
+  const [systemCpuPercent, setSystemCpuPercent] = useState<number | null>(null);
+  const [schedulingRisk, setSchedulingRisk] = useState<'low' | 'elevated' | 'critical'>('low');
 
   const lastTickTsRef = useRef<number>(performance.now());
   const lastTelemetryWsSentRef = useRef<number>(0);
   const lastSilentSigRef = useRef<string | null>(null);
-  const xrunStreakRef = useRef<{ elevated: number; critical: number }>({ elevated: 0, critical: 0 });
+  const schedulingStreakRef = useRef<{ elevated: number; critical: number }>({ elevated: 0, critical: 0 });
   const seenAutoIssuesRef = useRef<Set<string>>(new Set());
+
+  // Sample real Windows system CPU once per second, slower while hidden. This is
+  // intentionally independent of engine state so standby resource use is visible.
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+
+    let cancelled = false;
+    let timerId: number | null = null;
+
+    const sample = async () => {
+      const value = await getSystemCpuPercent();
+      if (cancelled) return;
+      const rounded = value === null ? null : Math.round(value);
+      setSystemCpuPercent((prev) => (prev === rounded ? prev : rounded));
+      timerId = window.setTimeout(sample, document.hidden ? 3000 : 1000);
+    };
+
+    const onVisibilityChange = () => {
+      if (timerId !== null) window.clearTimeout(timerId);
+      timerId = null;
+      if (!document.hidden && !cancelled) {
+        timerId = window.setTimeout(sample, 0);
+      }
+    };
+
+    void sample();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   // Sync effective DSP into Web Audio Engine whenever DSP or active plugins update
   useEffect(() => {
@@ -137,14 +172,12 @@ export function useAudioEngine({
     return () => liveAudioEngine.setOnSourceEnded(null);
   }, [audioSource, logAudit]);
 
-  // 5Hz visible / 2Hz hidden telemetry and FFT sampling. The pressure percentage
-  // below is a heuristic because Web Audio does not expose render-thread CPU use.
+  // 5Hz visible / 2Hz hidden telemetry and FFT sampling.
   useEffect(() => {
     if (!engineRunning) {
-      xrunStreakRef.current = { elevated: 0, critical: 0 };
+      schedulingStreakRef.current = { elevated: 0, critical: 0 };
       lastSilentSigRef.current = null;
-      setAudioCpuPct(0);
-      setUnderrunRisk('low');
+      setSchedulingRisk('low');
       return;
     }
 
@@ -185,57 +218,31 @@ export function useAudioEngine({
         onSendWsTelemetry?.(snap.telemetry);
       }
 
-      // Estimate relative processing pressure from active stages, audio quantum
-      // deadline and telemetry scheduling. This is not operating-system CPU %.
       const quantumMs = (bufferSize / Math.max(8000, sampleRate)) * 1000;
-      const activeStages =
-        (dsp.bypassed
-          ? 0
-          : dsp.eqBands.filter((b) => b.enabled).length +
-            (dsp.hpfEnabled ? 1 : 0) +
-            (dsp.lpfEnabled ? 1 : 0) +
-            (dsp.compressor.enabled ? 2 : 0) +
-            (dsp.gate.enabled ? 1 : 0) +
-            (dsp.deEsser.enabled ? 1 : 0) +
-            (dsp.limiter.enabled ? 1 : 0)) +
-        plugins.filter((p) => p.kind === 'dsp-processor' && p.status === 'active').length;
-
-      const bufferPressure = Math.max(0, (3.0 - quantumMs) * 2.5);
-      const dspGraphCost = activeStages * 0.45;
-      const timingCost = (execMs / Math.max(1, quantumMs)) * 15;
       const expectedPeriod = document.hidden ? 500 : 200;
-      const jitterPenalty = Math.min(25, Math.max(0, intervalDelta - (expectedPeriod + 65)) * 0.2);
-      const rawLoad = Math.min(
-        98,
-        Math.max(4, Math.round(3 + bufferPressure + dspGraphCost + timingCost + jitterPenalty))
-      );
 
-      setAudioCpuPct((prev) => {
-        const smoothed = Math.round((prev === 0 ? rawLoad : prev * 0.82 + rawLoad * 0.18));
-        return smoothed === prev ? prev : smoothed;
-      });
-
-      // Buffer underrun (XRUN) detection
+      // This flags delayed telemetry scheduling only; it is not an audio-thread
+      // CPU reading or a confirmed WASAPI/Web Audio underrun.
       const isCriticalFrame =
-        rawLoad >= 85 || intervalDelta > expectedPeriod + 250 || execMs > quantumMs * 0.85;
+        intervalDelta > expectedPeriod + 250 || execMs > quantumMs * 0.85;
       const isElevatedFrame =
-        rawLoad >= 65 || intervalDelta > expectedPeriod + 120 || execMs > quantumMs * 0.6;
+        intervalDelta > expectedPeriod + 120 || execMs > quantumMs * 0.6;
 
-      xrunStreakRef.current.critical = isCriticalFrame
-        ? Math.min(10, xrunStreakRef.current.critical + 1)
-        : Math.max(0, xrunStreakRef.current.critical - 1);
-      xrunStreakRef.current.elevated = isElevatedFrame
-        ? Math.min(10, xrunStreakRef.current.elevated + 1)
-        : Math.max(0, xrunStreakRef.current.elevated - 1);
+      schedulingStreakRef.current.critical = isCriticalFrame
+        ? Math.min(10, schedulingStreakRef.current.critical + 1)
+        : Math.max(0, schedulingStreakRef.current.critical - 1);
+      schedulingStreakRef.current.elevated = isElevatedFrame
+        ? Math.min(10, schedulingStreakRef.current.elevated + 1)
+        : Math.max(0, schedulingStreakRef.current.elevated - 1);
 
       const nextRisk: 'low' | 'elevated' | 'critical' =
-        xrunStreakRef.current.critical >= 4
+        schedulingStreakRef.current.critical >= 4
           ? 'critical'
-          : xrunStreakRef.current.elevated >= 4
+          : schedulingStreakRef.current.elevated >= 4
             ? 'elevated'
             : 'low';
 
-      setUnderrunRisk((prev) => (prev === nextRisk ? prev : nextRisk));
+      setSchedulingRisk((prev) => (prev === nextRisk ? prev : nextRisk));
 
       // Deterministic auto-diagnosis when feedback or hum persists
       if (
@@ -330,8 +337,6 @@ export function useAudioEngine({
     activeDevice.model,
     bufferSize,
     sampleRate,
-    dsp,
-    plugins,
     onSendWsTelemetry,
     onAddFinding,
   ]);
@@ -456,8 +461,8 @@ export function useAudioEngine({
     setTelemetry,
     spectrum,
     setSpectrum,
-    audioCpuPct,
-    underrunRisk,
+    systemCpuPercent,
+    schedulingRisk,
     handleToggleEngine,
     handleSourceChange,
     handleToggleMonitor,

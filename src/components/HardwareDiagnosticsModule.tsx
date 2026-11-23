@@ -64,7 +64,7 @@ interface HardwareDiagnosticsModuleProps {
   onLoadCustomPlugin: (jsonText: string) => { ok: boolean; error?: string };
   onUnloadPlugin: (id: string) => void;
   telemetry: SignalTelemetry;
-  audioCpuPct: number;
+  systemCpuPercent: number | null;
   auditEvents: AuditEvent[];
   remoteAccess: RemoteAccessConfig;
   remoteClients: RemoteClientSession[];
@@ -155,7 +155,7 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onLoadCustomPlugin,
   onUnloadPlugin,
   telemetry,
-  audioCpuPct,
+  systemCpuPercent,
   auditEvents,
   remoteAccess,
   remoteClients,
@@ -1220,12 +1220,20 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-lg border border-slate-800 bg-[#0D1119] p-3.5">
             <ArcGauge
-              label="DSP Pressure Estimate"
-              value={audioCpuPct}
+              label="System CPU"
+              value={systemCpuPercent ?? 0}
               max={100}
-              displayValue={`${audioCpuPct}%`}
-              sublabel={telemetry.isRunning ? 'Stages + timing · not OS CPU' : 'Engine Standby'}
-              tone={audioCpuPct >= 80 ? 'red' : audioCpuPct >= 60 ? 'amber' : 'sky'}
+              displayValue={systemCpuPercent === null ? '—' : `${systemCpuPercent}%`}
+              sublabel={systemCpuPercent === null ? 'Unavailable on this platform' : 'System-wide total'}
+              tone={
+                systemCpuPercent === null
+                  ? 'sky'
+                  : systemCpuPercent >= 80
+                    ? 'red'
+                    : systemCpuPercent >= 60
+                      ? 'amber'
+                      : 'sky'
+              }
             />
             <ArcGauge
               label="Sample Clock State"

@@ -1,11 +1,13 @@
 mod apo_manager;
 mod desktop_audio;
 mod raw_output;
+mod system_metrics;
 
 use apo_manager::{ApoManager, ApoSystemStatus};
 use chrono::Utc;
 use desktop_audio::{enumerate_active_audio_sessions, DesktopAudioManager, DesktopAudioSession, DesktopAudioStatus};
 use raw_output::RawOutputManager;
+use system_metrics::SystemCpuSampler;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::{fs, io::Write, path::PathBuf, sync::Mutex};
@@ -390,6 +392,11 @@ fn desktop_audio_status(
 }
 
 #[tauri::command]
+fn system_cpu_usage(cpu_sampler: State<'_, SystemCpuSampler>) -> Option<f64> {
+    cpu_sampler.sample_percent()
+}
+
+#[tauri::command]
 fn list_desktop_audio_sessions() -> Vec<DesktopAudioSession> {
     enumerate_active_audio_sessions()
 }
@@ -505,6 +512,7 @@ pub fn run() {
         .manage(DesktopAudioManager::default())
         .manage(ApoManager::default())
         .manage(RawOutputManager::default())
+        .manage(SystemCpuSampler::default())
         .setup(|app| {
             let window_config = &app.config().app.windows[0];
             let mut builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
@@ -540,6 +548,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             desktop_api_request,
             desktop_audio_status,
+            system_cpu_usage,
             list_desktop_audio_sessions,
             start_desktop_audio_capture,
             stop_desktop_audio_capture,

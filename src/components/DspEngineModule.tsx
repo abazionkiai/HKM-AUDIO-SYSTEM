@@ -42,7 +42,7 @@ interface DspEngineModuleProps {
   zones: SpeakerZone[];
   activeDspPlugins: LoadedPluginRecord[];
   telemetry?: SignalTelemetry;
-  audioCpuPct?: number;
+  systemCpuPercent?: number | null;
   channels?: InputChannel[];
   onUpdateChannel?: (id: string, patch: Partial<InputChannel>) => void;
   presets?: ServicePreset[];
@@ -63,7 +63,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
   zones,
   activeDspPlugins,
   telemetry,
-  audioCpuPct,
+  systemCpuPercent,
   channels = [],
   onUpdateChannel,
   presets = [],
@@ -191,11 +191,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const cpuPct = telemetry?.isRunning
-    ? typeof audioCpuPct === 'number'
-      ? audioCpuPct
-      : Math.min(84, Math.round(24 + 4096 / Math.max(64, bufferSize)))
-    : 0;
+  const systemCpuValue = typeof systemCpuPercent === 'number' ? systemCpuPercent : null;
   const outputDensityPct = telemetry?.isRunning
     ? Math.min(100, Math.max(0, Math.round(((telemetry.postPeakDb + 64) / 64) * 100)))
     : 0;
@@ -1001,7 +997,7 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
           </div>
         </div>
 
-        {/* RIGHT RAIL (3 cols): LATENCY, DSP PRESSURE ESTIMATE, HEADROOM, CLOCK, PRESET RECALL */}
+        {/* RIGHT RAIL (3 cols): LATENCY, SYSTEM CPU, HEADROOM, CLOCK, PRESET RECALL */}
         <div className="xl:col-span-3 flex flex-col gap-2.5">
           {/* LATENCY */}
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 flex items-center justify-between gap-2">
@@ -1030,33 +1026,36 @@ export const DspEngineModule: React.FC<DspEngineModuleProps> = ({
             </svg>
           </div>
 
-          {/* DSP PRESSURE ESTIMATE */}
+          {/* SYSTEM CPU */}
           <div className="rounded-lg border border-slate-800 bg-[#0D1119] p-3 space-y-1.5">
             <div className="flex justify-between font-mono text-[10px] tabular-nums">
-              <span
-                className="text-slate-400 uppercase"
-                title="A heuristic based on enabled DSP stages and telemetry timing; Web Audio does not expose render-thread CPU usage."
-              >
-                DSP Pressure Estimate
-              </span>
+              <span className="text-slate-400 uppercase">System CPU</span>
               <span
                 className={
-                  cpuPct >= 88
+                  systemCpuValue === null
+                    ? 'text-slate-500'
+                    : systemCpuValue >= 88
                     ? 'text-red-400 font-semibold'
-                    : cpuPct >= 72
+                    : systemCpuValue >= 72
                       ? 'text-amber-400 font-semibold'
                       : 'text-emerald-400 font-semibold'
                 }
               >
-                {cpuPct}% · {telemetry?.isRunning ? 'ACTIVE' : 'STANDBY'}
+                {systemCpuValue === null ? '—' : `${systemCpuValue}%`}
               </span>
             </div>
             <div className="h-2.5 rounded-xs bg-[#070A10] border border-slate-800 overflow-hidden p-px">
               <div
                 className={`h-full rounded-[1px] transition-[width] duration-150 ${
-                  cpuPct >= 88 ? 'bg-red-500' : cpuPct >= 72 ? 'bg-amber-400' : 'bg-emerald-400'
+                  systemCpuValue === null
+                    ? 'bg-slate-600'
+                    : systemCpuValue >= 88
+                      ? 'bg-red-500'
+                      : systemCpuValue >= 72
+                        ? 'bg-amber-400'
+                        : 'bg-emerald-400'
                 }`}
-                style={{ width: `${cpuPct}%` }}
+                style={{ width: `${systemCpuValue ?? 0}%` }}
               />
             </div>
           </div>

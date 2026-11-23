@@ -33,8 +33,8 @@ interface ConsoleRightPanelProps {
   onUpdateDsp: (patch: Partial<DspConfig>) => void;
   telemetry: SignalTelemetry;
   spectrum: SpectrumSnapshot;
-  audioCpuPct: number;
-  underrunRisk: 'low' | 'elevated' | 'critical';
+  systemCpuPercent: number | null;
+  schedulingRisk: 'low' | 'elevated' | 'critical';
   bufferSize: number;
   sampleRate: number;
   driver: DriverBackend;
@@ -60,8 +60,8 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
   onUpdateDsp,
   telemetry,
   spectrum,
-  audioCpuPct,
-  underrunRisk,
+  systemCpuPercent,
+  schedulingRisk,
   bufferSize,
   sampleRate,
   driver,
@@ -203,9 +203,10 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
   const lrDiff = Math.abs(fastPostLDb - fastPostRDb);
   const phaseCorr = engineRunning ? Math.max(-0.5, Math.min(1, 1 - lrDiff / 24)) : 1;
 
-  const activeCpuSegs = engineRunning
-    ? Math.max(1, Math.min(CPU_SEGMENTS, Math.round((audioCpuPct / 100) * CPU_SEGMENTS)))
-    : 1;
+  const activeCpuSegs =
+    systemCpuPercent === null
+      ? 0
+      : Math.max(0, Math.min(CPU_SEGMENTS, Math.round((systemCpuPercent / 100) * CPU_SEGMENTS)));
 
   const validation = validateDspConfig(dsp, sampleRate, zones);
   const hasDspWarning = !validation.valid || validation.warnings.length > 0 || telemetry.feedbackRisk.detected;
@@ -400,16 +401,16 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
             </div>
           </div>
 
-          {/* Card 2: DSP PRESSURE ESTIMATE */}
+          {/* Card 2: SYSTEM CPU */}
           <div className="hw-card rounded-md overflow-hidden shrink-0">
             <div className="hw-card-subheader px-2 py-1 text-[9px] font-bold tracking-[0.1em] uppercase">
-              DSP PRESSURE ESTIMATE
+              SYSTEM CPU UTILIZATION
             </div>
             <div className="p-1.5 space-y-1">
               <div className="flex items-center gap-2">
                 <div className="flex-1 h-3.5 bg-[#090D12] border border-[#2C394A] rounded-[3px] p-0.5 flex items-center gap-[2px]">
                   {Array.from({ length: CPU_SEGMENTS }).map((_, i) => {
-                    const lit = engineRunning && i < activeCpuSegs;
+                    const lit = i < activeCpuSegs;
                     const cls =
                       i >= 14
                         ? lit
@@ -426,7 +427,7 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
                   })}
                 </div>
                 <span className="text-[10.5px] font-bold text-slate-100 tabular-nums w-8 text-right">
-                  {audioCpuPct}%
+                  {systemCpuPercent === null ? '—' : `${systemCpuPercent}%`}
                 </span>
               </div>
               <div className="flex items-center justify-between text-[8px]">
@@ -442,14 +443,18 @@ export const ConsoleRightPanel: React.FC<ConsoleRightPanelProps> = ({
                   <span className="text-slate-400">STATUS</span>
                   <span
                     className={`font-bold ${
-                      underrunRisk === 'critical'
+                      schedulingRisk === 'critical'
                         ? 'text-red-400'
-                        : underrunRisk === 'elevated'
+                        : schedulingRisk === 'elevated'
                           ? 'text-amber-400'
                           : 'text-[#4ADE80]'
                     }`}
                   >
-                    {underrunRisk === 'critical' ? 'XRUN' : underrunRisk === 'elevated' ? 'RISK' : 'GOOD'}
+                    {schedulingRisk === 'critical'
+                      ? 'LATE'
+                      : schedulingRisk === 'elevated'
+                        ? 'RISK'
+                        : 'GOOD'}
                   </span>
                 </span>
               </div>
