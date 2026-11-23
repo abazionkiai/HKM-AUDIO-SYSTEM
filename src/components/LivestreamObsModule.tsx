@@ -39,9 +39,8 @@ interface LivestreamObsModuleProps {
   onUpdateObs: (patch: Partial<ObsStatus>) => void;
   telemetry: SignalTelemetry;
   device: HardwareDevice;
-  outputDevices?: MediaDeviceInfo[];
-  preferredStreamOutputDeviceId?: string;
-  onSelectStreamOutputDevice?: (deviceId: string) => void;
+  processedOutputActive: boolean;
+  onEnableProcessedOutput: () => void;
 }
 
 export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
@@ -51,9 +50,8 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
   onUpdateObs,
   telemetry,
   device,
-  outputDevices = [],
-  preferredStreamOutputDeviceId = '',
-  onSelectStreamOutputDevice,
+  processedOutputActive,
+  onEnableProcessedOutput,
 }) => {
   const [obsState, setObsState] = useState<ObsConnectionState>(() => obsWsService.getState());
   const [speechStemDb, setSpeechStemDb] = useState<number>(0);
@@ -84,6 +82,9 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
 
   const onUpdateObsRef = useRef(onUpdateObs);
   onUpdateObsRef.current = onUpdateObs;
+  const processedAudioSource = obsState.audioInputs.find(
+    (input) => input.inputName.trim().toLocaleLowerCase() === 'hkm processed audio'
+  );
 
   // Subscribe to live OBS WebSocket service
   useEffect(() => {
@@ -191,6 +192,8 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
     if (!designatedObsInput) {
       const preferred =
         obsState.audioInputs.find((i) =>
+          i.inputName.trim().toLocaleLowerCase() === 'hkm processed audio'
+        ) ?? obsState.audioInputs.find((i) =>
           /cable|desktop|loopback|hkm|church/i.test(i.inputName)
         ) ?? obsState.audioInputs[0];
       if (preferred) setDesignatedObsInput(preferred.inputName);
@@ -470,46 +473,61 @@ export const LivestreamObsModule: React.FC<LivestreamObsModuleProps> = ({
         </div>
       )}
 
-      {/* DEDICATED VIRTUAL BROADCAST AUDIO DRIVER SINK (SCAN-ABLE IN OBS) */}
-      <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-gradient-to-r from-[#081814] via-[#09141E] to-[#070B13] flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-lg">
+      {/* OBS APP CAPTURE OF HKM'S POST-DSP OUTPUT (NO VIRTUAL DRIVER) */}
+      <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-gradient-to-r from-[#081814] via-[#09141E] to-[#070B13] flex flex-col gap-3 shadow-lg">
         <div className="flex items-start gap-3">
           <div className="p-2.5 rounded-lg bg-emerald-500/20 border border-emerald-400/50 text-emerald-300">
-            <Radio className="w-5 h-5 animate-pulse" />
+            <Radio className="w-5 h-5" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-mono text-xs font-bold text-white uppercase tracking-wider">
-                Dedicated Virtual Broadcast Audio Output (OBS Ingest Bus)
+                Send Processed HKM Audio to OBS
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 border border-emerald-400 text-emerald-300">
-                PARALLEL 48 kHz SINK
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                processedAudioSource
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                  : 'bg-amber-500/15 border-amber-500/50 text-amber-200'
+              }`}>
+                {processedAudioSource ? 'SOURCE DETECTED' : 'OBS SETUP REQUIRED'}
               </span>
             </div>
             <p className="font-mono text-[11px] text-slate-300 mt-0.5">
-              Outputs processed broadcast audio directly to your Virtual Cable or Loopback device. Select this device in OBS Studio under <span className="text-white font-semibold">Settings → Audio → Mic/Auxiliary Audio</span>.
+              OBS captures HKM’s post-DSP application audio directly. This uses OBS’s built-in Application Audio Capture source; no VB-Audio cable or extra audio driver is required.
             </p>
           </div>
         </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <label className="flex items-center gap-2 font-mono text-xs bg-[#0B101A] border border-emerald-500/50 rounded-lg px-2.5 py-1.5 text-emerald-200">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Target Virtual Port:</span>
-            <select
-              aria-label="Dedicated Stream Virtual Output Port"
-              value={preferredStreamOutputDeviceId}
-              onChange={(e) => onSelectStreamOutputDevice?.(e.target.value)}
-              className="bg-transparent text-emerald-300 font-bold focus:outline-none cursor-pointer max-w-[220px] truncate"
+        <div className="ml-11 text-[10px] font-mono text-slate-300">
+          {processedOutputActive
+            ? 'HKM is rendering the processed signal to its selected output; OBS can capture this application audio.'
+            : 'OBS can capture the signal while HKM renders it. Start the processed output route below; the same signal will play through the selected speakers.'}
+        </div>
+        <div className="ml-11 text-[9px] font-mono text-amber-200/90">
+          OBS receives the main console DSP output. The separate broadcast mastering controls below are not inserted into this application audio path.
+        </div>
+        <ol className="grid gap-1.5 pl-11 font-mono text-[10px] text-slate-200 leading-relaxed">
+          <li>1. In OBS Studio 28+ on Windows, Sources → + → <strong className="text-white">Application Audio Capture (BETA)</strong>.</li>
+          <li>2. Select the <strong className="text-white">Church Audio Intelligence</strong> window and name the source <strong className="text-white">HKM Processed Audio</strong>.</li>
+          <li>3. In OBS Settings → Audio, disable global <strong className="text-white">Desktop Audio</strong> to prevent a second, unprocessed copy.</li>
+          <li>4. Leave the source’s audio monitoring off, add it to the stream scenes, and assign it to the intended stream track.</li>
+        </ol>
+        {!processedOutputActive && (
+          <div className="ml-11">
+            <button
+              type="button"
+              onClick={onEnableProcessedOutput}
+              className="px-3 py-1.5 rounded border border-emerald-400/60 bg-emerald-600/25 hover:bg-emerald-600/40 text-emerald-100 font-mono text-[10px] font-bold"
             >
-              <option value="" className="bg-[#0A0F18] text-slate-400">
-                Disabled (System Speakers Only)
-              </option>
-              {outputDevices.map((d, idx) => (
-                <option key={`obs-sink-${d.deviceId}-${idx}`} value={d.deviceId} className="bg-[#0A0F18] text-slate-100">
-                  {d.label || `Audio Output ${idx + 1}`}
-                </option>
-              ))}
-            </select>
-          </label>
+              START HKM PROCESSED OUTPUT
+            </button>
+          </div>
+        )}
+        <div className="ml-11 text-[10px] font-mono text-slate-400">
+          {obsState.connected
+            ? processedAudioSource
+              ? `OBS WebSocket sees “${processedAudioSource.inputName}” (${processedAudioSource.inputKind}). Confirm its meter moves while HKM audio is playing.`
+              : 'OBS WebSocket is connected, but the named processed audio source is not in OBS yet.'
+            : 'Connect OBS WebSocket to let HKM detect the named source here. OBS application capture itself works without WebSocket.'}
         </div>
       </div>
 

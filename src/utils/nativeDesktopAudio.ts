@@ -49,6 +49,13 @@ export interface ApoSystemStatus {
   note: string;
 }
 
+export interface DesktopSourceIsolationStatus {
+  enabled: boolean;
+  mutedSessions: number;
+  skippedSessions: number;
+  message: string | null;
+}
+
 interface TauriRuntimeCore {
   invoke<T>(command: string, args?: unknown): Promise<T>;
   Channel?: new <T = unknown>(onmessage?: (msg: T) => void) => {
@@ -157,6 +164,14 @@ export async function stopAllNativeDesktopCaptures(): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+export async function setDesktopAudioSourceIsolation(
+  enabled: boolean
+): Promise<DesktopSourceIsolationStatus | null> {
+  const core = getTauriCore();
+  if (!core?.invoke) return null;
+  return core.invoke<DesktopSourceIsolationStatus>('set_desktop_audio_source_isolation', { enabled });
 }
 
 export async function getApoStatus(): Promise<ApoSystemStatus | null> {

@@ -43,6 +43,7 @@ import type {
   ApoSystemStatus,
   DesktopAudioSession,
   DesktopAudioStatus,
+  DesktopSourceIsolationStatus,
 } from '../utils/nativeDesktopAudio.ts';
 import { ArcGauge, ConsolePushButton } from './StudioControls.tsx';
 
@@ -84,6 +85,7 @@ interface HardwareDiagnosticsModuleProps {
   onToggleEngine?: () => void;
   desktopAudioStatus?: DesktopAudioStatus | null;
   desktopAudioSessions?: DesktopAudioSession[];
+  desktopSourceIsolationStatus?: DesktopSourceIsolationStatus | null;
   apoStatus?: ApoSystemStatus | null;
   singleSpeakerMode?: boolean;
   apoBusy?: boolean;
@@ -92,7 +94,6 @@ interface HardwareDiagnosticsModuleProps {
   onToggleSingleSpeakerMode?: (enabled: boolean, endpointId?: string) => void;
   onInstallApo?: (endpointId: string) => void;
   onUninstallApo?: (endpointId: string) => void;
-  hasVirtualSink?: boolean;
   onEnableBrowserDspSpeakers?: () => void;
   onOpenWindowsSoundMixer?: () => void;
 }
@@ -175,6 +176,7 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onToggleEngine,
   desktopAudioStatus = null,
   desktopAudioSessions = [],
+  desktopSourceIsolationStatus = null,
   apoStatus = null,
   singleSpeakerMode = false,
   apoBusy = false,
@@ -183,7 +185,6 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
   onToggleSingleSpeakerMode,
   onInstallApo,
   onUninstallApo,
-  hasVirtualSink = false,
   onEnableBrowserDspSpeakers,
   onOpenWindowsSoundMixer,
 }) => {
@@ -727,13 +728,13 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                   <div className="font-mono text-[10px] text-slate-400 space-y-1">
                     <div>• No VB-Audio Virtual Cable required, zero picker dialogs, zero Admin needed</div>
                     <div>• Auto-slotted to CH N+1 after connected hardware microphones</div>
-                    <div>• Clean with zero doubling on any PA / USB interface / secondary speaker</div>
+                    <div>• Speaker routing temporarily mutes Windows source-app sessions and restores their prior mute states when monitoring stops</div>
                   </div>
 
                   {/* Quick Browser -> DSP -> Built-In Speakers Strip */}
                   <div className="rounded border border-cyan-500/35 bg-[#0A131C] p-2.5 space-y-2">
                     <div className="font-mono text-[10px] font-bold text-cyan-200 uppercase">
-                      Browser → DSP → Built-In Speakers (Zero-Doubling)
+                      Browser → DSP → Built-In Speakers (Source Isolation)
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {onEnableBrowserDspSpeakers && (
@@ -756,9 +757,11 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
                       )}
                     </div>
                     <p className="font-mono text-[9.5px] text-slate-300 leading-relaxed">
-                      {hasVirtualSink
-                        ? 'Set Chrome/Edge output to CABLE Input in Windows Volume Mixer so dry browser audio stays silent and ONLY 100% DSP-processed audio plays on your built-in speakers.'
-                        : 'Use headphones/external PA, install VB-Audio CABLE Input as a silent browser sink, or install signed Engine 2 APO to prevent dry+wet speaker doubling.'}
+                      {desktopSourceIsolationStatus?.enabled
+                        ? `Source isolation is active; HKM is managing mute states for ${desktopSourceIsolationStatus.mutedSessions} Windows app session(s). New sessions are checked about once per second.`
+                        : desktopSourceIsolationStatus?.skippedSessions
+                          ? `Speaker monitoring is held off because ${desktopSourceIsolationStatus.skippedSessions} Windows audio session(s) could not be safely isolated. ${desktopSourceIsolationStatus.message || ''}`
+                          : 'No virtual cable is needed. Windows process loopback captures app audio before session mute; HKM temporarily mutes source-app sessions while its processed output is sent to the speakers.'}
                     </p>
                   </div>
 

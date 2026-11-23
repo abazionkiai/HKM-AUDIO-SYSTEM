@@ -418,15 +418,15 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
             </label>
             <label className="space-y-1 block">
               <span className="text-emerald-300 font-bold uppercase block">
-                2. Dedicated Virtual Cable / OBS Sink (Parallel)
+                2. Optional Secondary Playback Device
               </span>
               <select
-                aria-label="Dedicated Stream Virtual Cable Output"
+                aria-label="Optional Secondary Stream Output Device"
                 value={preferredStreamOutputDeviceId}
                 onChange={(e) => onSelectStreamOutputDevice?.(e.target.value)}
                 className="w-full bg-[#070A10] border border-emerald-500/40 rounded px-2 py-1 text-emerald-200"
               >
-                <option value="">Disabled (Speakers Only)</option>
+                <option value="">Disabled (Not needed for OBS)</option>
                 {outputDevices.map((d, idx) => (
                   <option key={`vb-${d.deviceId}-${idx}`} value={d.deviceId}>
                     {d.label || `Virtual / Stream Output ${idx + 1}`}
@@ -435,6 +435,9 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
               </select>
             </label>
           </div>
+          <p className="px-1 text-[10px] font-mono text-slate-400">
+            OBS can capture HKM’s processed application audio with its built-in Application Audio Capture source. This optional second playback route is not an OBS input and does not require a virtual cable.
+          </p>
 
           <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
             {zones.map((z) => (
@@ -508,7 +511,7 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
             <thead>
               <tr className="bg-[#0D121F] border-b border-slate-800 text-[10px] text-slate-400 uppercase">
                 <th className="py-2.5 px-3">Input Channel</th>
-                <th className="py-2.5 px-3">Virtual Cable Source</th>
+                <th className="py-2.5 px-3">Patchbay Input</th>
                 {BUS_COLUMNS.map((b) => (
                   <th key={b.key} className="py-2.5 px-3 text-center">
                     {b.label}
@@ -544,9 +547,9 @@ export const UniversalRoutingModule: React.FC<UniversalRoutingModuleProps> = ({
                         className="bg-[#05080F] border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 cursor-pointer"
                       >
                         <option value="hw-direct">Hardware ADC Direct</option>
-                        <option value="internal-vc-browser">Built-in Virtual Cable A (Browser / Tab Audio)</option>
-                        <option value="internal-vc-media">Built-in Virtual Cable B (Media Player / File)</option>
-                        <option value="obs-return">Built-in Virtual Cable C (OBS Return)</option>
+                        <option value="internal-vc-browser">Internal Patch A (Browser / Tab Audio)</option>
+                        <option value="internal-vc-media">Internal Patch B (Media Player / File)</option>
+                        <option value="obs-return">Internal Patch C (OBS Return)</option>
                         <option value="loopback-pa">Main PA Loopback (Cycle Guarded)</option>
                       </select>
                     </td>

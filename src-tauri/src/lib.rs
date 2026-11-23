@@ -5,12 +5,15 @@ mod system_metrics;
 
 use apo_manager::{ApoManager, ApoSystemStatus};
 use chrono::Utc;
-use desktop_audio::{enumerate_active_audio_sessions, DesktopAudioManager, DesktopAudioSession, DesktopAudioStatus};
+use desktop_audio::{
+    enumerate_active_audio_sessions, DesktopAudioManager, DesktopAudioSession, DesktopAudioStatus,
+    DesktopSourceIsolationStatus,
+};
 use raw_output::RawOutputManager;
-use system_metrics::SystemCpuSampler;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::{fs, io::Write, path::PathBuf, sync::Mutex};
+use system_metrics::SystemCpuSampler;
 use tauri::{
     ipc::{Channel, InvokeBody, Request, Response},
     webview::{PermissionKind, PermissionResponse, WebviewWindowBuilder},
@@ -412,16 +415,21 @@ fn start_desktop_audio_capture(
 }
 
 #[tauri::command]
-fn stop_desktop_audio_capture(
-    audio_mgr: State<'_, DesktopAudioManager>,
-    stream_key: String,
-) {
+fn stop_desktop_audio_capture(audio_mgr: State<'_, DesktopAudioManager>, stream_key: String) {
     audio_mgr.stop_stream(&stream_key);
 }
 
 #[tauri::command]
 fn stop_all_desktop_audio_captures(audio_mgr: State<'_, DesktopAudioManager>) {
-    audio_mgr.stop_all();
+    audio_mgr.stop_all_captures();
+}
+
+#[tauri::command]
+fn set_desktop_audio_source_isolation(
+    audio_mgr: State<'_, DesktopAudioManager>,
+    enabled: bool,
+) -> Result<DesktopSourceIsolationStatus, String> {
+    audio_mgr.set_source_isolation(enabled)
 }
 
 #[tauri::command]
@@ -469,7 +477,10 @@ fn start_raw_output(
 }
 
 #[tauri::command]
-fn push_raw_output_pcm(raw_out: State<'_, RawOutputManager>, request: Request<'_>) -> Result<(), String> {
+fn push_raw_output_pcm(
+    raw_out: State<'_, RawOutputManager>,
+    request: Request<'_>,
+) -> Result<(), String> {
     match request.body() {
         InvokeBody::Raw(bytes) => {
             raw_out.push_pcm_bytes(bytes);
@@ -514,6 +525,17 @@ pub fn run() {
         .manage(RawOutputManager::default())
         .manage(SystemCpuSampler::default())
         .setup(|app| {
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                if fs::create_dir_all(&app_data_dir).is_ok() {
+                    let recovery_file = app_data_dir.join("desktop-audio-mute-recovery.json");
+                    if let Err(error) = app
+                        .state::<DesktopAudioManager>()
+                        .configure_source_mute_recovery(recovery_file)
+                    {
+                        eprintln!("Could not initialize desktop audio mute recovery: {error}");
+                    }
+                }
+            }
             let window_config = &app.config().app.windows[0];
             let mut builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
             #[cfg(debug_assertions)]
@@ -553,6 +575,7 @@ pub fn run() {
             start_desktop_audio_capture,
             stop_desktop_audio_capture,
             stop_all_desktop_audio_captures,
+            set_desktop_audio_source_isolation,
             get_apo_status,
             set_apo_dry_suppression,
             install_system_apo,
@@ -568,7 +591,9 @@ pub fn run() {
             if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {
                 app_handle.state::<DesktopAudioManager>().stop_all();
                 app_handle.state::<RawOutputManager>().stop();
-                app_handle.state::<ApoManager>().set_dry_suppression(false, None);
+                app_handle
+                    .state::<ApoManager>()
+                    .set_dry_suppression(false, None);
             }
         });
 }

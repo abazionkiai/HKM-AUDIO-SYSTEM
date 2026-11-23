@@ -10,6 +10,8 @@ import {
   NATIVE_DESKTOP_AUDIO_ID,
   isNativeDesktopInputId,
   openWindowsSoundSettings,
+  setDesktopAudioSourceIsolation,
+  type DesktopSourceIsolationStatus,
 } from './utils/nativeDesktopAudio.ts';
 import { checkDesktopUpdate } from './utils/appUpdater.ts';
 import { TopBar } from './components/TopBar.tsx';
@@ -66,6 +68,15 @@ export default function App() {
   const [showGainStaging, setShowGainStaging] = useState(false);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [signalJourneyChannelId, setSignalJourneyChannelId] = useState<string | null>(null);
+  const [desktopSourceIsolationStatus, setDesktopSourceIsolationStatus] =
+    useState<DesktopSourceIsolationStatus | null>(null);
+  const sourceIsolationQueueRef = useRef<Promise<DesktopSourceIsolationStatus | null>>(Promise.resolve(null));
+
+  const syncDesktopSourceIsolation = useCallback((enabled: boolean) => {
+    const next = sourceIsolationQueueRef.current.then(() => setDesktopAudioSourceIsolation(enabled));
+    sourceIsolationQueueRef.current = next.then(() => null, () => null);
+    return next;
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -181,6 +192,36 @@ export default function App() {
     logAudit: session.logAudit,
     onAddFinding: (finding) => session.setFindings((prev) => [finding, ...prev]),
   });
+
+  const desktopLoopbackMonitorActive = useMemo(
+    () =>
+      audio.engineRunning &&
+      audio.monitorAudible &&
+      session.channels.some((channel) => isNativeDesktopInputId(channel.hardwareInputId) && !channel.mute),
+    [audio.engineRunning, audio.monitorAudible, session.channels]
+  );
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    let cancelled = false;
+    void syncDesktopSourceIsolation(desktopLoopbackMonitorActive)
+      .then((status) => {
+        if (!cancelled && status) setDesktopSourceIsolationStatus(status);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDesktopSourceIsolationStatus({
+            enabled: false,
+            mutedSessions: 0,
+            skippedSessions: 1,
+            message: String(error),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [desktopLoopbackMonitorActive, syncDesktopSourceIsolation]);
 
   // 4. Web MIDI Controller Hardware Integration
   const midi = useMidiManager({
@@ -330,14 +371,6 @@ export default function App() {
     }
   }, [activeModule, hardware.refreshDesktopAudioInfo]);
 
-  const hasVirtualSink = useMemo(
-    () =>
-      hardware.outputDevices.some((d) =>
-        /cable\s*input|virtual|voicemeeter/i.test(d.label || '')
-      ),
-    [hardware.outputDevices]
-  );
-
   const activeOutputLabel = useMemo(() => {
     const matched =
       hardware.outputDevices.find((d) => d.deviceId === hardware.preferredOutputDeviceId) ??
@@ -384,6 +417,19 @@ export default function App() {
 
   const handleBrowserDspToSpeakers = useCallback(async () => {
     if (consoleLocked) return;
+    audio.setMonitorAudibleState(false);
+    if (isDesktopApp()) {
+      try {
+        await syncDesktopSourceIsolation(false);
+      } catch (error) {
+        setDesktopSourceIsolationStatus({
+          enabled: false,
+          mutedSessions: 0,
+          skippedSessions: 1,
+          message: String(error),
+        });
+      }
+    }
     const builtInSpeaker =
       hardware.outputDevices.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
       hardware.outputDevices[0];
@@ -434,13 +480,43 @@ export default function App() {
     session.setChannels(nextChannels);
     const started = await audio.ensureEngineStarted(nextChannels);
     if (!started) return;
+    if (isDesktopApp()) {
+      try {
+        const isolation = await syncDesktopSourceIsolation(true);
+        setDesktopSourceIsolationStatus(isolation);
+        if (!isolation?.enabled || isolation.skippedSessions > 0) {
+          await syncDesktopSourceIsolation(false).catch(() => null);
+          setDesktopSourceIsolationStatus({
+            enabled: false,
+            mutedSessions: 0,
+            skippedSessions: isolation?.skippedSessions ?? 1,
+            message: isolation?.message || 'Windows could not safely isolate every active render session.',
+          });
+          session.logAudit(
+            'Desktop Source Isolation Incomplete',
+            isolation?.message || `Could not safely isolate ${isolation?.skippedSessions ?? 0} Windows audio session(s); speaker monitoring remains off.`,
+            'system'
+          );
+          return;
+        }
+      } catch (error) {
+        await syncDesktopSourceIsolation(false).catch(() => null);
+        setDesktopSourceIsolationStatus({
+          enabled: false,
+          mutedSessions: 0,
+          skippedSessions: 1,
+          message: String(error),
+        });
+        return;
+      }
+    }
     audio.setMonitorAudibleState(true);
     session.logAudit(
       'Enabled Browser → DSP → Speakers',
       `Locked Master PA to ${builtInSpeaker?.label || 'Built-in Speakers'}, muted physical mics, and enabled MON on Desktop Audio.`,
       'operator'
     );
-  }, [audio, consoleLocked, hardware, session]);
+  }, [audio, consoleLocked, hardware, session, syncDesktopSourceIsolation]);
 
   if (remoteCompanionToken) {
     return (
@@ -796,9 +872,8 @@ export default function App() {
                     onUpdateObs={handleUpdateObs}
                     telemetry={audio.telemetry}
                     device={session.activeDevice}
-                    outputDevices={hardware.outputDevices}
-                    preferredStreamOutputDeviceId={hardware.preferredStreamOutputDeviceId}
-                    onSelectStreamOutputDevice={hardware.handleSelectStreamOutputDevice}
+                    processedOutputActive={audio.engineRunning && audio.monitorAudible && !session.emergencyMuted}
+                    onEnableProcessedOutput={() => void handleBrowserDspToSpeakers()}
                   />
                 ) : activeModule === 'soundcheck' ? (
                   <AutomatedSoundCheckModule
@@ -950,6 +1025,7 @@ export default function App() {
                     onToggleEngine={audio.handleToggleEngine}
                     desktopAudioStatus={hardware.desktopAudioStatus}
                     desktopAudioSessions={hardware.desktopAudioSessions}
+                    desktopSourceIsolationStatus={desktopSourceIsolationStatus}
                     apoStatus={hardware.apoStatus}
                     singleSpeakerMode={hardware.singleSpeakerMode}
                     apoBusy={hardware.apoBusy}
@@ -960,7 +1036,6 @@ export default function App() {
                     }
                     onInstallApo={(epId) => void hardware.handleInstallApo(epId)}
                     onUninstallApo={(epId) => void hardware.handleUninstallApo(epId)}
-                    hasVirtualSink={hasVirtualSink}
                     onEnableBrowserDspSpeakers={() => void handleBrowserDspToSpeakers()}
                     onOpenWindowsSoundMixer={() => void openWindowsSoundSettings('apps-volume')}
                   />
