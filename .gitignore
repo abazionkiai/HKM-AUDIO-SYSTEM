@@ -17,3 +17,4 @@ src-tauri/*.key.pub
 
 release-out/
 src-tauri/resources/*.dll
+.env
