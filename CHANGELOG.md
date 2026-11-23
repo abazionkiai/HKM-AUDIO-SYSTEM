@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.2.34
+
+- Refactored the Web Audio engine (`liveAudioEngine.ts`) into modular DSP blocks: `audioUtils.ts`, `channelStripBank.ts`, `masterDspGraph.ts`, `outputRouter.ts`, `sourceCaptureManager.ts`, and `telemetryAnalyzer.ts`.
+- Synchronized lockfiles and ignore rules for clean desktop release packaging.
+
 ## 0.2.33
 
 - Added the **System Audio Input Bridge** (`systemAudioBridge.ts`) supporting browser `getDisplayMedia` capture (with `suppressLocalAudioPlayback` tab isolation) as well as specialized virtual audio interfaces (VB-Cable, BlackHole, VoiceMeeter, Stereo Mix) and Tauri WASAPI process-exclusion loopback.
