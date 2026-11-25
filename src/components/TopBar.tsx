@@ -311,7 +311,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <div>
                   <label className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase mb-1">
                     <Mic className="w-3 h-3 text-teal-400" />
-                    <span>Audio Engine Source Mode ({inputDevices.length} Live In)</span>
+                    <span>Audio Engine Source Mode ({inputDevices.length} Physical &amp; Virtual In)</span>
                   </label>
                   <select
                     aria-label="Audio Engine Source Mode"
@@ -321,99 +321,10 @@ export const TopBar: React.FC<TopBarProps> = ({
                     }}
                     className="w-full h-8 px-2 rounded border border-[#293544] bg-[#090D12] text-slate-200 text-[11px] focus:outline-none focus:border-teal-400"
                   >
-                    <option value="live-mic">Live Console Inputs (Auto-Slotted CH1–CH{Math.max(1, inputDevices.length)})</option>
-                    <option value="desktop-audio">Desktop Audio (System Audio Input Bridge)</option>
+                    <option value="live-mic">Live Console Inputs — Physical + VB-Cable (CH1–CH{Math.max(1, inputDevices.length)})</option>
                     <option value="pink-noise">Calibration Pink Noise (-20 dBFS)</option>
                   </select>
                 </div>
-
-                {audioSource === 'desktop-audio' && desktopBridgeState && (
-                  <div className="p-2 rounded border border-[#243445] bg-[#080C12] space-y-1.5">
-                    <div className="flex items-center justify-between text-[9.5px]">
-                      <span className="text-cyan-300 font-bold uppercase">System Audio Bridge</span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded font-bold ${
-                          desktopBridgeState.selfLoopbackBlocked
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : desktopBridgeState.active
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {desktopBridgeState.selfLoopbackBlocked
-                          ? 'FIREWALL ACTIVE'
-                          : desktopBridgeState.active
-                            ? 'ISOLATED'
-                            : 'STANDBY'}
-                      </span>
-                    </div>
-
-                    {onSelectDesktopCaptureMethod && (
-                      <div className="grid grid-cols-2 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void onSelectDesktopCaptureMethod('display-media', true)}
-                          className={`py-1 px-1.5 rounded border text-[9.5px] font-semibold cursor-pointer ${
-                            desktopBridgeState.method === 'display-media'
-                              ? 'border-cyan-400 bg-cyan-500/20 text-cyan-200'
-                              : 'border-[#253140] bg-[#0C1219] text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Tab / System Picker
-                        </button>
-                        <button
-                          type="button"
-                          disabled={specializedDesktopInputs.length === 0}
-                          onClick={() => {
-                            const first = specializedDesktopInputs[0];
-                            if (first?.deviceId === 'native-desktop-audio') {
-                              void onSelectDesktopCaptureMethod('native-wasapi', true);
-                            } else if (first && onSelectSpecializedDesktopDevice) {
-                              void onSelectSpecializedDesktopDevice(first, true);
-                            } else {
-                              void onSelectDesktopCaptureMethod('specialized-interface', true);
-                            }
-                          }}
-                          className={`py-1 px-1.5 rounded border text-[9.5px] font-semibold cursor-pointer disabled:opacity-40 ${
-                            desktopBridgeState.method !== 'display-media'
-                              ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
-                              : 'border-[#253140] bg-[#0C1219] text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          Virtual / OS Bus ({specializedDesktopInputs.length})
-                        </button>
-                      </div>
-                    )}
-
-                    {specializedDesktopInputs.length > 0 &&
-                      desktopBridgeState.method === 'specialized-interface' &&
-                      onSelectSpecializedDesktopDevice && (
-                        <select
-                          aria-label="Specialized Desktop Audio Interface"
-                          value={desktopBridgeState.specializedDeviceId || ''}
-                          onChange={(e) => {
-                            const found = specializedDesktopInputs.find(
-                              (d) => d.deviceId === e.target.value
-                            );
-                            if (found) void onSelectSpecializedDesktopDevice(found, true);
-                          }}
-                          className="w-full h-7 px-1.5 rounded border border-[#293544] bg-[#0B1017] text-slate-200 text-[10px]"
-                        >
-                          {specializedDesktopInputs.map((d) => (
-                            <option key={d.deviceId} value={d.deviceId}>
-                              {d.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-
-                    {desktopBridgeState.safetyReason && (
-                      <p className="text-[9.5px] leading-snug text-slate-400">
-                        {desktopBridgeState.safetyReason}
-                      </p>
-                    )}
-                  </div>
-                )}
 
                 {outputDevices && outputDevices.length > 0 && onSelectOutputDevice && (
                   <div>

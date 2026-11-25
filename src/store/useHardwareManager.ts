@@ -361,22 +361,8 @@ export function useHardwareManager({
         setSpecializedDesktopInputs(specialized);
       }
 
-      if (isDesktopApp()) {
-        let supported = desktopSupportedRef.current;
-        if (supported === null || refreshNativeInfo) {
-          const info = await refreshDesktopAudioInfo();
-          supported = info?.status.supported ?? false;
-        }
-        if (supported && !inputs.some((d) => d.deviceId === NATIVE_DESKTOP_AUDIO_ID)) {
-          const nativeDesktopEntry = {
-            deviceId: NATIVE_DESKTOP_AUDIO_ID,
-            groupId: 'hkm-native-desktop',
-            kind: 'audioinput' as MediaDeviceKind,
-            label: 'Desktop Audio (All Apps)',
-            toJSON: () => ({}),
-          } as MediaDeviceInfo;
-          return { inputs: [...inputs, nativeDesktopEntry], outputs };
-        }
+      if (isDesktopApp() && refreshNativeInfo) {
+        void refreshDesktopAudioInfo();
       }
 
       return { inputs, outputs };

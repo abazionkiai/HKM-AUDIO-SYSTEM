@@ -63,12 +63,26 @@ export function normalizeDeviceLabel(label?: string): string {
 }
 
 /**
- * Identifies OS loopback / system mix-back capture endpoints that cause audio feedback loops
- * when automatically mounted as live console inputs.
+ * Identifies virtual audio cable inputs (VB-Audio Virtual Cable, VoiceMeeter, BlackHole, Soundflower, etc.)
+ * which are first-class virtual inputs used to route desktop/browser audio into the DSP console.
+ */
+export function isVirtualCableInputLabel(label?: string): boolean {
+  if (!label) return false;
+  return /\b(vb-?audio|virtual\s*cable|cable\s*output|hi-?fi\s*cable|voicemeeter|blackhole|soundflower|dante\s*via|wave\s*link|virtual\s*audio)\b/i.test(
+    label
+  );
+}
+
+/**
+ * Identifies raw motherboard analog mix-back capture endpoints (e.g. Realtek Stereo Mix / What U Hear)
+ * that indiscriminately record the physical speaker output and cause instant feedback loops.
+ * Note: Dedicated virtual cables (VB-Audio Cable Output, VoiceMeeter, BlackHole) are legitimate
+ * isolated virtual inputs and are NOT blocked here.
  */
 export function isLoopbackInputLabel(label?: string): boolean {
   if (!label) return false;
-  return /\b(stereo\s*mix|what\s*u\s*hear|wave\s*out\s*mix|loopback|cable\s*output|voicemeeter\s*(?:out|output|aux\s*out|vaio\s*out)|monitor\s+of)\b/i.test(
+  if (isVirtualCableInputLabel(label)) return false;
+  return /\b(stereo\s*mix|what\s*u\s*hear|wave\s*out\s*mix|loopback|monitor\s+of)\b/i.test(
     label
   );
 }
@@ -190,7 +204,13 @@ export function deriveAutoChannelNameAndRole(
     name = cleanLabel.slice(4).trim() || 'App Audio';
   } else if (lower.includes('desktop audio')) {
     name = 'Desktop Audio';
-  } else if (lower.includes('vb-audio') || lower.includes('virtual cable')) {
+  } else if (lower.includes('hi-fi cable')) {
+    name = 'VB Hi-Fi Cable';
+  } else if (lower.includes('cable-a') || lower.includes('cable a')) {
+    name = 'VB-Cable A';
+  } else if (lower.includes('cable-b') || lower.includes('cable b')) {
+    name = 'VB-Cable B';
+  } else if (lower.includes('vb-audio') || lower.includes('virtual cable') || lower.includes('cable output')) {
     name = 'VB-Audio Cable';
   } else if (lower.includes('voicemeeter')) {
     name = lower.includes('aux') ? 'VoiceMeeter AUX' : 'VoiceMeeter VAIO';
@@ -410,9 +430,14 @@ export function reconcileLiveInputsToChannels(
   );
   const deduped = rawDeduped.filter((d) => isUsableHardwareInput(d, !hasConcreteHardware));
 
-  // Place physical hardware mics/interfaces first (CH1..CHN), followed immediately by native desktop/app inputs (CHN+1)
+  // Place physical hardware mics/interfaces first, followed by virtual cable inputs (e.g. VB-Cable), then any fallback endpoints
   const usableInputs = [
-    ...deduped.filter((d) => !isNativeDesktopInputId(d.deviceId)),
+    ...deduped.filter(
+      (d) => !isNativeDesktopInputId(d.deviceId) && !isVirtualCableInputLabel(d.label)
+    ),
+    ...deduped.filter(
+      (d) => !isNativeDesktopInputId(d.deviceId) && isVirtualCableInputLabel(d.label)
+    ),
     ...deduped.filter((d) => isNativeDesktopInputId(d.deviceId)),
   ];
 

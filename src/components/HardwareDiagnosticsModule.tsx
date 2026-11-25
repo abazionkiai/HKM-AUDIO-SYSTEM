@@ -668,392 +668,118 @@ export const HardwareDiagnosticsModule: React.FC<HardwareDiagnosticsModuleProps>
 
       {tab === 'hardware' && (
         <div className="space-y-4">
-          {/* System Audio Input Bridge & Self-Loopback Firewall Card */}
-          <div className="rounded-lg border border-cyan-500/45 bg-gradient-to-b from-[#091821] to-[#070E14] text-slate-100 p-4 space-y-3.5 shadow-lg shadow-cyan-950/30">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-cyan-500/20 pb-3">
+          {/* Unified Physical + VB-Audio Virtual Cable Desktop Audio Architecture Card */}
+          <div className="rounded-lg border border-emerald-500/45 bg-gradient-to-b from-[#091A16] to-[#070E12] text-slate-100 p-4 space-y-3.5 shadow-lg shadow-emerald-950/30">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-emerald-500/20 pb-3">
               <div className="space-y-1">
-                <div className="font-mono text-xs font-bold text-cyan-300 uppercase tracking-wide flex flex-wrap items-center gap-2">
+                <div className="font-mono text-xs font-bold text-emerald-300 uppercase tracking-wide flex flex-wrap items-center gap-2">
                   <span
                     className={`w-2.5 h-2.5 rounded-full ${
-                      audioSource === 'desktop-audio' && engineRunning
-                        ? desktopBridgeState?.selfLoopbackBlocked
-                          ? 'bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.9)]'
-                          : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
-                        : desktopBuild && desktopAudioStatus?.supported
-                          ? 'bg-emerald-400/70'
-                          : 'bg-sky-400'
+                      specializedDesktopInputs.length > 0
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
+                        : 'bg-amber-400'
                     }`}
                   />
-                  <span>System Audio Input Bridge (Desktop / Media / Browser Audio · Loopback Guarded)</span>
-                  {desktopBridgeState && (
-                    <span
-                      className={`px-2 py-0.5 rounded text-[9.5px] font-mono border ${
-                        desktopBridgeState.selfLoopbackBlocked
-                          ? 'border-amber-400/60 bg-amber-500/15 text-amber-300'
-                          : desktopBridgeState.active
-                            ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-300'
-                            : 'border-slate-700 bg-slate-900 text-slate-400'
-                      }`}
-                    >
-                      {desktopBridgeState.loopbackRisk === 'unsafe-shared-bus'
-                        ? 'FIREWALL: MON MUTED (SHARED BUS)'
-                        : desktopBridgeState.loopbackRisk === 'safe-tab-isolated'
-                          ? 'SAFE · TAB ISOLATED'
-                          : desktopBridgeState.loopbackRisk === 'safe-separate-output'
-                            ? 'SAFE · SEPARATE OUTPUT'
-                            : desktopBridgeState.loopbackRisk === 'safe-process-excluded'
-                              ? 'SAFE · PROCESS EXCLUDED'
-                              : 'BRIDGE STANDBY'}
-                    </span>
-                  )}
+                  <span>Unified Physical + VB-Audio Virtual Cable Input Pipeline</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[9.5px] font-mono border ${
+                      specializedDesktopInputs.length > 0
+                        ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-300'
+                        : 'border-amber-400/60 bg-amber-500/15 text-amber-300'
+                    }`}
+                  >
+                    {specializedDesktopInputs.length > 0
+                      ? `${specializedDesktopInputs.length} VIRTUAL CABLE(S) IMPORTED AS INPUT CHANNELS`
+                      : 'READY FOR VB-CABLE'}
+                  </span>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed max-w-4xl">
-                  {desktopBridgeState?.safetyReason
-                    ? desktopBridgeState.safetyReason
-                    : desktopBuild
-                      ? 'Engine 1 (WASAPI Process-Exclusion Loopback) runs automatically out of the box—capturing Chrome, Edge, Spotify, VLC, and all desktop audio while excluding this console (zero feedback).'
-                      : 'Routes browser tabs, Spotify, YouTube, or OS media audio directly into the DSP via getDisplayMedia (with self-browser & local playback suppression) or specialized virtual cables — guarded by an automatic Self-Loopback Firewall.'}
+                  HKM scans all available physical (USB interfaces, microphones, line-ins) and virtual inputs (<strong>CABLE Output / VB-Audio Virtual Cable</strong>, VoiceMeeter, BlackHole) and imports them directly as console input channels (<code className="text-emerald-300">CH 1 .. CH N</code>) where the per-channel and Master DSP chain begins.
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {desktopBuild && onRefreshDesktopAudio && (
+                <button
+                  type="button"
+                  onClick={() => onScanHardware(true)}
+                  disabled={scanningHardware}
+                  className="px-2.5 py-1.5 rounded border border-emerald-500/40 bg-[#0B1C18] hover:border-emerald-400 text-emerald-200 font-mono text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${scanningHardware ? 'animate-spin' : ''}`} />
+                  <span>SCAN PHYSICAL &amp; VB-CABLE INPUTS</span>
+                </button>
+                {onEnableBrowserDspSpeakers && (
                   <button
                     type="button"
-                    onClick={onRefreshDesktopAudio}
-                    className="px-2.5 py-1.5 rounded border border-cyan-500/40 bg-[#0B1720] hover:border-cyan-400 text-cyan-200 font-mono text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                    onClick={onEnableBrowserDspSpeakers}
+                    className="px-3 py-1.5 rounded border border-cyan-400/60 bg-cyan-600/25 hover:bg-cyan-600/40 text-cyan-100 font-mono text-[11px] font-bold cursor-pointer"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>REFRESH APPS &amp; APO</span>
+                    1-CLICK VB-CABLE → DSP → SPEAKERS
                   </button>
                 )}
-                {!desktopBuild && onSelectAudioSource && (
+                {desktopBuild && onOpenWindowsSoundMixer && (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (onSelectDesktopCaptureMethod) {
-                        void onSelectDesktopCaptureMethod('display-media', true);
-                      } else {
-                        onSelectAudioSource('desktop-audio');
-                        if (!engineRunning && onToggleEngine) {
-                          onToggleEngine();
-                        }
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded font-mono text-[11px] font-semibold border transition-colors cursor-pointer ${
-                      audioSource === 'desktop-audio' && engineRunning
-                        ? 'bg-emerald-600 border-emerald-400 text-white'
-                        : 'bg-[#091015] border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/15'
-                    }`}
+                    onClick={onOpenWindowsSoundMixer}
+                    className="px-2.5 py-1.5 rounded border border-slate-600 bg-[#0E1621] hover:border-slate-400 text-slate-200 font-mono text-[11px] font-semibold cursor-pointer"
                   >
-                    {audioSource === 'desktop-audio' && engineRunning
-                      ? 'RE-PICK TAB / SYSTEM AUDIO'
-                      : 'SHARE BROWSER / SYSTEM AUDIO'}
+                    OPEN WINDOWS VOLUME MIXER
                   </button>
                 )}
               </div>
             </div>
 
-            {!desktopBuild && desktopBridgeState && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-                <div className="lg:col-span-6 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[11px] font-bold text-cyan-300 uppercase">
-                      Method 1 · Web Audio getDisplayMedia (Zero Driver)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onSelectDesktopCaptureMethod?.('display-media', true)}
-                      className={`px-2 py-0.5 rounded border font-mono text-[10px] font-bold cursor-pointer ${
-                        desktopBridgeState.method === 'display-media' && desktopBridgeState.active
-                          ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
-                          : 'border-cyan-500/45 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25'
-                      }`}
-                    >
-                      {desktopBridgeState.method === 'display-media' && desktopBridgeState.active
-                        ? 'ACTIVE (RE-PICK)'
-                        : 'USE PICKER'}
-                    </button>
-                  </div>
-                  <div className="font-mono text-[10px] text-slate-400 space-y-1">
-                    <div>• Enforces <code className="text-cyan-300">selfBrowserSurface: &apos;exclude&apos;</code> so this console cannot capture itself</div>
-                    <div>• Requests <code className="text-cyan-300">suppressLocalAudioPlayback: true</code> on browser tabs to prevent echo</div>
-                    <div>• Automatically mutes monitor output if capturing Whole Screen on shared default speakers</div>
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+              {/* Step-by-Step VB-Cable Desktop Routing Guide */}
+              <div className="lg:col-span-7 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2">
+                <div className="font-mono text-[11px] font-bold text-cyan-300 uppercase">
+                  How Desktop / Browser Audio Flows via VB-Audio Virtual Cable (Zero Loopback)
                 </div>
-
-                <div className="lg:col-span-6 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[11px] font-bold text-emerald-300 uppercase">
-                      Method 2 · Specialized Virtual Interface ({specializedDesktopInputs.length})
-                    </span>
+                <div className="font-mono text-[10.5px] text-slate-300 space-y-1.5 leading-relaxed">
+                  <div>
+                    <strong className="text-emerald-300">1. Send Browser / Media App to CABLE Input:</strong> In Windows Volume Mixer (<code className="text-cyan-300">Settings → System → Sound → Volume mixer</code>), set Chrome / Edge / Spotify Output Device to <code className="text-emerald-300">CABLE Input (VB-Audio Virtual Cable)</code>.
                   </div>
-                  {specializedDesktopInputs.length === 0 ? (
-                    <div className="font-mono text-[10px] text-slate-400 leading-relaxed">
-                      No virtual audio bridge detected yet (VB-Audio Cable, BlackHole, Stereo Mix, or VoiceMeeter). Click Refresh Hardware after installing or enabling Stereo Mix in Windows Sound settings.
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
-                      {specializedDesktopInputs.map((iface) => {
-                        const isSelected =
-                          desktopBridgeState.specializedDeviceId === iface.deviceId &&
-                          desktopBridgeState.method !== 'display-media';
-                        return (
-                          <div
-                            key={iface.deviceId}
-                            className={`px-2.5 py-1.5 rounded border flex items-center justify-between gap-2 font-mono text-[10px] ${
-                              isSelected
-                                ? 'border-emerald-400/70 bg-emerald-950/30 text-emerald-100'
-                                : 'border-slate-800 bg-[#0B1018] text-slate-300'
-                            }`}
-                          >
-                            <span className="truncate" title={iface.label}>
-                              {iface.label}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => void onSelectSpecializedDesktopDevice?.(iface, true)}
-                              className={`px-2 py-0.5 rounded border text-[9.5px] font-bold shrink-0 cursor-pointer ${
-                                isSelected
-                                  ? 'border-emerald-300 bg-emerald-500 text-slate-950'
-                                  : 'border-cyan-500/45 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25'
-                              }`}
-                            >
-                              {isSelected ? 'ACTIVE' : 'ROUTE BRIDGE'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <div>
+                    <strong className="text-emerald-300">2. Automatic Channel Import into DSP:</strong> HKM automatically scans <code className="text-emerald-300">CABLE Output (VB-Audio Virtual Cable)</code> and imports it as a live stereo console channel (<code className="text-emerald-300">VB-Audio Cable</code>).
+                  </div>
+                  <div>
+                    <strong className="text-emerald-300">3. Output Processed DSP to Physical Speakers:</strong> Set HKM Master PA Output (<code className="text-cyan-300">MON ON</code>) to your Built-In Speakers, Headphones, or USB Interface. Because the browser plays into <code className="text-emerald-300">CABLE Input</code> and HKM outputs to Physical Speakers, there is zero audio doubling and zero feedback loop.
+                  </div>
                 </div>
               </div>
-            )}
 
-            {desktopBuild && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-                {/* Engine 1 Panel */}
-                <div className="lg:col-span-5 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[11px] font-bold text-cyan-300 uppercase">
-                      Engine 1 · Driverless Process Loopback
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${
-                        desktopAudioStatus?.supported
-                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                          : 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                      }`}
-                    >
-                      {desktopAudioStatus?.supported
-                        ? `READY (BUILD ${desktopAudioStatus.osBuild || 'WIN11'})`
-                        : 'UNAVAILABLE'}
-                    </span>
-                  </div>
-
-                  <div className="font-mono text-[10px] text-slate-400 space-y-1">
-                    <div>• No VB-Audio Virtual Cable required, zero picker dialogs, zero Admin needed</div>
-                    <div>• Auto-slotted to CH N+1 after connected hardware microphones</div>
-                    <div>• Speaker routing temporarily mutes Windows source-app sessions and restores their prior mute states when monitoring stops</div>
-                  </div>
-
-                  {/* Quick Browser -> DSP -> Built-In Speakers Strip */}
-                  <div className="rounded border border-cyan-500/35 bg-[#0A131C] p-2.5 space-y-2">
-                    <div className="font-mono text-[10px] font-bold text-cyan-200 uppercase">
-                      Browser → DSP → Built-In Speakers (Source Isolation)
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {onEnableBrowserDspSpeakers && (
-                        <button
-                          type="button"
-                          onClick={onEnableBrowserDspSpeakers}
-                          className="px-2.5 py-1 rounded border border-cyan-400/60 bg-cyan-600/25 hover:bg-cyan-600/40 text-cyan-100 font-mono text-[10px] font-bold cursor-pointer"
-                        >
-                          1-CLICK BROWSER → DSP → SPEAKERS
-                        </button>
-                      )}
-                      {onOpenWindowsSoundMixer && (
-                        <button
-                          type="button"
-                          onClick={onOpenWindowsSoundMixer}
-                          className="px-2.5 py-1 rounded border border-slate-600 bg-[#0E1621] hover:border-slate-400 text-slate-200 font-mono text-[10px] font-semibold cursor-pointer"
-                        >
-                          OPEN WINDOWS VOLUME MIXER
-                        </button>
-                      )}
-                    </div>
-                    <p className="font-mono text-[9.5px] text-slate-300 leading-relaxed">
-                      {desktopSourceIsolationStatus?.enabled
-                        ? `Source isolation is active; HKM is managing mute states for ${desktopSourceIsolationStatus.mutedSessions} Windows app session(s). New sessions are checked about once per second.`
-                        : desktopSourceIsolationStatus?.skippedSessions
-                          ? `Speaker monitoring is held off because ${desktopSourceIsolationStatus.skippedSessions} Windows audio session(s) could not be safely isolated. ${desktopSourceIsolationStatus.message || ''}`
-                          : 'No virtual cable is needed. Windows process loopback captures app audio before session mute; HKM temporarily mutes source-app sessions while its processed output is sent to the speakers.'}
+              {/* Scanned Virtual Cable Channels Status */}
+              <div className="lg:col-span-5 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] font-bold text-emerald-300 uppercase">
+                    Detected Virtual Cable Inputs ({specializedDesktopInputs.length})
+                  </span>
+                </div>
+                {specializedDesktopInputs.length === 0 ? (
+                  <div className="font-mono text-[10px] text-slate-400 leading-relaxed space-y-2">
+                    <p>
+                      No VB-Audio Virtual Cable detected yet. Install <strong>VB-CABLE Virtual Audio Device</strong> (or VoiceMeeter / BlackHole), then click <strong>Scan Physical &amp; VB-Cable Inputs</strong> above.
                     </p>
                   </div>
-
-                  <div className="pt-1 border-t border-slate-800/90 space-y-1">
-                    <div className="font-mono text-[9.5px] text-slate-400 uppercase font-semibold">
-                      Detected Active Audio Apps ({desktopAudioSessions.length})
-                    </div>
-                    {desktopAudioSessions.length === 0 ? (
-                      <div className="text-[10px] font-mono text-slate-500 italic">
-                        Start playing audio in Chrome, Edge, Spotify, or VLC to see individual app sessions here or in the left patch tray.
+                ) : (
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {specializedDesktopInputs.map((iface) => (
+                      <div
+                        key={iface.deviceId}
+                        className="px-2.5 py-1.5 rounded border border-emerald-500/40 bg-emerald-950/25 text-emerald-100 flex items-center justify-between gap-2 font-mono text-[10px]"
+                      >
+                        <span className="truncate font-semibold" title={iface.label}>
+                          {iface.label}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[9px] font-bold shrink-0">
+                          IMPORTED TO CHANNELS
+                        </span>
                       </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {desktopAudioSessions.map((s) => (
-                          <span
-                            key={`diag-sess-${s.pid}`}
-                            className="px-2 py-0.5 rounded border border-cyan-500/35 bg-cyan-950/30 font-mono text-[10px] text-cyan-200 flex items-center gap-1"
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                s.state === 'active' ? 'bg-emerald-400' : 'bg-slate-500'
-                              }`}
-                            />
-                            {s.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    ))}
                   </div>
-                </div>
-
-                {/* Engine 2 Panel */}
-                <div className="lg:col-span-7 rounded-md border border-slate-800 bg-[#070B11] p-3 space-y-2.5">
-                  {(() => {
-                    const endpoints = apoStatus?.endpoints ?? [];
-                    const effectiveEpId =
-                      selectedApoEndpointId ||
-                      apoStatus?.selectedEndpointId ||
-                      endpoints.find((e) => e.isDefault)?.id ||
-                      endpoints[0]?.id ||
-                      '';
-                    const activeEp = endpoints.find((e) => e.id === effectiveEpId);
-
-                    return (
-                      <>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-mono text-[11px] font-bold text-amber-300 uppercase">
-                            Engine 2 · Opt-In System APO (Single-Speaker Zero-Doubling)
-                          </span>
-                          <div className="flex flex-wrap items-center gap-1 font-mono text-[9px]">
-                            <span
-                              className={`px-1.5 py-0.5 rounded border ${
-                                apoStatus?.dllBundled
-                                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-                                  : 'border-slate-700 bg-slate-900 text-slate-400'
-                              }`}
-                            >
-                              {apoStatus?.dllBundled ? 'DLL BUNDLED' : 'DLL MISSING'}
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded border ${
-                                apoStatus?.apoLoadedInAudiodg
-                                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
-                                  : apoStatus?.apoRegisteredAny
-                                    ? 'border-amber-500/45 bg-amber-500/15 text-amber-300'
-                                    : 'border-slate-700 bg-slate-900 text-slate-400'
-                              }`}
-                            >
-                              {apoStatus?.apoLoadedInAudiodg
-                                ? 'LIVE IN AUDIODG'
-                                : apoStatus?.apoRegisteredAny
-                                  ? 'REGISTERED (PPL PENDING)'
-                                  : 'NOT INSTALLED'}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded border border-sky-500/35 bg-sky-950/30 text-sky-300">
-                              500MS FAIL-SAFE
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
-                          <div className="sm:col-span-7">
-                            <label className="block font-mono text-[9.5px] text-slate-400 uppercase mb-1">
-                              Target Physical Speaker ({activeEp?.rawSupported ? 'WASAPI RAW Supported' : 'Check RAW Support'})
-                            </label>
-                            <select
-                              value={effectiveEpId}
-                              onChange={(e) => setSelectedApoEndpointId(e.target.value)}
-                              className="w-full h-8 px-2 rounded border border-slate-700 bg-[#0B1018] text-slate-100 text-[11px] font-mono"
-                            >
-                              {endpoints.length === 0 ? (
-                                <option value="">Default System Render Endpoint</option>
-                              ) : (
-                                endpoints.map((ep) => (
-                                  <option key={ep.id} value={ep.id}>
-                                    {ep.name} {ep.isDefault ? '(Default)' : ''} ·{' '}
-                                    {ep.rawSupported ? 'RAW OK' : 'No RAW'}
-                                    {ep.apoRegistered ? ' · APO Installed' : ''}
-                                  </option>
-                                ))
-                              )}
-                            </select>
-                          </div>
-
-                          <div className="sm:col-span-5 flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={!effectiveEpId || apoBusy || !onInstallApo}
-                              onClick={() => effectiveEpId && onInstallApo?.(effectiveEpId)}
-                              className="flex-1 h-8 px-2 rounded border border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 font-mono text-[10px] font-bold disabled:opacity-40 cursor-pointer"
-                            >
-                              {apoBusy ? 'WORKING...' : 'INSTALL APO (ADMIN)'}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!effectiveEpId || apoBusy || !onUninstallApo}
-                              onClick={() => effectiveEpId && onUninstallApo?.(effectiveEpId)}
-                              className="h-8 px-2 rounded border border-slate-700 bg-[#0D131D] hover:border-slate-500 text-slate-300 font-mono text-[10px] font-bold disabled:opacity-40 cursor-pointer"
-                            >
-                              UNINSTALL
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
-                          <span className="font-mono text-[10px] text-slate-400">
-                            {apoStatus?.note}
-                          </span>
-                          {onToggleSingleSpeakerMode && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onToggleSingleSpeakerMode(!singleSpeakerMode, effectiveEpId || undefined)
-                              }
-                              className={`px-3 py-1 rounded border font-mono text-[10px] font-bold shrink-0 cursor-pointer ${
-                                singleSpeakerMode
-                                  ? 'bg-emerald-600 border-emerald-400 text-white'
-                                  : 'bg-[#0F1722] border-cyan-500/50 text-cyan-200 hover:bg-cyan-500/15'
-                              }`}
-                            >
-                              {singleSpeakerMode
-                                ? '✓ ZERO-DOUBLING ACTIVE (RAW OUT)'
-                                : 'ENABLE SINGLE-SPEAKER ZERO-DOUBLING'}
-                            </button>
-                          )}
-                        </div>
-
-                        {apoMessage && (
-                          <div
-                            className={`p-2 rounded border font-mono text-[10px] ${
-                              apoMessage.tone === 'success'
-                                ? 'border-emerald-500/45 bg-emerald-950/35 text-emerald-200'
-                                : apoMessage.tone === 'error'
-                                  ? 'border-red-500/45 bg-red-950/35 text-red-200'
-                                  : 'border-sky-500/45 bg-sky-950/35 text-sky-200'
-                            }`}
-                          >
-                            {apoMessage.text}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Auto-Recognized Connected Hardware Panel */}

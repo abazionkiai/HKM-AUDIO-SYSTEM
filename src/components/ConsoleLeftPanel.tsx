@@ -31,7 +31,10 @@ import {
   type DesktopAudioSession,
   type DesktopAudioStatus,
 } from '../utils/nativeDesktopAudio.ts';
-import { deriveAutoChannelNameAndRole } from '../utils/audioNaming.ts';
+import {
+  deriveAutoChannelNameAndRole,
+  isVirtualCableInputLabel,
+} from '../utils/audioNaming.ts';
 import { RotaryKnob } from './StudioControls.tsx';
 
 interface ConsoleLeftPanelProps {
@@ -607,7 +610,7 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             })}
           </div>
 
-          {/* Collapsible Live Hardware Input Patch Tray (1-Click Route to Focused Channel) */}
+          {/* Collapsible Physical & Virtual (VB-Cable) Input Patch Tray */}
           <div className="shrink-0 border-t border-[#445568] bg-[#10151B]">
             <button
               type="button"
@@ -616,16 +619,10 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
             >
               <span className="flex items-center gap-1.5 min-w-0">
                 <Cable className="w-3 h-3 text-teal-300 shrink-0" />
-                <span className="truncate">HARDWARE INPUTS ({inputDevices.length})</span>
-                {desktopAudioStatus?.supported && (
-                  <span
-                    className={`px-1 py-0.2 rounded text-[7.5px] border shrink-0 ${
-                      singleSpeakerMode || desktopAudioStatus.apoActive
-                        ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
-                        : 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
-                    }`}
-                  >
-                    {singleSpeakerMode || desktopAudioStatus.apoActive ? 'APO' : 'WASAPI'}
+                <span className="truncate">SCANNED INPUTS ({inputDevices.length})</span>
+                {inputDevices.some((d) => isVirtualCableInputLabel(d.label)) && (
+                  <span className="px-1 py-0.2 rounded text-[7.5px] border shrink-0 bg-emerald-500/20 border-emerald-400/50 text-emerald-300">
+                    VB-CABLE
                   </span>
                 )}
               </span>
@@ -638,54 +635,37 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
 
             {patchTrayOpen && (
               <div className="max-h-[168px] overflow-y-auto px-1.5 py-1.5 space-y-1">
-                {onActivateSystemAudioBridge && (
+                {onEnableBrowserDspSpeakers && (
                   <button
                     type="button"
                     disabled={locked}
-                    onClick={onActivateSystemAudioBridge}
-                    title="Route browser tab, media player, or system audio via the isolated System Audio Input Bridge (zero loopback)"
+                    onClick={onEnableBrowserDspSpeakers}
+                    title="Auto-import VB-Audio Virtual Cable (CABLE Output) onto an input channel, mute physical laptop mics, and route DSP output to physical speakers"
                     className={`w-full px-2 py-1 rounded border font-mono text-[8.5px] font-bold flex items-center justify-between gap-1 cursor-pointer disabled:opacity-45 ${
-                      audioSource === 'desktop-audio' && engineRunning
-                        ? desktopBridgeState?.selfLoopbackBlocked
-                          ? 'border-amber-400/75 bg-amber-950/45 text-amber-200'
-                          : 'border-emerald-400/75 bg-emerald-950/45 text-emerald-200'
+                      channels.some(
+                        (c) =>
+                          Boolean(c.hardwareInputId) &&
+                          isVirtualCableInputLabel(c.hardwareInputLabel || c.name) &&
+                          !c.mute
+                      )
+                        ? 'border-emerald-400/75 bg-emerald-950/45 text-emerald-200'
                         : 'border-cyan-500/45 bg-cyan-950/35 hover:bg-cyan-900/50 text-cyan-200'
                     }`}
                   >
                     <span className="flex items-center gap-1 min-w-0 truncate">
                       <Radio className="w-2.5 h-2.5 shrink-0" />
-                      <span className="truncate">
-                        {audioSource === 'desktop-audio' && engineRunning
-                          ? 'Desktop Audio Bridge ON'
-                          : 'System Audio Bridge'}
-                      </span>
+                      <span className="truncate">Desktop Audio (VB-Cable → DSP)</span>
                     </span>
                     <span className="text-[7.5px] opacity-85 shrink-0">
-                      {audioSource === 'desktop-audio' && engineRunning
-                        ? desktopBridgeState?.selfLoopbackBlocked
-                          ? 'SAFEWALL'
-                          : 'ISOLATED'
-                        : specializedDesktopInputs.length > 0
-                          ? `${specializedDesktopInputs.length} VIRT`
-                          : 'TAB/OS'}
+                      {inputDevices.some((d) => isVirtualCableInputLabel(d.label))
+                        ? '1-CLICK ROUTE'
+                        : 'SCAN CABLE'}
                     </span>
-                  </button>
-                )}
-                {desktopAudioStatus?.supported && onEnableBrowserDspSpeakers && (
-                  <button
-                    type="button"
-                    disabled={locked}
-                    onClick={onEnableBrowserDspSpeakers}
-                    title="Route Browser Audio through DSP to Built-In Speakers and mute built-in microphone to prevent acoustic loopback"
-                    className="w-full px-2 py-1 rounded border border-cyan-500/45 bg-cyan-950/35 hover:bg-cyan-900/50 text-cyan-200 font-mono text-[8.5px] font-bold flex items-center justify-center gap-1 cursor-pointer disabled:opacity-45"
-                  >
-                    <Speaker className="w-2.5 h-2.5 shrink-0 text-cyan-300" />
-                    <span className="truncate">Browser → Built-In Speakers (Mute Mic + DSP)</span>
                   </button>
                 )}
                 {inputDevices.length === 0 ? (
                   <div className="p-2 rounded border border-dashed border-[#344355] bg-[#0B1015] text-center font-mono text-[9px] text-slate-500">
-                    No inputs detected. Click refresh to scan USB / soundcard inputs.
+                    No inputs detected. Click refresh to scan physical &amp; VB-Cable virtual inputs.
                   </div>
                 ) : (
                   inputDevices.map((dev, idx) => {
@@ -752,64 +732,6 @@ export const ConsoleLeftPanel: React.FC<ConsoleLeftPanelProps> = ({
                       </div>
                     );
                   })
-                )}
-
-                {desktopAudioSessions.length > 0 && (
-                  <div className="pt-1 mt-1 border-t border-[#263242] space-y-1">
-                    <div className="px-1 font-mono text-[8px] font-bold uppercase tracking-wider text-cyan-400/90">
-                      Open Apps (Per-App Capture)
-                    </div>
-                    {desktopAudioSessions.map((sess) => {
-                      const appDevId = `${NATIVE_APP_AUDIO_PREFIX}${sess.pid}`;
-                      const appLabel = `App: ${sess.name}`;
-                      const slottedChannel = channels.find((c) => c.hardwareInputId === appDevId);
-                      const boundToSelected = selectedChannel?.hardwareInputId === appDevId;
-                      return (
-                        <div
-                          key={`app-sess-${sess.pid}`}
-                          className={`px-2 py-1 rounded border flex items-center justify-between gap-1.5 font-mono text-[9px] ${
-                            boundToSelected
-                              ? 'border-cyan-400/75 bg-[#0D2129]'
-                              : slottedChannel
-                                ? 'border-emerald-500/45 bg-[#0F1B18]'
-                                : 'border-[#2E3C4F] bg-[#0B1118]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                sess.state === 'active' ? 'bg-cyan-400' : 'bg-slate-500'
-                              }`}
-                            />
-                            <span className="truncate text-slate-200" title={`${sess.name} (PID ${sess.pid})`}>
-                              {sess.name}
-                            </span>
-                          </div>
-                          {selectedChannel && (
-                            <button
-                              type="button"
-                              disabled={locked}
-                              onClick={() => {
-                                onUpdateChannel(selectedChannel.id, {
-                                  hardwareInputId: appDevId,
-                                  hardwareInputLabel: appLabel,
-                                  name: sess.name.slice(0, 18),
-                                  role: 'App Audio',
-                                });
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold shrink-0 cursor-pointer disabled:opacity-45 ${
-                                boundToSelected
-                                  ? 'bg-cyan-500 text-slate-950 border border-cyan-300'
-                                  : 'hw-top-btn text-cyan-200'
-                              }`}
-                            >
-                              {boundToSelected ? `✓ CH${selectedChannel.index}` : `→ CH${selectedChannel.index}`}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
                 )}
               </div>
             )}

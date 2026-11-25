@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.2.36
+
+- Simplified and unified the audio input pipeline so HKM scans all available physical inputs (USB interfaces, microphones, line-ins) and virtual cable inputs (`CABLE Output / VB-Audio Virtual Cable`, VoiceMeeter, BlackHole) and imports them 1-to-1 as live console input channels (`CH 1 .. CH N`) where the DSP processing chain starts immediately.
+- Refactored desktop/browser audio capture to use the industry-standard **VB-Audio Virtual Cable route** (`Browser/App → CABLE Input → HKM VB-Audio Cable Channel → DSP → Physical Speakers`) with 1-click setup and automatic cycle-guarded self-loopback protection.
+
 ## 0.2.35
 
 - Implemented cross-rate resampling in `desktop-loopback-worklet.js` and `raw-output-tap-worklet.js` so 48 kHz native WASAPI streams and arbitrary Web Audio `AudioContext` sample rates (e.g. 44.1 kHz / 48 kHz / 96 kHz) bridge cleanly without pitch shift or drift.

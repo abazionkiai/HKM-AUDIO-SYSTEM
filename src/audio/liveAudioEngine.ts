@@ -116,6 +116,10 @@ class LiveAudioEngine {
   }
 
   private syncOutputsAndSafety(): void {
+    const activeLabels = this.lastChannels
+      .filter((c) => Boolean(c.hardwareInputId) && !c.mute && c.faderDb > -47.5)
+      .map((c) => c.hardwareInputLabel || c.name);
+    this.outputRouter.setActiveChannelInputLabels(activeLabels);
     this.outputRouter.syncOutputGains({
       isRunning: this.isRunning,
       sourceMode: this.sourceMode,
@@ -231,6 +235,7 @@ class LiveAudioEngine {
   public applyChannels(channels: InputChannel[]): void {
     this.lastChannels = channels;
     this.stripBank.applyChannels(channels, this.sourceMode);
+    this.syncOutputsAndSafety();
   }
 
   public applyDsp(dsp: DspConfig): void {

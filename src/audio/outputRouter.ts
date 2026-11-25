@@ -5,6 +5,7 @@ import { clamp, dbToLinear } from './audioUtils.ts';
 import {
   INITIAL_DESKTOP_BRIDGE_STATE,
   evaluateDesktopLoopbackSafety,
+  outputMatchesVirtualFamily,
   type LoopbackSafetyResult,
   type SystemAudioBridgeState,
   type SystemAudioCaptureMethod,
@@ -47,9 +48,7 @@ export class OutputRouter {
 
   // Desktop Audio Bridge safety tracking
   private bridgeState: SystemAudioBridgeState = { ...INITIAL_DESKTOP_BRIDGE_STATE };
-  private desktopCaptureMethod: SystemAudioCaptureMethod = isDesktopApp()
-    ? 'native-wasapi'
-    : 'display-media';
+  private desktopCaptureMethod: SystemAudioCaptureMethod = 'specialized-interface';
   private specializedDesktopDeviceId: string | null = null;
   private specializedDesktopLabel: string | null = null;
   private specializedDesktopGroupId: string | null = null;
@@ -191,6 +190,12 @@ export class OutputRouter {
     return this.outputDeviceMetaCache.find((d) => d.deviceId === deviceId);
   }
 
+  private activeChannelInputLabels: string[] = [];
+
+  public setActiveChannelInputLabels(labels: string[]): void {
+    this.activeChannelInputLabels = labels;
+  }
+
   public refreshBridgeSafety(params: {
     isRunning: boolean;
     sourceMode: AudioSourceSimulation;
@@ -204,6 +209,57 @@ export class OutputRouter {
       this.outputDeviceMetaCache[0];
     const preferredOutMeta = this.findOutputMeta(this.preferredOutputDeviceId);
     const preferredStreamMeta = this.findOutputMeta(this.preferredStreamOutputDeviceId);
+
+    // Check if an active live-mic virtual cable channel (e.g. CABLE Output) is fed by the same virtual cable output (e.g. CABLE Input)
+    const activeVirtualCableLabel =
+      params.isRunning && params.sourceMode === 'live-mic'
+        ? this.activeChannelInputLabels.find((lbl) =>
+            /\b(vb-?audio|virtual\s*cable|cable\s*output|hi-?fi\s*cable|voicemeeter|blackhole|soundflower)\b/i.test(
+              lbl
+            )
+          ) ?? null
+        : null;
+
+    if (activeVirtualCableLabel) {
+      const outLabel = preferredOutMeta?.label || defaultMeta?.label || '';
+      const streamLabel = preferredStreamMeta?.label || '';
+      const monLoop = outputMatchesVirtualFamily(activeVirtualCableLabel, outLabel);
+      const streamLoop =
+        Boolean(this.preferredStreamOutputDeviceId) &&
+        outputMatchesVirtualFamily(activeVirtualCableLabel, streamLabel);
+
+      const safety: LoopbackSafetyResult = monLoop
+        ? {
+            loopbackRisk: 'unsafe-shared-bus',
+            selfLoopbackBlocked: true,
+            streamLoopbackBlocked: streamLoop,
+            safetyReason: `Self-Loopback Firewall active: Master PA Output "${outLabel}" cannot point back into virtual cable input "${activeVirtualCableLabel}". Select physical speakers or headphones for Master PA.`,
+          }
+        : {
+            loopbackRisk: 'safe-separate-output',
+            selfLoopbackBlocked: false,
+            streamLoopbackBlocked: streamLoop,
+            safetyReason: `VB-Cable Input Channel ("${activeVirtualCableLabel}") active → Master PA Output ("${outLabel || 'Physical Speakers'}") isolated (zero loopback).`,
+          };
+
+      const nextState: SystemAudioBridgeState = {
+        active: true,
+        method: 'specialized-interface',
+        displaySurface: 'virtual-interface',
+        inputLabel: activeVirtualCableLabel,
+        specializedDeviceId: null,
+        loopbackRisk: safety.loopbackRisk,
+        selfLoopbackBlocked: safety.selfLoopbackBlocked,
+        streamLoopbackBlocked: safety.streamLoopbackBlocked,
+        safetyReason: safety.safetyReason,
+        sampleRate: params.sampleRate,
+      };
+      if (JSON.stringify(nextState) !== JSON.stringify(this.bridgeState)) {
+        this.bridgeState = nextState;
+        this.emitBridgeState();
+      }
+      return safety;
+    }
 
     const isDesktopActive = params.isRunning && params.sourceMode === 'desktop-audio';
     const safety = evaluateDesktopLoopbackSafety({
@@ -270,8 +326,8 @@ export class OutputRouter {
     const safety = this.refreshBridgeSafety(params);
     if (!this.ctx) return;
 
-    const monBlocked = params.sourceMode === 'desktop-audio' && safety.selfLoopbackBlocked;
-    const streamBlocked = params.sourceMode === 'desktop-audio' && safety.streamLoopbackBlocked;
+    const monBlocked = safety.selfLoopbackBlocked;
+    const streamBlocked = safety.streamLoopbackBlocked;
 
     if (this.monitorGain) {
       const baseLinear = dbToLinear(this.monitorLevelDb);

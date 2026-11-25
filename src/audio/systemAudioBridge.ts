@@ -39,7 +39,7 @@ export interface SystemAudioBridgeState {
 
 export const INITIAL_DESKTOP_BRIDGE_STATE: SystemAudioBridgeState = {
   active: false,
-  method: isDesktopApp() ? 'native-wasapi' : 'display-media',
+  method: 'specialized-interface',
   displaySurface: null,
   inputLabel: null,
   specializedDeviceId: null,
@@ -108,25 +108,13 @@ function classifySpecializedInterfaceKind(
 }
 
 /**
- * Discovers OS-level specialized desktop loopback bridges (e.g., VB-Audio Virtual Cable,
- * VoiceMeeter, BlackHole, Stereo Mix, or Windows Tauri WASAPI Process-Exclusion) without
- * polluting regular physical microphone slots.
+ * Discovers OS-level virtual audio cable interfaces (e.g., VB-Audio Virtual Cable,
+ * VoiceMeeter, BlackHole, Soundflower) that carry desktop/browser audio into the DSP console.
  */
 export async function enumerateSpecializedDesktopInterfaces(): Promise<SpecializedDesktopInterface[]> {
   const results: SpecializedDesktopInterface[] = [];
   const seenIds = new Set<string>();
   const seenNames = new Set<string>();
-
-  if (isDesktopApp()) {
-    seenIds.add(NATIVE_DESKTOP_AUDIO_ID);
-    seenNames.add('native-wasapi');
-    results.push({
-      deviceId: NATIVE_DESKTOP_AUDIO_ID,
-      label: 'Windows WASAPI Process-Exclusion Loopback (All Apps)',
-      groupId: 'hkm-native-desktop',
-      kind: 'native-wasapi',
-    });
-  }
 
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
     return results;
@@ -289,15 +277,22 @@ export async function acquireSystemAudioStream(
   };
 }
 
-function outputMatchesVirtualFamily(inputLabel: string, outputLabel: string): boolean {
+export function outputMatchesVirtualFamily(inputLabel: string, outputLabel: string): boolean {
   const inL = inputLabel.toLowerCase();
   const outL = outputLabel.toLowerCase();
   if (!inL || !outL) return false;
-  if (inL.includes('cable') && outL.includes('cable')) return true;
+  if (inL.includes('cable') && outL.includes('cable')) {
+    const getCableSuffix = (s: string) => {
+      if (s.includes('hi-fi') || s.includes('hifi')) return 'hifi';
+      const m = s.match(/cable[-\s]?([abcd])\b/i);
+      return m ? m[1].toLowerCase() : 'main';
+    };
+    return getCableSuffix(inL) === getCableSuffix(outL);
+  }
   if (inL.includes('voicemeeter') && outL.includes('voicemeeter')) {
     if (inL.includes('aux') && outL.includes('aux')) return true;
     if (inL.includes('vaio3') && outL.includes('vaio3')) return true;
-    if (!inL.includes('aux') && !outL.includes('aux')) return true;
+    if (!inL.includes('aux') && !outL.includes('aux') && !inL.includes('vaio3') && !outL.includes('vaio3')) return true;
   }
   if (inL.includes('blackhole') && outL.includes('blackhole')) return true;
   if (inL.includes('soundflower') && outL.includes('soundflower')) return true;

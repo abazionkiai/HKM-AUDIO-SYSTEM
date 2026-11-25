@@ -13,6 +13,10 @@ import {
   setDesktopAudioSourceIsolation,
   type DesktopSourceIsolationStatus,
 } from './utils/nativeDesktopAudio.ts';
+import {
+  deriveAutoChannelNameAndRole,
+  isVirtualCableInputLabel,
+} from './utils/audioNaming.ts';
 import { checkDesktopUpdate } from './utils/appUpdater.ts';
 import { liveAudioEngine } from './audio/liveAudioEngine.ts';
 import { TopBar } from './components/TopBar.tsx';
@@ -474,6 +478,7 @@ export default function App() {
         (ch) =>
           Boolean(ch.hardwareInputId) &&
           !isNativeDesktopInputId(ch.hardwareInputId) &&
+          !isVirtualCableInputLabel(ch.hardwareInputLabel || ch.name) &&
           !ch.mute &&
           ch.faderDb > -47.5
       ),
@@ -492,12 +497,16 @@ export default function App() {
     if (consoleLocked) return;
     setChannels((prev) =>
       prev.map((c) =>
-        c.hardwareInputId && !isNativeDesktopInputId(c.hardwareInputId) ? { ...c, mute: true } : c
+        c.hardwareInputId &&
+        !isNativeDesktopInputId(c.hardwareInputId) &&
+        !isVirtualCableInputLabel(c.hardwareInputLabel || c.name)
+          ? { ...c, mute: true }
+          : c
       )
     );
     logAudit(
       'Muted Built-In / Physical Mics',
-      'Muted physical microphone channels via Acoustic Loopback Guard to stop speaker feedback.',
+      'Muted physical microphone channels via Acoustic Loopback Guard to stop speaker feedback while keeping VB-Cable active.',
       'operator'
     );
   }, [consoleLocked, logAudit, setChannels]);
@@ -542,115 +551,118 @@ export default function App() {
 
   const handleBrowserDspToSpeakers = useCallback(async () => {
     if (consoleLocked) return;
-    setMonitorAudibleState(false);
-    if (isDesktopApp()) {
-      try {
-        await syncDesktopSourceIsolation(false);
-      } catch (error) {
-        setDesktopSourceIsolationStatus({
-          enabled: false,
-          mutedSessions: 0,
-          skippedSessions: 1,
-          message: String(error),
-        });
-      }
-    }
-    const builtInSpeaker =
-      outputDevices.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
-      outputDevices[0];
-    if (builtInSpeaker?.deviceId) {
-      const outputApplied = await handleSelectOutputDevice(builtInSpeaker.deviceId);
-      if (!outputApplied) return;
+
+    // 1. Scan all available physical & virtual (VB-Cable) inputs + outputs
+    const scanned = await hardware.refreshAudioDevices(true, 'slot-new');
+    const allInputs = scanned.inputs.length > 0 ? scanned.inputs : hardware.inputDevices;
+    const allOutputs = scanned.outputs.length > 0 ? scanned.outputs : outputDevices;
+
+    // 2. Ensure Master PA output points to a physical speaker / headphone (NOT CABLE Input)
+    const physicalSpeaker =
+      allOutputs.find((d) => !/cable|virtual|voicemeeter|obs/i.test(d.label || '')) ??
+      allOutputs[0];
+    if (physicalSpeaker?.deviceId) {
+      await handleSelectOutputDevice(physicalSpeaker.deviceId);
     }
 
-    let hasDesktopCh = false;
+    // 3. Find VB-Audio Virtual Cable (CABLE Output) or any virtual audio cable input
+    const vbCableInput =
+      allInputs.find((d) => /\b(cable\s*output|vb-?audio|virtual\s*cable|hi-?fi\s*cable)\b/i.test(d.label || '')) ??
+      allInputs.find((d) => isVirtualCableInputLabel(d.label));
+
+    if (!vbCableInput) {
+      logAudit(
+        'VB-Audio Virtual Cable Not Found',
+        'Install VB-Audio Virtual Cable (CABLE Output / CABLE Input), then click Re-Scan so HKM imports CABLE Output as an input channel.',
+        'operator'
+      );
+      if (isDesktopApp()) {
+        void openWindowsSoundSettings('apps-volume');
+      }
+      return;
+    }
+
+    const vbLabel = vbCableInput.label || 'CABLE Output (VB-Audio Virtual Cable)';
+    let hasVbChannel = false;
     let nextChannels = session.channels.map((ch) => {
       if (!ch.hardwareInputId) return ch;
-      if (isNativeDesktopInputId(ch.hardwareInputId)) {
-        hasDesktopCh = true;
+      if (
+        ch.hardwareInputId === vbCableInput.deviceId ||
+        isVirtualCableInputLabel(ch.hardwareInputLabel || ch.name)
+      ) {
+        hasVbChannel = true;
+        const derived = deriveAutoChannelNameAndRole(vbLabel, ch.index);
         return {
           ...ch,
+          hardwareInputId: vbCableInput.deviceId,
+          hardwareInputLabel: vbLabel,
+          name: derived.name,
+          role: derived.role,
           mute: false,
           faderDb: ch.faderDb <= -40 ? 0 : ch.faderDb,
+          gainDb: ch.gainDb === 0 ? 24 : ch.gainDb,
         };
       }
+      // Mute open built-in/physical laptop mics so built-in speakers don't squeal
       return { ...ch, mute: true };
     });
 
-    if (!hasDesktopCh) {
+    if (!hasVbChannel) {
       const openIdx = nextChannels.findIndex((c) => !c.hardwareInputId);
       const targetIdx = openIdx >= 0 ? openIdx : 0;
       if (nextChannels[targetIdx]) {
+        const derived = deriveAutoChannelNameAndRole(vbLabel, nextChannels[targetIdx].index);
         nextChannels = nextChannels.map((c, idx) =>
           idx === targetIdx
             ? {
                 ...c,
-                hardwareInputId: NATIVE_DESKTOP_AUDIO_ID,
-                hardwareInputLabel: 'Desktop Audio (All Apps)',
-                name: 'Desktop Audio',
-                role: 'Browser / Media',
+                hardwareInputId: vbCableInput.deviceId,
+                hardwareInputLabel: vbLabel,
+                name: derived.name,
+                role: derived.role,
                 mute: false,
                 faderDb: c.faderDb <= -40 ? 0 : c.faderDb,
+                gainDb: 24,
               }
             : c
         );
       }
     }
 
-    const desktopCh = nextChannels.find((c) => isNativeDesktopInputId(c.hardwareInputId));
-    if (desktopCh) {
-      setSelectedChannelId(desktopCh.id);
+    const vbCh = nextChannels.find(
+      (c) =>
+        c.hardwareInputId === vbCableInput.deviceId ||
+        isVirtualCableInputLabel(c.hardwareInputLabel || c.name)
+    );
+    if (vbCh) {
+      setSelectedChannelId(vbCh.id);
     }
 
+    // 4. Use standard Live Console Inputs ('live-mic') pipeline where all physical & virtual channels run through DSP
+    if (audio.audioSource !== 'live-mic') {
+      audio.setAudioSource('live-mic');
+    }
     setChannels(nextChannels);
     const started = await ensureEngineStarted(nextChannels);
     if (!started) return;
-    if (isDesktopApp()) {
-      try {
-        const isolation = await syncDesktopSourceIsolation(true);
-        setDesktopSourceIsolationStatus(isolation);
-        if (!isolation?.enabled || isolation.skippedSessions > 0) {
-          await syncDesktopSourceIsolation(false).catch(() => null);
-          setDesktopSourceIsolationStatus({
-            enabled: false,
-            mutedSessions: 0,
-            skippedSessions: isolation?.skippedSessions ?? 1,
-            message: isolation?.message || 'Windows could not safely isolate every active render session.',
-          });
-          logAudit(
-            'Desktop Source Isolation Incomplete',
-            isolation?.message || `Could not safely isolate ${isolation?.skippedSessions ?? 0} Windows audio session(s); speaker monitoring remains off.`,
-            'system'
-          );
-          return;
-        }
-      } catch (error) {
-        await syncDesktopSourceIsolation(false).catch(() => null);
-        setDesktopSourceIsolationStatus({
-          enabled: false,
-          mutedSessions: 0,
-          skippedSessions: 1,
-          message: String(error),
-        });
-        return;
-      }
-    }
+
     setMonitorAudibleState(true);
     logAudit(
-      'Enabled Browser → DSP → Speakers',
-      `Locked Master PA to ${builtInSpeaker?.label || 'Built-in Speakers'}, muted physical mics, and enabled MON on Desktop Audio.`,
+      'Configured VB-Cable Desktop Audio Channel',
+      `Imported "${vbLabel}" onto CH${vbCh?.index ?? 1}, muted physical mics, and routed processed DSP output to ${physicalSpeaker?.label || 'Physical Speakers'}.`,
       'operator'
     );
   }, [
+    audio,
     consoleLocked,
     ensureEngineStarted,
     handleSelectOutputDevice,
+    hardware,
     logAudit,
     outputDevices,
     session.channels,
     setChannels,
     setMonitorAudibleState,
-    syncDesktopSourceIsolation,
   ]);
 
   if (remoteCompanionToken) {
@@ -843,42 +855,22 @@ export default function App() {
           </button>
         </div>
       )}
-      {audio.audioSource === 'desktop-audio' && audio.engineRunning && (
-        <div
-          className={`shrink-0 px-4 py-1 border-b font-mono text-[11px] flex flex-wrap items-center justify-between gap-2 ${
-            audio.desktopBridgeState.selfLoopbackBlocked
-              ? 'bg-amber-950/80 border-amber-500/60 text-amber-100'
-              : 'bg-emerald-950/75 border-emerald-500/45 text-emerald-100'
-          }`}
-        >
+      {audio.engineRunning && audio.desktopBridgeState.selfLoopbackBlocked && (
+        <div className="shrink-0 px-4 py-1 border-b font-mono text-[11px] flex flex-wrap items-center justify-between gap-2 bg-amber-950/80 border-amber-500/60 text-amber-100">
           <span>
-            {audio.desktopBridgeState.selfLoopbackBlocked
-              ? `SELF-LOOPBACK FIREWALL: ${audio.desktopBridgeState.safetyReason}`
-              : `SYSTEM AUDIO BRIDGE ISOLATED: ${audio.desktopBridgeState.safetyReason}`}
+            {`SELF-LOOPBACK FIREWALL: ${audio.desktopBridgeState.safetyReason}`}
           </span>
           <div className="flex items-center gap-2">
-            {audio.desktopBridgeState.selfLoopbackBlocked && secondaryMonitorCandidate && (
+            {secondaryMonitorCandidate && (
               <button
                 type="button"
                 disabled={consoleLocked}
                 onClick={() => void handleRouteMonitorToSecondaryOutput()}
                 className="px-2.5 py-0.5 rounded border border-teal-300/60 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-[10px] cursor-pointer disabled:opacity-45"
               >
-                ROUTE MON TO {secondaryMonitorCandidate.label?.slice(0, 22) || 'HEADPHONES'}
+                ROUTE MON TO {secondaryMonitorCandidate.label?.slice(0, 22) || 'SPEAKERS'}
               </button>
             )}
-            <button
-              type="button"
-              disabled={consoleLocked}
-              onClick={() => void audio.setDesktopCaptureMethod('display-media', true)}
-              className={`px-2.5 py-0.5 rounded border text-[10px] font-bold cursor-pointer disabled:opacity-45 ${
-                audio.desktopBridgeState.selfLoopbackBlocked
-                  ? 'border-amber-300/70 bg-amber-500 hover:bg-amber-400 text-slate-950'
-                  : 'border-emerald-400/50 bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-100'
-              }`}
-            >
-              {audio.desktopBridgeState.selfLoopbackBlocked ? 'RE-PICK ISOLATED TAB' : 'RE-PICK SOURCE'}
-            </button>
           </div>
         </div>
       )}
@@ -924,12 +916,7 @@ export default function App() {
             audioSource={audio.audioSource}
             desktopBridgeState={audio.desktopBridgeState}
             specializedDesktopInputs={hardware.specializedDesktopInputs}
-            onActivateSystemAudioBridge={() =>
-              void audio.setDesktopCaptureMethod(
-                isDesktopApp() ? 'native-wasapi' : 'display-media',
-                true
-              )
-            }
+            onActivateSystemAudioBridge={() => void handleBrowserDspToSpeakers()}
           />
 
           {/* CENTER PANEL: ALL 16 MODULES DELIVER THEIR CONTENT HERE */}

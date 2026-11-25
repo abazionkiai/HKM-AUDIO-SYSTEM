@@ -49,21 +49,27 @@ console.log('1. Testing audioNaming fallback & deduplication...');
   assert.equal(resUnIded.channels[0].hardwareInputId, DEFAULT_FALLBACK_INPUT_ID);
   assert.equal(resUnIded.channels[0].hardwareInputLabel, 'USB Condenser Mic');
 
-  // Case C: Once permissions unlock and real concrete IDs arrive on slot-new sync, temporary 'default' is upgraded
+  // Case C: Once permissions unlock and real concrete IDs arrive (including VB-Audio Virtual Cable),
+  // physical inputs + VB-Cable virtual inputs are both imported as live console channels, while raw Stereo Mix is blocked!
   const concrete = [
     fakeDev('default', 'Default - USB Condenser Mic', 'audioinput', 'g-usb'),
     fakeDev('usb-concrete-001', 'USB Condenser Mic', 'audioinput', 'g-usb'),
+    fakeDev('vb-cable-out-001', 'CABLE Output (VB-Audio Virtual Cable)', 'audioinput', 'g-vbcable'),
     fakeDev('hw-loopback', 'Stereo Mix (Realtek)', 'audioinput', 'g-mix'),
   ];
   const resUpgrade = reconcileLiveInputsToChannels(resUnIded.channels, concrete, {
     isStartupSync: false,
   });
   assert.equal(resUpgrade.channels[0].hardwareInputId, 'usb-concrete-001');
-  assert.equal(resUpgrade.channels[1].hardwareInputId, undefined);
+  assert.equal(resUpgrade.channels[1].hardwareInputId, 'vb-cable-out-001');
+  assert.equal(resUpgrade.channels[1].name, 'VB-Audio Cable');
+  assert.equal(resUpgrade.channels[1].role, 'Virtual In');
+  assert.equal(resUpgrade.channels[2].hardwareInputId, undefined);
 
-  // Loopbacks excluded from live mic auto-slotting
+  // Raw motherboard loopbacks excluded, while VB-Cable virtual input is preserved as a first-class input channel
   const dedupedInputs = deduplicateMediaDevices(concrete, 'audioinput', { excludeLoopbacks: true });
   assert.equal(dedupedInputs.some((d) => /stereo mix/i.test(d.label)), false);
+  assert.equal(dedupedInputs.some((d) => /vb-audio/i.test(d.label)), true);
 }
 
 console.log('2. Testing System Audio Bridge Self-Loopback Firewall...');
